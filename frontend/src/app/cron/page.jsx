@@ -5,8 +5,19 @@ import { StatusBadge } from '@/components/StatusBadge';
 
 export const dynamic = 'force-dynamic';
 
-export default async function CronListPage() {
+export default async function CronListPage({ searchParams }) {
+  const resolvedSearchParams = await searchParams;
+  const nameFilter = resolvedSearchParams?.cron_name || '';
+  const serverFilter = resolvedSearchParams?.server || '';
+  const statusFilter = resolvedSearchParams?.status || '';
   const { jobs } = await getCronList();
+  const filteredJobs = jobs.filter((job) => {
+    const matchesName = nameFilter ? job.cron_name.toLowerCase().includes(nameFilter.toLowerCase()) : true;
+    const matchesServer = serverFilter ? job.server.toLowerCase().includes(serverFilter.toLowerCase()) : true;
+    const matchesStatus = statusFilter !== '' ? Number(job.last_status) === Number(statusFilter) : true;
+
+    return matchesName && matchesServer && matchesStatus;
+  });
 
   return (
     <div className="space-y-6">
@@ -14,6 +25,34 @@ export default async function CronListPage() {
         <h1 className="text-2xl font-semibold tracking-normal text-ink">Cron jobs</h1>
         <p className="mt-1 text-sm text-slate-500">Grouped by cron name and server, ordered by most recent execution.</p>
       </div>
+
+      <form className="grid gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm md:grid-cols-[1fr_1fr_180px_auto]" action="/cron">
+        <input
+          className="rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+          name="cron_name"
+          placeholder="Filter by cron name"
+          defaultValue={nameFilter}
+        />
+        <input
+          className="rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+          name="server"
+          placeholder="Filter by server"
+          defaultValue={serverFilter}
+        />
+        <select
+          className="rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+          name="status"
+          defaultValue={statusFilter}
+        >
+          <option value="">All statuses</option>
+          <option value="0">Success</option>
+          <option value="1">Failed</option>
+          <option value="2">Warning</option>
+        </select>
+        <button className="rounded-md bg-ink px-4 py-2 text-sm font-medium text-white hover:bg-slate-700" type="submit">
+          Apply
+        </button>
+      </form>
 
       <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
         <div className="overflow-x-auto">
@@ -31,7 +70,7 @@ export default async function CronListPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {jobs.map((job) => (
+              {filteredJobs.map((job) => (
                 <tr key={`${job.cron_name}-${job.server}`}>
                   <td className="whitespace-nowrap px-4 py-3 font-medium text-ink">
                     <Link className="hover:text-blue-700" href={`/cron/${encodeURIComponent(job.cron_name)}?server=${encodeURIComponent(job.server)}`}>
@@ -47,7 +86,7 @@ export default async function CronListPage() {
                   <td className="whitespace-nowrap px-4 py-3 text-slate-600">{formatNumber(job.total_runs)}</td>
                 </tr>
               ))}
-              {jobs.length === 0 ? (
+              {filteredJobs.length === 0 ? (
                 <tr>
                   <td className="px-4 py-8 text-center text-slate-500" colSpan={8}>No cron jobs have been ingested yet.</td>
                 </tr>

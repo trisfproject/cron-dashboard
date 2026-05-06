@@ -12,7 +12,9 @@ export default async function CronDetailPage({ params, searchParams }) {
   const resolvedSearchParams = await searchParams;
   const cronName = resolvedParams.name;
   const server = resolvedSearchParams?.server;
-  const { logs } = await getLogs({ cron_name: cronName, server, limit: 200 });
+  const status = resolvedSearchParams?.status;
+  const limit = resolvedSearchParams?.limit || 200;
+  const { logs } = await getLogs({ cron_name: cronName, server, status, limit });
   const total = logs.length;
   const success = logs.filter((log) => Number(log.status) === 0).length;
   const failed = logs.filter((log) => Number(log.status) === 1).length;
@@ -30,6 +32,38 @@ export default async function CronDetailPage({ params, searchParams }) {
         <h1 className="text-2xl font-semibold tracking-normal text-ink">{cronName}</h1>
         <p className="mt-1 text-sm text-slate-500">{server ? `Server: ${server}` : 'All servers'}</p>
       </div>
+
+      <form className="grid gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm md:grid-cols-[1fr_180px_140px_auto]" action={`/cron/${encodeURIComponent(cronName)}`}>
+        <input
+          className="rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+          name="server"
+          placeholder="Filter by server"
+          defaultValue={server || ''}
+        />
+        <select
+          className="rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+          name="status"
+          defaultValue={status || ''}
+        >
+          <option value="">All statuses</option>
+          <option value="0">Success</option>
+          <option value="1">Failed</option>
+          <option value="2">Warning</option>
+        </select>
+        <select
+          className="rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+          name="limit"
+          defaultValue={String(limit)}
+        >
+          <option value="50">50 logs</option>
+          <option value="100">100 logs</option>
+          <option value="200">200 logs</option>
+          <option value="500">500 logs</option>
+        </select>
+        <button className="rounded-md bg-ink px-4 py-2 text-sm font-medium text-white hover:bg-slate-700" type="submit">
+          Apply
+        </button>
+      </form>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard icon={Activity} label="Executions" value={formatNumber(total)} subtext="Most recent 200 logs" />

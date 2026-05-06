@@ -11,7 +11,7 @@ for (const key of required) {
 }
 
 export const config = {
-  port: Number(process.env.PORT || 4000),
+  port: Number(process.env.PORT || 3000),
   apiKey: process.env.API_KEY,
   logLevel: process.env.LOG_LEVEL || 'info',
   mysql: {
@@ -27,4 +27,3 @@ export const config = {
     dateStrings: true
   }
 };
-
