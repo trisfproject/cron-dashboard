@@ -1,6 +1,6 @@
 # Cron Dashboard
 
-Production-ready cron monitoring MVP with a Fastify API, Next.js dashboard, MySQL storage, Docker Compose, and host-based NGINX reverse proxy configs.
+Production-ready cron monitoring MVP with a Fastify API, Next.js dashboard, Google Cloud SQL for MySQL, Docker Compose, and host-based NGINX reverse proxy configs.
 
 ## Folder Structure
 
@@ -43,10 +43,10 @@ cron-dashboard/
 
 - Backend API: Fastify on container port `3000`, bound on host `127.0.0.1:3000`
 - Frontend: Next.js on container port `3000`, bound on host `127.0.0.1:3001`
-- MySQL: private Docker network only, no host port exposed
+- Database: external Google Cloud SQL for MySQL
 - NGINX: host reverse proxy to `127.0.0.1:3000` and `127.0.0.1:3001`
 
-## Storage Layout
+## Runtime Layout
 
 This deployment expects the host to have NFS mounted at:
 
@@ -64,13 +64,25 @@ Project runtime configuration and optional logs live under:
 
 Application source code stays in this repository and is built into Docker images from `./backend` and `./frontend`. Do not mount application code from NFS into the containers.
 
-MySQL data must not be stored on NFS. The Compose file uses local disk for the database:
+The MySQL data directory is managed by Google Cloud SQL. This Compose stack does not run a local MySQL container and does not mount `/var/lib/mysql`.
+
+## Cloud SQL Connectivity
+
+The backend connects to Cloud SQL using normal MySQL environment variables and a connection pool.
+
+Supported modes:
+
+- Private IP: set `DB_HOST` to the Cloud SQL private IP address.
+- Cloud SQL Auth Proxy: run the proxy on the host or as a sidecar reachable from the backend container, then set `DB_HOST` and `DB_PORT` to the proxy endpoint.
+
+For a host-level Cloud SQL Auth Proxy, the Compose file includes `host.docker.internal` mapping for the backend. Set:
 
 ```text
-/var/lib/docker/cron-mysql-data:/var/lib/mysql
+DB_HOST=host.docker.internal
+DB_PORT=3306
 ```
 
-This keeps config/logs separate from database storage and avoids MySQL corruption risks from network filesystems.
+Ensure the proxy listener is reachable from Docker’s bridge network and protected by host firewall rules. Do not expose the proxy publicly.
 
 ## Quick Start
 
@@ -78,7 +90,6 @@ Create the host directories:
 
 ```bash
 sudo mkdir -p /mnt/nfs/docker/cron-dashboard/logs
-sudo mkdir -p /var/lib/docker/cron-mysql-data
 ```
 
 Create the runtime environment file outside the source repo:
@@ -88,7 +99,19 @@ sudo cp .env.example /mnt/nfs/docker/cron-dashboard/.env
 sudo chmod 600 /mnt/nfs/docker/cron-dashboard/.env
 ```
 
-Edit `/mnt/nfs/docker/cron-dashboard/.env` and replace every placeholder with a real value generated for your environment, especially `API_KEY`, `MYSQL_ROOT_PASSWORD`, and `MYSQL_PASSWORD`.
+Edit `/mnt/nfs/docker/cron-dashboard/.env` and replace every placeholder with a real value generated for your environment, especially `API_KEY`, `MYSQL_USER`, and `MYSQL_PASSWORD`.
+
+Apply the database migration to your Cloud SQL database before ingesting logs:
+
+```bash
+mysql \
+  -h "$DB_HOST" \
+  -P "${DB_PORT:-3306}" \
+  -u "$MYSQL_USER" \
+  -p"$MYSQL_PASSWORD" \
+  "$MYSQL_DATABASE" \
+  < backend/db/migrations/001_create_cron_logs.sql
+```
 
 Start the stack:
 
@@ -141,7 +164,8 @@ sudo certbot --nginx -d api.cron-dashboard.example.com -d cron-dashboard.example
 - `POST /ingest` requires `x-api-key`.
 - `nginx/cron-api.conf` restricts `/ingest` to private/internal IP ranges by default.
 - Backend and frontend bind only to localhost on the Docker host.
-- MySQL is only reachable from the internal Docker network.
+- Database credentials are only loaded into the backend container from `/mnt/nfs/docker/cron-dashboard/.env`.
+- The frontend container does not receive database credentials.
 - NGINX configs include proxy headers, security headers, request size limits, and timeout settings.
 
 Update the `allow` rules in `nginx/cron-api.conf` to match the real CIDRs used by your cron servers.
@@ -204,11 +228,7 @@ Migration file:
 backend/db/migrations/001_create_cron_logs.sql
 ```
 
-Docker’s first MySQL initialization uses:
-
-```text
-backend/db/init.sql
-```
+`backend/db/init.sql` is kept for local/manual initialization compatibility, but Docker Compose no longer starts a MySQL container.
 
 Table: `cron_logs`
 
@@ -275,7 +295,7 @@ exit "$EXIT_CODE"
 ## Production Notes
 
 - Keep `/mnt/nfs/docker/cron-dashboard/.env` out of source control and rotate `API_KEY` periodically.
-- Do not put `/var/lib/mysql` on NFS. Use the configured local path or managed MySQL.
-- Back up `/var/lib/docker/cron-mysql-data` with a MySQL-aware backup process.
+- Use Cloud SQL automated backups and point-in-time recovery for production data.
+- Keep Cloud SQL private IP or Cloud SQL Auth Proxy access restricted to trusted hosts and networks.
 - Adjust NGINX `server_name`, TLS, and `/ingest` CIDR allowlists before going live.
 - Scale backend replicas behind a local load balancer if ingest volume grows; the unique hash keeps duplicate writes idempotent.
