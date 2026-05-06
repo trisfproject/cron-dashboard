@@ -6,4 +6,5 @@ node_modules
 dist
 coverage
 *.log
+logs
 mysql-data

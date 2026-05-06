@@ -3,20 +3,20 @@ services:
     image: mysql:8.4
     restart: unless-stopped
     env_file:
-      - .env
-    environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      MYSQL_DATABASE: ${DB_NAME}
-      MYSQL_USER: ${DB_USER}
-      MYSQL_PASSWORD: ${DB_PASS}
+      - /mnt/nfs/docker/cron-dashboard/.env
     volumes:
-      - mysql-data:/var/lib/mysql
+      - /var/lib/docker/cron-mysql-data:/var/lib/mysql
       - ./backend/db/init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -h localhost --silent"]
       interval: 10s
       timeout: 5s
       retries: 10
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     networks:
       - cron-net
 
@@ -25,52 +25,51 @@ services:
       context: ./backend
     restart: unless-stopped
     env_file:
-      - .env
+      - /mnt/nfs/docker/cron-dashboard/.env
     depends_on:
       mysql:
         condition: service_healthy
     environment:
       NODE_ENV: production
       PORT: 3000
-      API_KEY: ${API_KEY}
       DB_HOST: mysql
       DB_PORT: 3306
-      DB_NAME: ${DB_NAME}
-      DB_USER: ${DB_USER}
-      DB_PASS: ${DB_PASS}
       LOG_LEVEL: info
     ports:
-      - "127.0.0.1:${BACKEND_PORT:-3000}:3000"
+      - "127.0.0.1:3000:3000"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health >/dev/null 2>&1"]
       interval: 10s
       timeout: 5s
       retries: 10
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     networks:
       - cron-net
 
   frontend:
     build:
       context: ./frontend
-      args:
-        NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME}
     restart: unless-stopped
     env_file:
-      - .env
+      - /mnt/nfs/docker/cron-dashboard/.env
     depends_on:
       backend:
         condition: service_healthy
     environment:
       NODE_ENV: production
-      INTERNAL_API_URL: ${INTERNAL_API_URL}
-      NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME}
     ports:
-      - "127.0.0.1:${FRONTEND_PORT:-3001}:3000"
+      - "127.0.0.1:3001:3000"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     networks:
       - cron-net
-
-volumes:
-  mysql-data:
 
 networks:
   cron-net:

@@ -46,15 +46,49 @@ cron-dashboard/
 - MySQL: private Docker network only, no host port exposed
 - NGINX: host reverse proxy to `127.0.0.1:3000` and `127.0.0.1:3001`
 
-## Quick Start
+## Storage Layout
 
-Create your local environment file:
+This deployment expects the host to have NFS mounted at:
 
-```bash
-cp .env.example .env
+```text
+/mnt/nfs/docker/
 ```
 
-Edit `.env` and replace every placeholder with a real value generated for your environment, especially `API_KEY`, `MYSQL_ROOT_PASSWORD`, and `DB_PASS`.
+Project runtime configuration and optional logs live under:
+
+```text
+/mnt/nfs/docker/cron-dashboard/
+  .env
+  logs/
+```
+
+Application source code stays in this repository and is built into Docker images from `./backend` and `./frontend`. Do not mount application code from NFS into the containers.
+
+MySQL data must not be stored on NFS. The Compose file uses local disk for the database:
+
+```text
+/var/lib/docker/cron-mysql-data:/var/lib/mysql
+```
+
+This keeps config/logs separate from database storage and avoids MySQL corruption risks from network filesystems.
+
+## Quick Start
+
+Create the host directories:
+
+```bash
+sudo mkdir -p /mnt/nfs/docker/cron-dashboard/logs
+sudo mkdir -p /var/lib/docker/cron-mysql-data
+```
+
+Create the runtime environment file outside the source repo:
+
+```bash
+sudo cp .env.example /mnt/nfs/docker/cron-dashboard/.env
+sudo chmod 600 /mnt/nfs/docker/cron-dashboard/.env
+```
+
+Edit `/mnt/nfs/docker/cron-dashboard/.env` and replace every placeholder with a real value generated for your environment, especially `API_KEY`, `MYSQL_ROOT_PASSWORD`, and `MYSQL_PASSWORD`.
 
 Start the stack:
 
@@ -240,7 +274,8 @@ exit "$EXIT_CODE"
 
 ## Production Notes
 
-- Keep `.env` out of source control and rotate `API_KEY` periodically.
-- Use managed MySQL or durable volume backups for production data.
+- Keep `/mnt/nfs/docker/cron-dashboard/.env` out of source control and rotate `API_KEY` periodically.
+- Do not put `/var/lib/mysql` on NFS. Use the configured local path or managed MySQL.
+- Back up `/var/lib/docker/cron-mysql-data` with a MySQL-aware backup process.
 - Adjust NGINX `server_name`, TLS, and `/ingest` CIDR allowlists before going live.
 - Scale backend replicas behind a local load balancer if ingest volume grows; the unique hash keeps duplicate writes idempotent.

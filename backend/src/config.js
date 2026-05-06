@@ -2,7 +2,7 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const required = ['API_KEY', 'DB_HOST', 'DB_NAME', 'DB_USER', 'DB_PASS'];
+const required = ['API_KEY', 'DB_HOST', 'MYSQL_DATABASE', 'MYSQL_USER', 'MYSQL_PASSWORD'];
 
 for (const key of required) {
   if (!process.env[key]) {
@@ -17,9 +17,9 @@ export const config = {
   mysql: {
     host: process.env.DB_HOST,
     port: Number(process.env.DB_PORT || 3306),
-    database: process.env.DB_NAME,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASS,
+    database: process.env.MYSQL_DATABASE,
+    user: process.env.MYSQL_USER,
+    password: process.env.MYSQL_PASSWORD,
     waitForConnections: true,
     connectionLimit: Number(process.env.DB_CONNECTION_LIMIT || 10),
     queueLimit: 0,
