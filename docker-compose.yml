@@ -1,17 +1,25 @@
 services:
+  # EXPERIMENTAL: MySQL on NFS is not a standard production recommendation.
+  # Risks include increased latency, file locking inconsistencies, and possible
+  # data corruption under network or NFS server failure. Prefer local disk or a
+  # managed MySQL service for long-term production use.
   mysql:
     image: mysql:8.4
     restart: unless-stopped
     env_file:
       - /mnt/nfs/docker/cron-dashboard/.env
     volumes:
-      - /var/lib/docker/cron-mysql-data:/var/lib/mysql
+      - /mnt/nfs/docker/cron-dashboard/mysql:/var/lib/mysql
       - ./backend/db/init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
+      - ./backend/db/my.cnf:/etc/mysql/conf.d/custom.cnf:ro
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -h localhost --silent"]
       interval: 10s
       timeout: 5s
+      start_period: 60s
       retries: 10
+    # Backup recommendation: schedule regular mysqldump exports to a separate
+    # NFS backup directory, not the live MySQL data directory.
     logging:
       driver: "json-file"
       options:
