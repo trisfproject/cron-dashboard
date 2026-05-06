@@ -54,7 +54,7 @@ Create your local environment file:
 cp .env.example .env
 ```
 
-Edit `.env` and replace all default secrets, especially `API_KEY`, `MYSQL_ROOT_PASSWORD`, and `MYSQL_PASSWORD`.
+Edit `.env` and replace every placeholder with a real value generated for your environment, especially `API_KEY`, `MYSQL_ROOT_PASSWORD`, and `DB_PASS`.
 
 Start the stack:
 
@@ -119,7 +119,7 @@ Update the `allow` rules in `nginx/cron-api.conf` to match the real CIDRs used b
 ```bash
 curl -X POST https://api.cron-dashboard.example.com/ingest \
   -H "content-type: application/json" \
-  -H "x-api-key: change-me-api-key" \
+  -H "x-api-key: ${API_KEY}" \
   -d '{
     "cron_name": "daily-backup",
     "command": "/usr/local/bin/backup.sh",
@@ -204,7 +204,7 @@ Indexes:
 set -o pipefail
 
 API_URL="https://api.cron-dashboard.example.com/ingest"
-API_KEY="replace-me"
+API_KEY="${API_KEY:?API_KEY is required}"
 CRON_NAME="daily-backup"
 COMMAND="/usr/local/bin/backup.sh"
 SERVER="$(hostname)"

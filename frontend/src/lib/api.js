@@ -1,4 +1,4 @@
-const API_URL = process.env.INTERNAL_API_URL || 'http://localhost:4000';
+const API_URL = process.env.INTERNAL_API_URL || 'http://127.0.0.1:3000';
 
 async function request(path) {
   const response = await fetch(`${API_URL}${path}`, {
@@ -32,4 +32,3 @@ export function getLogs(params = {}) {
   const suffix = query.toString() ? `?${query.toString()}` : '';
   return request(`/logs${suffix}`);
 }
-
