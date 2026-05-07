@@ -36,11 +36,17 @@ function TimelineTooltip({ active, payload, label, interval = 'hour' }) {
     failed: 'Failed runs',
     warning: 'Warning runs'
   };
+  const intervalLabel = {
+    '5m': '5-minute interval',
+    hour: 'hour',
+    day: 'day',
+    month: 'month'
+  }[interval] || interval;
 
   return (
     <div className="rounded-md border border-slate-200 bg-white p-3 text-sm shadow-lg">
       <p className="font-medium text-ink">{label} WIB</p>
-      <p className="mt-1 text-xs text-slate-500">Runs during this {interval}</p>
+      <p className="mt-1 text-xs text-slate-500">Runs during this {intervalLabel}</p>
       <div className="mt-2 space-y-1">
         {payload.map((item) => (
           <div key={item.dataKey} className="flex items-center justify-between gap-6">

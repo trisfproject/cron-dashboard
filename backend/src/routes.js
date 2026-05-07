@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { pool } from './db.js';
-import { resolveDateFilter } from './utils/range-filter.js';
+import { normalizeTimelineBuckets, resolveDateFilter } from './utils/range-filter.js';
 
 const ingestBodySchema = {
   type: 'object',
@@ -170,7 +170,7 @@ export async function registerRoutes(app) {
 
       const [timeline] = await pool.query(`
         SELECT
-          DATE_FORMAT(CONVERT_TZ(timestamp, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '${dateFilter.timelineFormat}') AS bucket,
+          ${dateFilter.timelineBucketSql} AS bucket,
           COUNT(*) AS total,
           SUM(CASE WHEN status = 0 THEN 1 ELSE 0 END) AS success,
           SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) AS failed,
@@ -181,10 +181,11 @@ export async function registerRoutes(app) {
         GROUP BY bucket
         ORDER BY bucket ASC
       `, dateFilter.values);
+      const normalizedTimeline = normalizeTimelineBuckets(timeline, dateFilter);
 
       return {
         summary,
-        timeline,
+        timeline: normalizedTimeline,
         range: dateFilter.range,
         start: dateFilter.start,
         end: dateFilter.end,
