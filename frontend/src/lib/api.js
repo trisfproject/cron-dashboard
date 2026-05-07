@@ -53,8 +53,17 @@ export function getStats(params = {}) {
   return request(`/stats${suffix}`);
 }
 
-export function getCronList() {
-  return request('/cron-list');
+export function getCronList(params = {}) {
+  const query = new URLSearchParams();
+
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== '') {
+      query.set(key, String(value));
+    }
+  }
+
+  const suffix = query.toString() ? `?${query.toString()}` : '';
+  return request(`/cron-list${suffix}`);
 }
 
 export function getLogs(params = {}) {

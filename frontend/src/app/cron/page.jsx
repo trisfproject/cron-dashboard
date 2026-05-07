@@ -10,11 +10,19 @@ export default async function CronListPage({ searchParams }) {
   const nameFilter = resolvedSearchParams?.cron_name || '';
   const serverFilter = resolvedSearchParams?.server || '';
   const statusFilter = resolvedSearchParams?.status || '';
+  const rangeFilter = ['today', '7d', '30d'].includes(resolvedSearchParams?.range)
+    ? resolvedSearchParams.range
+    : 'today';
+  const rangeLabel = {
+    today: 'today',
+    '7d': 'the last 7 days',
+    '30d': 'the last 30 days'
+  }[rangeFilter];
   let jobs = [];
   let error = null;
 
   try {
-    const response = await getCronList();
+    const response = await getCronList({ range: rangeFilter });
     jobs = Array.isArray(response?.jobs) ? response.jobs : [];
   } catch (fetchError) {
     console.error('Failed to fetch cron list:', fetchError);
@@ -35,7 +43,7 @@ export default async function CronListPage({ searchParams }) {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-normal text-ink">Cron jobs</h1>
-        <p className="mt-1 text-sm text-slate-500">Grouped by cron name and server, ordered by most recent execution.</p>
+        <p className="mt-1 text-sm text-slate-500">Daily cron health overview. Metrics calculated from {rangeLabel} in WIB.</p>
       </div>
 
       {error ? (
@@ -44,7 +52,7 @@ export default async function CronListPage({ searchParams }) {
         </div>
       ) : null}
 
-      <form className="grid gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm md:grid-cols-[1fr_1fr_180px_auto]" action="/cron">
+      <form className="grid gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm md:grid-cols-[1fr_1fr_160px_180px_auto]" action="/cron">
         <input
           className="rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
           name="cron_name"
@@ -57,6 +65,15 @@ export default async function CronListPage({ searchParams }) {
           placeholder="Filter by server"
           defaultValue={serverFilter}
         />
+        <select
+          className="rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+          name="range"
+          defaultValue={rangeFilter}
+        >
+          <option value="today">Today</option>
+          <option value="7d">7D</option>
+          <option value="30d">30D</option>
+        </select>
         <select
           className="rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
           name="status"
@@ -73,6 +90,9 @@ export default async function CronListPage({ searchParams }) {
       </form>
 
       <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-200 px-4 py-3 text-sm text-slate-500">
+          Last status, last run freshness, runs, success rate, and average duration are calculated only from {rangeLabel} using the Asia/Jakarta day boundary.
+        </div>
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-slate-200 text-sm">
             <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
@@ -81,7 +101,7 @@ export default async function CronListPage({ searchParams }) {
                 <th className="px-4 py-3">Server</th>
                 <th className="px-4 py-3">Env</th>
                 <th className="px-4 py-3">Last status</th>
-                <th className="px-4 py-3">Last run</th>
+                <th className="px-4 py-3">Last run freshness</th>
                 <th className="px-4 py-3">Avg duration</th>
                 <th className="px-4 py-3">Success rate</th>
                 <th className="px-4 py-3">Runs</th>
@@ -106,7 +126,7 @@ export default async function CronListPage({ searchParams }) {
               ))}
               {filteredJobs.length === 0 ? (
                 <tr>
-                  <td className="px-4 py-8 text-center text-slate-500" colSpan={8}>No cron jobs have been ingested yet.</td>
+                  <td className="px-4 py-8 text-center text-slate-500" colSpan={8}>No cron executions found for {rangeLabel}.</td>
                 </tr>
               ) : null}
             </tbody>

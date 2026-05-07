@@ -219,41 +219,67 @@ export async function registerRoutes(app) {
     }
   );
 
-  app.get('/cron-list', async () => {
-    const [rows] = await pool.query(`
-      SELECT
-        current.cron_name,
-        current.server,
-        current.env,
-        current.last_status,
-        DATE_FORMAT(CONVERT_TZ(current.last_run, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s') AS last_run,
-        ROUND(agg.avg_duration, 2) AS avg_duration,
-        ROUND((agg.success_count / agg.total_runs) * 100, 2) AS success_rate,
-        agg.total_runs
-      FROM (
-        SELECT cl.cron_name, cl.server, cl.env, cl.status AS last_status, cl.timestamp AS last_run
-        FROM cron_logs cl
-        INNER JOIN (
-          SELECT cron_name, server, MAX(timestamp) AS last_run
+  app.get(
+    '/cron-list',
+    {
+      schema: {
+        querystring: {
+          type: 'object',
+          properties: {
+            range: { type: 'string', enum: ['today', '7d', '30d'], default: 'today' }
+          }
+        }
+      }
+    },
+    async (request) => {
+      const dateFilter = resolveDateFilter({ range: request.query.range || 'today' });
+      const [rows] = await pool.query(`
+        WITH filtered AS (
+          SELECT id, cron_name, command, server, env, status, duration, timestamp, hash, created_at
           FROM cron_logs
+          WHERE ${dateFilter.clause}
+        ),
+        latest AS (
+          SELECT cron_name, server, MAX(timestamp) AS last_run
+          FROM filtered
           GROUP BY cron_name, server
-        ) latest
-          ON latest.cron_name = cl.cron_name
-          AND latest.server = cl.server
-          AND latest.last_run = cl.timestamp
-      ) current
-      INNER JOIN (
-        SELECT cron_name, server, AVG(duration) AS avg_duration, SUM(status = 0) AS success_count, COUNT(*) AS total_runs
-        FROM cron_logs
-        GROUP BY cron_name, server
-      ) agg
-        ON agg.cron_name = current.cron_name
-        AND agg.server = current.server
-      ORDER BY current.last_run DESC
-    `);
+        ),
+        current AS (
+          SELECT filtered.cron_name, filtered.server, filtered.env, filtered.status AS last_status, filtered.timestamp AS last_run
+          FROM filtered
+          INNER JOIN latest
+            ON latest.cron_name = filtered.cron_name
+            AND latest.server = filtered.server
+            AND latest.last_run = filtered.timestamp
+        ),
+        agg AS (
+          SELECT cron_name, server, AVG(duration) AS avg_duration, SUM(status = 0) AS success_count, COUNT(*) AS total_runs
+          FROM filtered
+          GROUP BY cron_name, server
+        )
+        SELECT
+          current.cron_name,
+          current.server,
+          current.env,
+          current.last_status,
+          DATE_FORMAT(CONVERT_TZ(current.last_run, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s') AS last_run,
+          ROUND(agg.avg_duration, 2) AS avg_duration,
+          CASE WHEN agg.total_runs = 0 THEN 0 ELSE ROUND((agg.success_count / agg.total_runs) * 100, 2) END AS success_rate,
+          agg.total_runs
+        FROM current
+        INNER JOIN agg
+          ON agg.cron_name = current.cron_name
+          AND agg.server = current.server
+        ORDER BY current.last_run DESC
+      `, dateFilter.values);
 
-    return { jobs: rows };
-  });
+      return {
+        jobs: rows,
+        range: dateFilter.range || 'today',
+        timezone: 'Asia/Jakarta'
+      };
+    }
+  );
 
   app.get(
     '/logs',
