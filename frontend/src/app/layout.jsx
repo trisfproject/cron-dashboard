@@ -60,14 +60,13 @@ export default function RootLayout({ children }) {
             </header>
             <main className="mx-auto w-full max-w-7xl flex-1 px-4 pb-8 pt-5 sm:px-6 sm:py-8 lg:px-8">{children}</main>
             <footer className="border-t border-slate-200/70 bg-white/60 px-4 py-[calc(0.875rem+env(safe-area-inset-bottom))] text-center text-xs text-slate-500 backdrop-blur dark:border-slate-800/80 dark:bg-slate-950/50 dark:text-slate-400 sm:px-6">
-              <div className="mx-auto flex max-w-7xl flex-col items-center justify-center gap-1 sm:flex-row sm:justify-between">
-                <p className="font-medium tracking-normal text-slate-600 dark:text-slate-300">NYX × trisf.bot</p>
-                <p className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1">
-                  <span>Production</span>
+              <div className="mx-auto flex max-w-7xl items-center justify-center">
+                <p className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 font-medium tracking-normal text-slate-600 dark:text-slate-300">
+                  <span>NYX × trisf.bot</span>
                   <span className="text-slate-300 dark:text-slate-700">•</span>
-                  <span>WIB</span>
+                  <span className="font-normal text-slate-500 dark:text-slate-400">DevSecOps</span>
                   <span className="text-slate-300 dark:text-slate-700">•</span>
-                  <span>Live Monitoring</span>
+                  <span className="font-normal text-slate-500 dark:text-slate-400">TechDev</span>
                 </p>
               </div>
             </footer>
