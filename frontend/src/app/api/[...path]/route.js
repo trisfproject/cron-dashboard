@@ -7,11 +7,14 @@ async function proxyRequest(request, params) {
   targetUrl.search = incomingUrl.search;
 
   try {
+    const body = ['GET', 'HEAD'].includes(request.method) ? undefined : await request.text();
     const response = await fetch(targetUrl, {
       method: request.method,
       headers: {
-        accept: request.headers.get('accept') || 'application/json'
+        accept: request.headers.get('accept') || 'application/json',
+        'content-type': request.headers.get('content-type') || 'application/json'
       },
+      body,
       cache: 'no-store'
     });
 
@@ -40,3 +43,12 @@ export async function GET(request, context) {
   return proxyRequest(request, params);
 }
 
+export async function POST(request, context) {
+  const params = await context.params;
+  return proxyRequest(request, params);
+}
+
+export async function PUT(request, context) {
+  const params = await context.params;
+  return proxyRequest(request, params);
+}

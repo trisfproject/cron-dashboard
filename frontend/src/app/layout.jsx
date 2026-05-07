@@ -1,6 +1,6 @@
 import './globals.css';
 import Link from 'next/link';
-import { Activity, ListChecks } from 'lucide-react';
+import { Activity, Bell, ListChecks } from 'lucide-react';
 import { BrandMark } from '@/components/BrandMark';
 import { ThemeProvider } from '@/components/ThemeProvider';
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -48,6 +48,10 @@ export default function RootLayout({ children }) {
                     <Link className="flex min-h-10 items-center gap-2 rounded-md px-3 py-2 hover:bg-slate-100" href="/cron">
                       <ListChecks className="h-4 w-4" aria-hidden="true" />
                       Cron
+                    </Link>
+                    <Link className="flex min-h-10 items-center gap-2 rounded-md px-3 py-2 hover:bg-slate-100" href="/alerts">
+                      <Bell className="h-4 w-4" aria-hidden="true" />
+                      Alerts
                     </Link>
                   </nav>
                   <ThemeToggle />

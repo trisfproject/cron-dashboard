@@ -14,6 +14,7 @@ export const config = {
   port: Number(process.env.PORT || 3000),
   apiKey: process.env.API_KEY,
   logLevel: process.env.LOG_LEVEL || 'info',
+  alertEvaluationIntervalMs: Number(process.env.ALERT_EVALUATION_INTERVAL_MS || 60000),
   mysql: {
     host: process.env.DB_HOST,
     port: Number(process.env.DB_PORT || 3306),

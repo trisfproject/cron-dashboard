@@ -90,6 +90,8 @@ sudo chmod 600 /mnt/nfs/docker/cron-dashboard/.env
 
 Edit `/mnt/nfs/docker/cron-dashboard/.env` and replace every placeholder with a real value generated for your environment, especially `API_KEY`, `MYSQL_ROOT_PASSWORD`, and `MYSQL_PASSWORD`.
 
+Optional alert notifications use environment variables only. Set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`, `DISCORD_WEBHOOK_URL`, or `SLACK_WEBHOOK_URL` to enable the matching notification channel. `ALERT_EVALUATION_INTERVAL_MS` controls the periodic evaluator used for silence/no-execution alerts.
+
 Start the stack:
 
 ```bash
@@ -203,6 +205,17 @@ Example:
 ```bash
 curl "https://api.cron-dashboard.example.com/logs?cron_name=daily-backup&server=worker-01&limit=50"
 ```
+
+### Alerting
+
+- `GET /alerts?state=active|acknowledged|resolved|all`
+- `POST /alerts/evaluate`
+- `POST /alerts/:id/acknowledge`
+- `GET /alert-rules`
+- `POST /alert-rules`
+- `PUT /alert-rules/:id`
+
+Alert rules support failed execution thresholds, warning thresholds, success-rate degradation, duration anomalies, retry storms, and cron silence detection. Notification secrets are never stored in the database; rules only store channel names such as `telegram`, `discord`, and `slack`.
 
 ## Database
 

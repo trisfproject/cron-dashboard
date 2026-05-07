@@ -1,13 +1,15 @@
 'use client';
 
 import { Suspense, useState, useEffect, useRef } from 'react';
+import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Activity, AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Clock3, DatabaseZap, ListChecks, Radio, RotateCcw, TrendingUp } from 'lucide-react';
+import { AlertSeverityBadge, AlertStateBadge } from '@/components/AlertBadge';
 import { MetricCard } from '@/components/MetricCard';
 import { TimelineChart } from '@/components/TimelineChart';
 import { LogsTable } from '@/components/LogsTable';
 import { TimeRangeFilter } from '@/components/TimeRangeFilter';
-import { getLogs, getStats } from '@/lib/api';
+import { getAlerts, getLogs, getStats } from '@/lib/api';
 import { formatDuration, formatNumber, formatPercent } from '@/lib/format';
 
 const emptyStats = {
@@ -272,6 +274,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
   const [customRange, setCustomRange] = useState(isValidCustomRange(initialCustomRange) ? initialCustomRange : null);
   const [stats, setStats] = useState(emptyStats);
   const [logs, setLogs] = useState([]);
+  const [alerts, setAlerts] = useState([]);
   const [hasMoreLogs, setHasMoreLogs] = useState(false);
   const [logsLoadingMore, setLogsLoadingMore] = useState(false);
   const [logsError, setLogsError] = useState(null);
@@ -320,9 +323,13 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
           : null;
         const params = customParams || { [filter.type]: filter.value };
 
-        const [statsData, logsData] = await Promise.all([
+        const [statsData, logsData, alertsData] = await Promise.all([
           getStats(params),
-          getLogs({ ...params, limit: LOG_PAGE_SIZE, offset: 0 })
+          getLogs({ ...params, limit: LOG_PAGE_SIZE, offset: 0 }),
+          getAlerts({ state: 'active', limit: 5 }).catch((alertError) => {
+            console.error('Failed to fetch active alerts:', alertError);
+            return { alerts: [] };
+          })
         ]);
 
         if (process.env.NODE_ENV === 'development') {
@@ -338,6 +345,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
         const nextLogs = normalizeLogsResponse(logsData);
         setLogs(nextLogs);
         setHasMoreLogs(nextLogs.length === LOG_PAGE_SIZE);
+        setAlerts(Array.isArray(alertsData?.alerts) ? alertsData.alerts : []);
         setLogsError(null);
       } catch (error) {
         console.error('Failed to fetch dashboard data:', error);
@@ -346,6 +354,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
           setError(error?.message || 'Failed to load dashboard');
           setStats(emptyStats);
           setLogs([]);
+          setAlerts([]);
           setHasMoreLogs(false);
         }
       } finally {
@@ -486,6 +495,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
   const attentionHealthJobs = rankedHealthJobs.filter((job) => Number(job?.health?.score || 0) > 0);
   const slowestJobs = Array.isArray(insights.slowest_jobs) ? insights.slowest_jobs : [];
   const logsArray = Array.isArray(logs) ? logs : [];
+  const activeAlerts = Array.isArray(alerts) ? alerts : [];
   const isCustom = filter.type === 'custom';
   const windowMinutes = getWindowMinutes(filter, customRange);
   const totalRuns = Number(summary.total_runs || 0);
@@ -646,6 +656,65 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
       </section>
 
       <section className="grid gap-4 xl:grid-cols-2">
+        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm xl:col-span-2">
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h2 className="text-base font-semibold text-ink">Active Alerts</h2>
+              <p className="mt-1 text-sm text-slate-500">Realtime alert lifecycle across reliability, duration, retries, and cron silence rules.</p>
+            </div>
+            <Link href="/alerts" className="inline-flex min-h-10 items-center justify-center rounded-md border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900">
+              View history
+            </Link>
+          </div>
+          <div className="space-y-3 md:hidden">
+            {activeAlerts.map((alert) => (
+              <article key={alert.id} className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
+                <div className="flex items-start justify-between gap-3">
+                  <p className="min-w-0 break-words text-sm font-semibold text-ink">{alert.cron_name || 'All monitored cron jobs'}</p>
+                  <AlertSeverityBadge severity={alert.severity} />
+                </div>
+                <p className="text-sm text-slate-600 dark:text-slate-300">{alert.reason}</p>
+                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                  <AlertStateBadge state={alert.state} />
+                  <span>{alert.triggered_at || '-'}</span>
+                </div>
+              </article>
+            ))}
+            {activeAlerts.length === 0 ? (
+              <div className="rounded-lg bg-emerald-50 px-3 py-8 text-center text-sm text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:ring-emerald-900">No active alerts. Cron monitoring is quiet.</div>
+            ) : null}
+          </div>
+          <div className="hidden overflow-x-auto md:block">
+            <table className="min-w-full divide-y divide-slate-200 text-sm">
+              <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
+                <tr>
+                  <th className="px-3 py-2">Cron</th>
+                  <th className="px-3 py-2">Severity</th>
+                  <th className="px-3 py-2">Reason</th>
+                  <th className="px-3 py-2">Triggered</th>
+                  <th className="px-3 py-2">State</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {activeAlerts.map((alert) => (
+                  <tr key={alert.id} className="align-top">
+                    <td className="max-w-[18rem] truncate px-3 py-2 font-medium text-ink">{alert.cron_name || 'All monitored cron jobs'}</td>
+                    <td className="whitespace-nowrap px-3 py-2"><AlertSeverityBadge severity={alert.severity} /></td>
+                    <td className="min-w-[24rem] px-3 py-2 text-slate-600 dark:text-slate-300">{alert.reason}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-slate-600 dark:text-slate-300">{alert.triggered_at || '-'}</td>
+                    <td className="whitespace-nowrap px-3 py-2"><AlertStateBadge state={alert.state} /></td>
+                  </tr>
+                ))}
+                {activeAlerts.length === 0 ? (
+                  <tr>
+                    <td className="px-3 py-8 text-center text-emerald-700 dark:text-emerald-200" colSpan={5}>No active alerts. Cron monitoring is quiet.</td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
         <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-4">
             <h2 className="text-base font-semibold text-ink">Cron Health Overview</h2>

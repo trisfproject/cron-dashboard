@@ -1,5 +1,6 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import { evaluateAlertsSafely } from './alerting.js';
 import { config } from './config.js';
 import { pool, waitForDatabase } from './db.js';
 import { registerRoutes } from './routes.js';
@@ -18,8 +19,17 @@ await app.register(cors, {
 
 await registerRoutes(app);
 await waitForDatabase(app.log);
+evaluateAlertsSafely(app);
+
+const alertEvaluationTimer = config.alertEvaluationIntervalMs > 0
+  ? setInterval(() => evaluateAlertsSafely(app), config.alertEvaluationIntervalMs)
+  : null;
 
 app.addHook('onClose', async () => {
+  if (alertEvaluationTimer) {
+    clearInterval(alertEvaluationTimer);
+  }
+
   await pool.end();
 });
 

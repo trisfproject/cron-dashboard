@@ -1,5 +1,14 @@
 import crypto from 'node:crypto';
 import { pool } from './db.js';
+import {
+  acknowledgeAlert,
+  createAlertRule,
+  evaluateAlerts,
+  evaluateAlertsSafely,
+  getAlertRules,
+  listAlerts,
+  updateAlertRule
+} from './alerting.js';
 import { normalizeTimelineBuckets, resolveDateFilter } from './utils/range-filter.js';
 
 const ingestBodySchema = {
@@ -148,6 +157,7 @@ export async function registerRoutes(app) {
         );
 
         request.log.info({ cron_name: payload.cron_name, hash }, 'Cron log ingested');
+        evaluateAlertsSafely(request.server);
         return reply.code(201).send({ id: result.insertId, hash, duplicate: false });
       } catch (error) {
         if (error.code === 'ER_DUP_ENTRY') {
@@ -412,6 +422,122 @@ export async function registerRoutes(app) {
       );
 
       return { logs, limit, offset };
+    }
+  );
+
+  app.get(
+    '/alerts',
+    {
+      schema: {
+        querystring: {
+          type: 'object',
+          properties: {
+            state: { type: 'string', enum: ['active', 'acknowledged', 'resolved', 'all'], default: 'active' },
+            limit: { type: 'integer', minimum: 1, maximum: 500, default: 50 }
+          }
+        }
+      }
+    },
+    async (request) => {
+      return {
+        alerts: await listAlerts({
+          state: request.query.state || 'active',
+          limit: Number(request.query.limit || 50)
+        })
+      };
+    }
+  );
+
+  app.post('/alerts/evaluate', async (request) => {
+    const alerts = await evaluateAlerts(request.server);
+    return { evaluated: true, active_triggers: alerts.length };
+  });
+
+  app.post(
+    '/alerts/:id/acknowledge',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          properties: {
+            id: { type: 'integer' }
+          },
+          required: ['id']
+        }
+      }
+    },
+    async (request) => {
+      await acknowledgeAlert(Number(request.params.id));
+      return { acknowledged: true };
+    }
+  );
+
+  app.get('/alert-rules', async () => ({ rules: await getAlertRules() }));
+
+  app.post(
+    '/alert-rules',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['name', 'type'],
+          additionalProperties: true,
+          properties: {
+            name: { type: 'string', minLength: 1, maxLength: 255 },
+            type: { type: 'string', enum: ['failed_threshold', 'warning_threshold', 'success_rate_degradation', 'duration_anomaly', 'retry_storm', 'cron_silence'] },
+            cron_name: { type: 'string' },
+            severity: { type: 'string', enum: ['info', 'warning', 'critical'] },
+            threshold: { type: 'number' },
+            timeframe_minutes: { type: 'integer', minimum: 1, maximum: 10080 },
+            cooldown_minutes: { type: 'integer', minimum: 1, maximum: 1440 },
+            expected_interval_minutes: { type: 'integer', minimum: 1, maximum: 10080 },
+            duration_spike_percent: { type: 'integer', minimum: 1, maximum: 10000 },
+            channels: { type: 'array', items: { type: 'string', enum: ['telegram', 'discord', 'slack'] } },
+            enabled: { type: 'boolean' }
+          }
+        }
+      }
+    },
+    async (request, reply) => {
+      const rule = await createAlertRule(request.body);
+      return reply.code(201).send({ rule });
+    }
+  );
+
+  app.put(
+    '/alert-rules/:id',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          properties: {
+            id: { type: 'integer' }
+          },
+          required: ['id']
+        },
+        body: {
+          type: 'object',
+          required: ['name', 'type'],
+          additionalProperties: true,
+          properties: {
+            name: { type: 'string', minLength: 1, maxLength: 255 },
+            type: { type: 'string', enum: ['failed_threshold', 'warning_threshold', 'success_rate_degradation', 'duration_anomaly', 'retry_storm', 'cron_silence'] },
+            cron_name: { type: 'string' },
+            severity: { type: 'string', enum: ['info', 'warning', 'critical'] },
+            threshold: { type: 'number' },
+            timeframe_minutes: { type: 'integer', minimum: 1, maximum: 10080 },
+            cooldown_minutes: { type: 'integer', minimum: 1, maximum: 1440 },
+            expected_interval_minutes: { type: 'integer', minimum: 1, maximum: 10080 },
+            duration_spike_percent: { type: 'integer', minimum: 1, maximum: 10000 },
+            channels: { type: 'array', items: { type: 'string', enum: ['telegram', 'discord', 'slack'] } },
+            enabled: { type: 'boolean' }
+          }
+        }
+      }
+    },
+    async (request) => {
+      const rule = await updateAlertRule(Number(request.params.id), request.body);
+      return { rule };
     }
   );
 }
