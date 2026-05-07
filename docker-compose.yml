@@ -45,14 +45,13 @@ services:
       DB_HOST: mysql
       DB_PORT: 3306
       LOG_LEVEL: info
-    # Exposed to 0.0.0.0 (all interfaces) for external NGINX LB access.
-    # IMPORTANT: Binding to 127.0.0.1 restricts access to localhost only.
-    # For multi-VM architecture (Cloudflare -> NGINX LB VM -> App VM),
-    # we must bind to 0.0.0.0 to allow the LB VM to reach this service.
-    # SECURITY: Use firewall rules to restrict access:
-    #   - Allow only NGINX LB VM IP to 3100 (iptables/ufw)
-    #   - Deny public internet access (0.0.0.0/0)
-    #   - Consider network segmentation (security groups in cloud)
+    # Port binding: 0.0.0.0:3100 -> container:3000
+    # On single-VM architecture (NGINX + containers on same host),
+    # NGINX reverse proxy accesses backend via 127.0.0.1:3100.
+    # 0.0.0.0 binding ensures the port is accessible from NGINX
+    # on the same machine. NGINX handles all external routing
+    # through Cloudflare; containers are not directly exposed
+    # to the internet.
     ports:
       - "3100:3000"
     healthcheck:
@@ -81,14 +80,13 @@ services:
     environment:
       NODE_ENV: production
       TZ: Asia/Jakarta
-    # Exposed to 0.0.0.0 (all interfaces) for external NGINX LB access.
-    # IMPORTANT: Binding to 127.0.0.1 restricts access to localhost only.
-    # For multi-VM architecture (Cloudflare -> NGINX LB VM -> App VM),
-    # we must bind to 0.0.0.0 to allow the LB VM to reach this service.
-    # SECURITY: Use firewall rules to restrict access:
-    #   - Allow only NGINX LB VM IP to 3101 (iptables/ufw)
-    #   - Deny public internet access (0.0.0.0/0)
-    #   - Consider network segmentation (security groups in cloud)
+    # Port binding: 0.0.0.0:3101 -> container:3000
+    # On single-VM architecture (NGINX + containers on same host),
+    # NGINX reverse proxy accesses frontend via 127.0.0.1:3101.
+    # 0.0.0.0 binding ensures the port is accessible from NGINX
+    # on the same machine. NGINX handles all external routing
+    # through Cloudflare; containers are not directly exposed
+    # to the internet.
     ports:
       - "3101:3000"
     logging:
