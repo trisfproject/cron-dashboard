@@ -171,6 +171,37 @@ function getSystemHealth(summary) {
   return { label: 'Healthy', className: 'bg-emerald-50 text-emerald-700 ring-emerald-200' };
 }
 
+function getProblemSeverity(job) {
+  const failed = Number(job?.failed_count || 0);
+  const warnings = Number(job?.warning_count || 0);
+  const successRate = Number(job?.success_rate || 0);
+
+  if (failed > 0 || successRate < 90) {
+    return { label: 'Critical', className: 'bg-rose-50 text-rose-700 ring-rose-200' };
+  }
+
+  if (warnings > 0 || successRate < 98) {
+    return { label: 'Degraded', className: 'bg-amber-50 text-amber-700 ring-amber-200' };
+  }
+
+  return { label: 'Watch', className: 'bg-blue-50 text-blue-700 ring-blue-200' };
+}
+
+function getPerformanceSeverity(job) {
+  const avgDuration = Number(job?.avg_duration || 0);
+  const maxDuration = Number(job?.max_duration || 0);
+
+  if (avgDuration >= 60000 || maxDuration >= 120000) {
+    return { label: 'Slow', className: 'bg-rose-50 text-rose-700 ring-rose-200' };
+  }
+
+  if (avgDuration >= 10000 || maxDuration >= 30000) {
+    return { label: 'Elevated', className: 'bg-amber-50 text-amber-700 ring-amber-200' };
+  }
+
+  return { label: 'Normal', className: 'bg-emerald-50 text-emerald-700 ring-emerald-200' };
+}
+
 function normalizeStatsResponse(data, range) {
   const source = data?.data && typeof data.data === 'object' ? data.data : data;
 
@@ -588,7 +619,38 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
             <h2 className="text-base font-semibold text-ink">Top problematic cron jobs</h2>
             <p className="mt-1 text-sm text-slate-500">Sorted by warnings, low success rate, and recent failures.</p>
           </div>
-          <div className="overflow-x-auto">
+          <div className="space-y-3 md:hidden">
+            {problematicJobs.map((job, index) => {
+              const severity = getProblemSeverity(job);
+
+              return (
+                <article key={`${job?.cron_name ?? 'cron'}-${index}-mobile`} className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="min-w-0 break-words text-sm font-semibold text-ink">{job?.cron_name ?? '-'}</p>
+                    <span className={`shrink-0 rounded-md px-2 py-1 text-xs font-medium ring-1 ${severity.className}`}>{severity.label}</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-sm">
+                    <div>
+                      <p className="text-xs text-slate-500">Success</p>
+                      <p className="mt-1 font-medium text-slate-700">{formatPercent(job?.success_rate ?? 0)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-500">Warnings</p>
+                      <p className="mt-1 font-medium text-slate-700">{formatNumber(job?.warning_count ?? 0)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-500">Failed</p>
+                      <p className="mt-1 font-medium text-slate-700">{formatNumber(job?.failed_count ?? 0)}</p>
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+            {problematicJobs.length === 0 ? (
+              <div className="rounded-lg bg-slate-50 px-3 py-8 text-center text-sm text-slate-500 dark:bg-slate-950">No cron issues in this timeframe.</div>
+            ) : null}
+          </div>
+          <div className="hidden overflow-x-auto md:block">
             <table className="min-w-full divide-y divide-slate-200 text-sm">
               <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
                 <tr>
@@ -622,7 +684,38 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
             <h2 className="text-base font-semibold text-ink">Slowest cron jobs</h2>
             <p className="mt-1 text-sm text-slate-500">Highest average duration in the selected timeframe.</p>
           </div>
-          <div className="overflow-x-auto">
+          <div className="space-y-3 md:hidden">
+            {slowestJobs.map((job, index) => {
+              const severity = getPerformanceSeverity(job);
+
+              return (
+                <article key={`${job?.cron_name ?? 'cron'}-${index}-mobile`} className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="min-w-0 break-words text-sm font-semibold text-ink">{job?.cron_name ?? '-'}</p>
+                    <span className={`shrink-0 rounded-md px-2 py-1 text-xs font-medium ring-1 ${severity.className}`}>{severity.label}</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-sm">
+                    <div>
+                      <p className="text-xs text-slate-500">Avg</p>
+                      <p className="mt-1 font-medium text-slate-700">{formatDuration(job?.avg_duration ?? 0)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-500">Max</p>
+                      <p className="mt-1 font-medium text-slate-700">{formatDuration(job?.max_duration ?? 0)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-500">Runs</p>
+                      <p className="mt-1 font-medium text-slate-700">{formatNumber(job?.total_runs ?? 0)}</p>
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+            {slowestJobs.length === 0 ? (
+              <div className="rounded-lg bg-slate-50 px-3 py-8 text-center text-sm text-slate-500 dark:bg-slate-950">No duration data in this timeframe.</div>
+            ) : null}
+          </div>
+          <div className="hidden overflow-x-auto md:block">
             <table className="min-w-full divide-y divide-slate-200 text-sm">
               <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
                 <tr>
