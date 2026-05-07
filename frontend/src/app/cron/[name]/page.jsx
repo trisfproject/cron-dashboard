@@ -2,7 +2,7 @@ import { DurationChart } from '@/components/TimelineChart';
 import { LogsTable } from '@/components/LogsTable';
 import { MetricCard } from '@/components/MetricCard';
 import { getLogs } from '@/lib/api';
-import { formatDuration, formatNumber, formatPercent } from '@/lib/format';
+import { formatDate, formatDuration, formatNumber, formatPercent } from '@/lib/format';
 import { Activity, Clock3, Server, ShieldCheck } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
@@ -32,7 +32,7 @@ export default async function CronDetailPage({ params, searchParams }) {
   const chartData = [...logs]
     .reverse()
     .map((log) => ({
-      timestamp: new Date(log.timestamp).toLocaleString(),
+      timestamp: formatDate(log.timestamp),
       duration: Number(log.duration || 0)
     }));
 

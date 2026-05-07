@@ -23,8 +23,8 @@ function daysBetween(start, end) {
     return 0;
   }
 
-  const startDate = new Date(`${start}T00:00:00.000Z`);
-  const endDate = new Date(`${end}T00:00:00.000Z`);
+  const startDate = new Date(`${start}T00:00:00.000+07:00`);
+  const endDate = new Date(`${end}T00:00:00.000+07:00`);
 
   return Math.floor((endDate.getTime() - startDate.getTime()) / DAY_MS) + 1;
 }

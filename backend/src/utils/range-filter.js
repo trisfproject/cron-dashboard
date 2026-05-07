@@ -1,4 +1,6 @@
 const DAY_MS = 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
+const JAKARTA_OFFSET_HOURS = 7;
 const MAX_CUSTOM_DAYS = 365;
 
 const PRESET_RANGES = {
@@ -9,12 +11,27 @@ const PRESET_RANGES = {
   year: 365
 };
 
-function startOfUtcDay(date) {
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+function pad(value) {
+  return String(value).padStart(2, '0');
 }
 
-function endOfUtcDay(date) {
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 23, 59, 59, 999));
+function getJakartaDateOnly(date = new Date()) {
+  const jakartaDate = new Date(date.getTime() + JAKARTA_OFFSET_HOURS * HOUR_MS);
+  return `${jakartaDate.getUTCFullYear()}-${pad(jakartaDate.getUTCMonth() + 1)}-${pad(jakartaDate.getUTCDate())}`;
+}
+
+function addDaysToDateOnly(value, days) {
+  const date = new Date(`${value}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}`;
+}
+
+function startOfJakartaDay(value) {
+  return new Date(`${value}T00:00:00.000+07:00`);
+}
+
+function endOfJakartaDay(value) {
+  return new Date(`${value}T23:59:59.999+07:00`);
 }
 
 function toMysqlDateTime(date) {
@@ -26,12 +43,14 @@ function parseDateOnly(value) {
     return null;
   }
 
-  const date = new Date(`${value}T00:00:00.000Z`);
+  const date = new Date(`${value}T00:00:00.000+07:00`);
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-function daysBetweenInclusive(start, end) {
-  return Math.floor((startOfUtcDay(end).getTime() - startOfUtcDay(start).getTime()) / DAY_MS) + 1;
+function daysBetweenInclusive(startDateOnly, endDateOnly) {
+  const start = new Date(`${startDateOnly}T00:00:00.000Z`);
+  const end = new Date(`${endDateOnly}T00:00:00.000Z`);
+  return Math.floor((end.getTime() - start.getTime()) / DAY_MS) + 1;
 }
 
 function getTimelineGroupFormatForDays(days) {
@@ -60,9 +79,9 @@ export function resolveDateFilter(query = {}) {
   const customEnd = parseDateOnly(query.end);
 
   if (customStart && customEnd) {
-    const start = startOfUtcDay(customStart);
-    const end = endOfUtcDay(customEnd);
-    const days = daysBetweenInclusive(start, end);
+    const start = startOfJakartaDay(query.start);
+    const end = endOfJakartaDay(query.end);
+    const days = daysBetweenInclusive(query.start, query.end);
 
     if (end >= start && days <= MAX_CUSTOM_DAYS) {
       return {
@@ -80,7 +99,9 @@ export function resolveDateFilter(query = {}) {
   const range = isValidRange(query.range) ? query.range : getDefaultRange();
   const days = PRESET_RANGES[range];
   const presetEnd = now;
-  const presetStart = startOfUtcDay(new Date(now.getTime() - (days - 1) * DAY_MS));
+  const todayJakarta = getJakartaDateOnly(now);
+  const presetStartDate = addDaysToDateOnly(todayJakarta, -(days - 1));
+  const presetStart = startOfJakartaDay(presetStartDate);
 
   return {
     clause: 'timestamp BETWEEN ? AND ?',

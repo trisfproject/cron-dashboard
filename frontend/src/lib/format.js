@@ -1,3 +1,5 @@
+const JAKARTA_TIME_ZONE = 'Asia/Jakarta';
+
 export function formatNumber(value, digits = 0) {
   return Number(value || 0).toLocaleString(undefined, {
     maximumFractionDigits: digits
@@ -22,7 +24,26 @@ export function formatDate(value) {
     return 'Never';
   }
 
-  return new Date(value).toLocaleString();
+  const normalizedValue = typeof value === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(value)
+    ? `${value.replace(' ', 'T')}+07:00`
+    : value;
+  const date = new Date(normalizedValue);
+
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: JAKARTA_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+    timeZoneName: 'short'
+  }).format(date);
 }
 
 export function statusLabel(status) {
@@ -40,4 +61,3 @@ export function statusClass(status) {
     2: 'bg-amber-50 text-amber-700 ring-amber-200'
   }[Number(status)] || 'bg-slate-50 text-slate-700 ring-slate-200';
 }
-

@@ -33,6 +33,11 @@ const logResponseSchema = {
   }
 };
 
+const JAKARTA_SQL_TIMEZONE = '+07:00';
+const UTC_SQL_TIMEZONE = '+00:00';
+const JAKARTA_TIMESTAMP_SQL = `DATE_FORMAT(CONVERT_TZ(timestamp, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s')`;
+const JAKARTA_CREATED_AT_SQL = `DATE_FORMAT(CONVERT_TZ(created_at, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s')`;
+
 function normalizeTimestamp(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
@@ -165,7 +170,7 @@ export async function registerRoutes(app) {
 
       const [timeline] = await pool.query(`
         SELECT
-          DATE_FORMAT(timestamp, '${dateFilter.timelineFormat}') AS bucket,
+          DATE_FORMAT(CONVERT_TZ(timestamp, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '${dateFilter.timelineFormat}') AS bucket,
           COUNT(*) AS total,
           SUM(status = 0) AS success,
           SUM(status = 1) AS failed,
@@ -194,7 +199,7 @@ export async function registerRoutes(app) {
         current.server,
         current.env,
         current.last_status,
-        current.last_run,
+        DATE_FORMAT(CONVERT_TZ(current.last_run, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s') AS last_run,
         ROUND(agg.avg_duration, 2) AS avg_duration,
         ROUND((agg.success_count / agg.total_runs) * 100, 2) AS success_rate,
         agg.total_runs
@@ -277,7 +282,10 @@ export async function registerRoutes(app) {
 
       const where = filters.length > 0 ? `WHERE ${filters.join(' AND ')}` : '';
       const [logs] = await pool.query(
-        `SELECT id, cron_name, command, server, env, status, duration, timestamp, hash, created_at
+        `SELECT id, cron_name, command, server, env, status, duration,
+           ${JAKARTA_TIMESTAMP_SQL} AS timestamp,
+           hash,
+           ${JAKARTA_CREATED_AT_SQL} AS created_at
          FROM cron_logs
          ${where}
          ORDER BY timestamp DESC

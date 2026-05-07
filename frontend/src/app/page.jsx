@@ -27,8 +27,8 @@ function isValidCustomRange(range) {
     return false;
   }
 
-  const start = new Date(`${range.start}T00:00:00.000Z`);
-  const end = new Date(`${range.end}T00:00:00.000Z`);
+  const start = new Date(`${range.start}T00:00:00.000+07:00`);
+  const end = new Date(`${range.end}T00:00:00.000+07:00`);
   const days = Math.floor((end.getTime() - start.getTime()) / DAY_MS) + 1;
 
   return days > 0 && days <= 365;
