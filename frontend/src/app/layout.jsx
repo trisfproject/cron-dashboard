@@ -38,7 +38,6 @@ export default function RootLayout({ children }) {
               <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-4 sm:px-6 md:flex-row md:items-center md:justify-between lg:px-8">
                 <Link href="/" className="flex items-center gap-3">
                   <BrandMark />
-                  <span className="text-lg font-semibold text-ink">NYX Cron Dashboard</span>
                 </Link>
                 <div className="flex flex-wrap items-center gap-3">
                   <nav className="flex items-center gap-2 text-sm font-medium text-slate-600">
