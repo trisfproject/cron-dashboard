@@ -10,10 +10,22 @@ export default async function CronListPage({ searchParams }) {
   const nameFilter = resolvedSearchParams?.cron_name || '';
   const serverFilter = resolvedSearchParams?.server || '';
   const statusFilter = resolvedSearchParams?.status || '';
-  const { jobs } = await getCronList();
+  let jobs = [];
+  let error = null;
+
+  try {
+    const response = await getCronList();
+    jobs = Array.isArray(response?.jobs) ? response.jobs : [];
+  } catch (fetchError) {
+    console.error('Failed to fetch cron list:', fetchError);
+    error = fetchError?.message || 'Failed to load cron jobs';
+  }
+
   const filteredJobs = jobs.filter((job) => {
-    const matchesName = nameFilter ? job.cron_name.toLowerCase().includes(nameFilter.toLowerCase()) : true;
-    const matchesServer = serverFilter ? job.server.toLowerCase().includes(serverFilter.toLowerCase()) : true;
+    const cronName = String(job?.cron_name ?? '');
+    const server = String(job?.server ?? '');
+    const matchesName = nameFilter ? cronName.toLowerCase().includes(nameFilter.toLowerCase()) : true;
+    const matchesServer = serverFilter ? server.toLowerCase().includes(serverFilter.toLowerCase()) : true;
     const matchesStatus = statusFilter !== '' ? Number(job.last_status) === Number(statusFilter) : true;
 
     return matchesName && matchesServer && matchesStatus;
@@ -25,6 +37,12 @@ export default async function CronListPage({ searchParams }) {
         <h1 className="text-2xl font-semibold tracking-normal text-ink">Cron jobs</h1>
         <p className="mt-1 text-sm text-slate-500">Grouped by cron name and server, ordered by most recent execution.</p>
       </div>
+
+      {error ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          {error}
+        </div>
+      ) : null}
 
       <form className="grid gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm md:grid-cols-[1fr_1fr_180px_auto]" action="/cron">
         <input
@@ -70,20 +88,20 @@ export default async function CronListPage({ searchParams }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredJobs.map((job) => (
-                <tr key={`${job.cron_name}-${job.server}`}>
+              {filteredJobs.map((job, index) => (
+                <tr key={`${job?.cron_name ?? 'cron'}-${job?.server ?? 'server'}-${index}`}>
                   <td className="whitespace-nowrap px-4 py-3 font-medium text-ink">
-                    <Link className="hover:text-blue-700" href={`/cron/${encodeURIComponent(job.cron_name)}?server=${encodeURIComponent(job.server)}`}>
-                      {job.cron_name}
+                    <Link className="hover:text-blue-700" href={`/cron/${encodeURIComponent(job?.cron_name ?? '')}?server=${encodeURIComponent(job?.server ?? '')}`}>
+                      {job?.cron_name ?? '-'}
                     </Link>
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-slate-600">{job.server}</td>
-                  <td className="whitespace-nowrap px-4 py-3 text-slate-600">{job.env}</td>
-                  <td className="whitespace-nowrap px-4 py-3"><StatusBadge status={job.last_status} /></td>
-                  <td className="whitespace-nowrap px-4 py-3 text-slate-600">{formatDate(job.last_run)}</td>
-                  <td className="whitespace-nowrap px-4 py-3 text-slate-600">{formatDuration(job.avg_duration)}</td>
-                  <td className="whitespace-nowrap px-4 py-3 text-slate-600">{formatPercent(job.success_rate)}</td>
-                  <td className="whitespace-nowrap px-4 py-3 text-slate-600">{formatNumber(job.total_runs)}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-slate-600">{job?.server ?? '-'}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-slate-600">{job?.env ?? '-'}</td>
+                  <td className="whitespace-nowrap px-4 py-3"><StatusBadge status={job?.last_status} /></td>
+                  <td className="whitespace-nowrap px-4 py-3 text-slate-600">{formatDate(job?.last_run)}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-slate-600">{formatDuration(job?.avg_duration ?? 0)}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-slate-600">{formatPercent(job?.success_rate ?? 0)}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-slate-600">{formatNumber(job?.total_runs ?? 0)}</td>
                 </tr>
               ))}
               {filteredJobs.length === 0 ? (

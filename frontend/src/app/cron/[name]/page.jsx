@@ -14,7 +14,17 @@ export default async function CronDetailPage({ params, searchParams }) {
   const server = resolvedSearchParams?.server;
   const status = resolvedSearchParams?.status;
   const limit = resolvedSearchParams?.limit || 200;
-  const { logs } = await getLogs({ cron_name: cronName, server, status, limit });
+  let logs = [];
+  let error = null;
+
+  try {
+    const response = await getLogs({ cron_name: cronName, server, status, limit });
+    logs = Array.isArray(response?.logs) ? response.logs : [];
+  } catch (fetchError) {
+    console.error('Failed to fetch cron detail logs:', fetchError);
+    error = fetchError?.message || 'Failed to load cron logs';
+  }
+
   const total = logs.length;
   const success = logs.filter((log) => Number(log.status) === 0).length;
   const failed = logs.filter((log) => Number(log.status) === 1).length;
@@ -32,6 +42,12 @@ export default async function CronDetailPage({ params, searchParams }) {
         <h1 className="text-2xl font-semibold tracking-normal text-ink">{cronName}</h1>
         <p className="mt-1 text-sm text-slate-500">{server ? `Server: ${server}` : 'All servers'}</p>
       </div>
+
+      {error ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          {error}
+        </div>
+      ) : null}
 
       <form className="grid gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm md:grid-cols-[1fr_180px_140px_auto]" action={`/cron/${encodeURIComponent(cronName)}`}>
         <input

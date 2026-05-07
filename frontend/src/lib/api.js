@@ -1,9 +1,29 @@
-const API_URL = '/api';
+function getApiBaseUrl() {
+  if (typeof window !== 'undefined') {
+    return '/api';
+  }
+
+  const configuredUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL;
+  const fallbackUrl = 'http://127.0.0.1:3000';
+
+  try {
+    const appUrl = new URL(configuredUrl || fallbackUrl);
+    return `${appUrl.origin}/api`;
+  } catch {
+    return `${fallbackUrl}/api`;
+  }
+}
 
 async function request(path) {
-  const response = await fetch(`${API_URL}${path}`, {
-    cache: 'no-store'
-  });
+  let response;
+
+  try {
+    response = await fetch(`${getApiBaseUrl()}${path}`, {
+      cache: 'no-store'
+    });
+  } catch (error) {
+    throw new Error(`API request failed: ${error?.message || 'Unable to reach frontend API proxy'}`);
+  }
 
   if (!response.ok) {
     let detail = '';
