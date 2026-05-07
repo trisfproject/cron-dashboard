@@ -7,19 +7,19 @@ async function proxyRequest(request, params) {
   targetUrl.search = incomingUrl.search;
 
   try {
-    const body = ['GET', 'HEAD'].includes(request.method) ? undefined : await request.text();
+    const requestBody = ['GET', 'HEAD'].includes(request.method) ? undefined : await request.text();
     const response = await fetch(targetUrl, {
       method: request.method,
       headers: {
         accept: request.headers.get('accept') || 'application/json',
         'content-type': request.headers.get('content-type') || 'application/json'
       },
-      body,
+      body: requestBody,
       cache: 'no-store'
     });
 
-    const body = await response.text();
-    return new Response(body, {
+    const responseBody = await response.text();
+    return new Response(responseBody, {
       status: response.status,
       headers: {
         'content-type': response.headers.get('content-type') || 'application/json'
