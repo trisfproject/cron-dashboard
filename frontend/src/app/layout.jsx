@@ -34,9 +34,9 @@ export default function RootLayout({ children }) {
       <body>
         <ThemeProvider>
           <div className="min-h-screen bg-surface">
-            <header className="border-b border-slate-200 bg-white">
-              <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-3 sm:px-6 md:flex-row md:items-center md:justify-between md:py-4 lg:px-8">
-                <Link href="/" className="flex items-center gap-3">
+            <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/85 dark:border-slate-800 dark:bg-slate-950/95 dark:supports-[backdrop-filter]:bg-slate-950/85">
+              <div className="mx-auto flex max-w-7xl flex-col gap-2 px-4 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))] sm:px-6 md:flex-row md:items-center md:justify-between md:gap-3 md:py-4 lg:px-8">
+                <Link href="/" className="flex min-h-12 items-center justify-center md:min-h-10 md:justify-start">
                   <BrandMark />
                 </Link>
                 <div className="flex flex-wrap items-center justify-between gap-3">
