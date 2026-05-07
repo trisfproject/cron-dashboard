@@ -4,6 +4,22 @@
 
 :root {
   color-scheme: light;
+  --chart-grid: #e2e8f0;
+  --chart-axis: #64748b;
+  --chart-tooltip-bg: #ffffff;
+  --chart-tooltip-border: #e2e8f0;
+  --chart-tooltip-text: #111827;
+  --chart-tooltip-muted: #64748b;
+}
+
+.dark {
+  color-scheme: dark;
+  --chart-grid: #1f2a44;
+  --chart-axis: #94a3b8;
+  --chart-tooltip-bg: #0f172a;
+  --chart-tooltip-border: #334155;
+  --chart-tooltip-text: #e5edf7;
+  --chart-tooltip-muted: #94a3b8;
 }
 
 * {
@@ -15,6 +31,12 @@ body {
   margin: 0;
   background: #f8fafc;
   color: #111827;
+  transition: background-color 160ms ease, color 160ms ease;
+}
+
+.dark body {
+  background: #07111f;
+  color: #e5edf7;
 }
 
 a {
@@ -22,3 +44,142 @@ a {
   text-decoration: none;
 }
 
+.dark .bg-surface {
+  background-color: #07111f;
+}
+
+.dark .bg-white {
+  background-color: #0f172a;
+}
+
+.dark .bg-slate-50 {
+  background-color: #111c2f;
+}
+
+.dark .bg-slate-100 {
+  background-color: #1f2937;
+}
+
+.dark .bg-slate-200 {
+  background-color: #334155;
+}
+
+.dark .bg-ink {
+  background-color: #2563eb;
+}
+
+.dark .border-slate-100,
+.dark .border-slate-200,
+.dark .border-slate-300 {
+  border-color: #25344d;
+}
+
+.dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]),
+.dark .divide-slate-200 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #25344d;
+}
+
+.dark .text-ink,
+.dark .text-slate-900 {
+  color: #e5edf7;
+}
+
+.dark .text-slate-700,
+.dark .text-slate-600 {
+  color: #cbd5e1;
+}
+
+.dark .text-slate-500,
+.dark .text-slate-400 {
+  color: #94a3b8;
+}
+
+.dark .shadow-sm,
+.dark .shadow-lg,
+.dark .shadow-xl {
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.22);
+}
+
+.dark input,
+.dark select,
+.dark textarea {
+  background-color: #0b1220;
+  color: #e5edf7;
+}
+
+.dark option {
+  background-color: #0f172a;
+  color: #e5edf7;
+}
+
+.dark .hover\:bg-slate-100:hover {
+  background-color: #1f2937;
+}
+
+.dark .hover\:bg-slate-200:hover {
+  background-color: #334155;
+}
+
+.dark .bg-emerald-50 {
+  background-color: rgba(16, 185, 129, 0.14);
+}
+
+.dark .text-emerald-700 {
+  color: #6ee7b7;
+}
+
+.dark .ring-emerald-200 {
+  --tw-ring-color: rgba(52, 211, 153, 0.35);
+}
+
+.dark .bg-amber-50 {
+  background-color: rgba(245, 158, 11, 0.14);
+}
+
+.dark .text-amber-700 {
+  color: #fcd34d;
+}
+
+.dark .ring-amber-200 {
+  --tw-ring-color: rgba(251, 191, 36, 0.38);
+}
+
+.dark .bg-rose-50,
+.dark .bg-red-50 {
+  background-color: rgba(244, 63, 94, 0.14);
+}
+
+.dark .text-rose-700,
+.dark .text-red-700,
+.dark .text-red-900 {
+  color: #fda4af;
+}
+
+.dark .ring-rose-200,
+.dark .border-red-200 {
+  --tw-ring-color: rgba(251, 113, 133, 0.38);
+  border-color: rgba(251, 113, 133, 0.35);
+}
+
+.dark .bg-blue-50 {
+  background-color: rgba(37, 99, 235, 0.16);
+}
+
+.dark .text-blue-700 {
+  color: #93c5fd;
+}
+
+.dark .ring-blue-200 {
+  --tw-ring-color: rgba(96, 165, 250, 0.38);
+}
+
+.recharts-default-legend,
+.recharts-legend-item-text,
+.recharts-text {
+  color: var(--chart-axis) !important;
+  fill: var(--chart-axis) !important;
+}
+
+.recharts-cartesian-axis-tick-value {
+  fill: var(--chart-axis);
+}

@@ -1,41 +1,64 @@
 import './globals.css';
 import Link from 'next/link';
 import { Activity, ListChecks } from 'lucide-react';
+import { BrandMark } from '@/components/BrandMark';
+import { ThemeProvider } from '@/components/ThemeProvider';
+import { ThemeToggle } from '@/components/ThemeToggle';
 
 export const metadata = {
   title: process.env.NEXT_PUBLIC_APP_NAME || 'Cron Dashboard',
   description: 'Production cron monitoring dashboard'
 };
 
+const themeScript = `
+(() => {
+  try {
+    const stored = localStorage.getItem('nyx-theme') || 'system';
+    const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const resolved = stored === 'system' ? (systemDark ? 'dark' : 'light') : stored;
+    document.documentElement.classList.toggle('dark', resolved === 'dark');
+    document.documentElement.dataset.theme = stored;
+    document.documentElement.style.colorScheme = resolved;
+  } catch {
+    document.documentElement.dataset.theme = 'system';
+  }
+})();
+`;
+
 export default function RootLayout({ children }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+      </head>
       <body>
-        <div className="min-h-screen bg-surface">
-          <header className="border-b border-slate-200 bg-white">
-            <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
-              <Link href="/" className="flex items-center gap-3">
-                <span className="rounded-md bg-ink p-2 text-white">
-                  <Activity className="h-5 w-5" aria-hidden="true" />
-                </span>
-                <span className="text-lg font-semibold text-ink">Cron Dashboard</span>
-              </Link>
-              <nav className="flex items-center gap-2 text-sm font-medium text-slate-600">
-                <Link className="flex items-center gap-2 rounded-md px-3 py-2 hover:bg-slate-100" href="/">
-                  <Activity className="h-4 w-4" aria-hidden="true" />
-                  Dashboard
+        <ThemeProvider>
+          <div className="min-h-screen bg-surface">
+            <header className="border-b border-slate-200 bg-white">
+              <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-4 sm:px-6 md:flex-row md:items-center md:justify-between lg:px-8">
+                <Link href="/" className="flex items-center gap-3">
+                  <BrandMark />
+                  <span className="text-lg font-semibold text-ink">NYX Cron Dashboard</span>
                 </Link>
-                <Link className="flex items-center gap-2 rounded-md px-3 py-2 hover:bg-slate-100" href="/cron">
-                  <ListChecks className="h-4 w-4" aria-hidden="true" />
-                  Cron
-                </Link>
-              </nav>
-            </div>
-          </header>
-          <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">{children}</main>
-        </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <nav className="flex items-center gap-2 text-sm font-medium text-slate-600">
+                    <Link className="flex items-center gap-2 rounded-md px-3 py-2 hover:bg-slate-100" href="/">
+                      <Activity className="h-4 w-4" aria-hidden="true" />
+                      Dashboard
+                    </Link>
+                    <Link className="flex items-center gap-2 rounded-md px-3 py-2 hover:bg-slate-100" href="/cron">
+                      <ListChecks className="h-4 w-4" aria-hidden="true" />
+                      Cron
+                    </Link>
+                  </nav>
+                  <ThemeToggle />
+                </div>
+              </div>
+            </header>
+            <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">{children}</main>
+          </div>
+        </ThemeProvider>
       </body>
     </html>
   );
 }
-
