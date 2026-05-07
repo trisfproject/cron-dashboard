@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { pool } from './db.js';
-import { buildDateWhereClause, getTimelineGroupFormat, isValidRange, getDefaultRange } from './utils/range-filter.js';
+import { resolveDateFilter } from './utils/range-filter.js';
 
 const ingestBodySchema = {
   type: 'object',
@@ -140,19 +140,15 @@ export async function registerRoutes(app) {
         querystring: {
           type: 'object',
           properties: {
-            range: { type: 'string', enum: ['today', '7d', '30d', 'quarter', 'year'], default: '7d' }
+            range: { type: 'string', enum: ['today', '7d', '30d', 'quarter', 'year'], default: '7d' },
+            start: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
+            end: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' }
           }
         }
       }
     },
     async (request) => {
-      let range = request.query.range || '7d';
-      if (!isValidRange(range)) {
-        range = getDefaultRange();
-      }
-
-      const dateFilter = buildDateWhereClause(range);
-      const timelineFormat = getTimelineGroupFormat(range);
+      const dateFilter = resolveDateFilter(request.query);
 
       const [[summary]] = await pool.query(`
         SELECT
@@ -164,24 +160,30 @@ export async function registerRoutes(app) {
           COALESCE(AVG(duration), 0) AS average_duration,
           CASE WHEN COUNT(*) = 0 THEN 0 ELSE ROUND((SUM(status = 0) / COUNT(*)) * 100, 2) END AS success_rate
         FROM cron_logs
-        WHERE ${dateFilter}
-      `);
+        WHERE ${dateFilter.clause}
+      `, dateFilter.values);
 
       const [timeline] = await pool.query(`
         SELECT
-          DATE_FORMAT(timestamp, '${timelineFormat}') AS bucket,
+          DATE_FORMAT(timestamp, '${dateFilter.timelineFormat}') AS bucket,
           COUNT(*) AS total,
           SUM(status = 0) AS success,
           SUM(status = 1) AS failed,
           SUM(status = 2) AS warning,
           ROUND(AVG(duration), 2) AS average_duration
         FROM cron_logs
-        WHERE ${dateFilter}
+        WHERE ${dateFilter.clause}
         GROUP BY bucket
         ORDER BY bucket ASC
-      `);
+      `, dateFilter.values);
 
-      return { summary, timeline, range };
+      return {
+        summary,
+        timeline,
+        range: dateFilter.range,
+        start: dateFilter.start,
+        end: dateFilter.end
+      };
     }
   );
 
@@ -232,6 +234,8 @@ export async function registerRoutes(app) {
             server: { type: 'string' },
             status: { type: 'integer', enum: [0, 1, 2] },
             range: { type: 'string', enum: ['today', '7d', '30d', 'quarter', 'year'], default: '7d' },
+            start: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
+            end: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
             limit: { type: 'integer', minimum: 1, maximum: 500, default: 50 }
           }
         },
@@ -247,17 +251,14 @@ export async function registerRoutes(app) {
     },
     async (request) => {
       const { cron_name, server, status } = request.query;
-      let range = request.query.range || '7d';
-      if (!isValidRange(range)) {
-        range = getDefaultRange();
-      }
+      const dateFilter = resolveDateFilter(request.query);
 
       const limit = Number(request.query.limit || 50);
       const filters = [];
       const values = [];
 
-      // Add time range filter
-      filters.push(buildDateWhereClause(range));
+      filters.push(dateFilter.clause);
+      values.push(...dateFilter.values);
 
       if (cron_name) {
         filters.push('cron_name = ?');

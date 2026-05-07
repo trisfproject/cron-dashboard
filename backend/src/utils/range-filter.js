@@ -1,81 +1,105 @@
-/**
- * Time range filtering utilities for cron log analytics
- * Supports: today, 7d, 30d, quarter (90d), year (365d), custom
- */
+const DAY_MS = 24 * 60 * 60 * 1000;
+const MAX_CUSTOM_DAYS = 365;
 
-/**
- * Build SQL WHERE clause for date range filtering
- * @param {string} range - Range type: 'today', '7d', '30d', 'quarter', 'year'
- * @returns {string} SQL WHERE clause fragment
- */
-export function buildDateWhereClause(range = '7d') {
-  const validRanges = {
-    'today': 'INTERVAL 1 DAY',
-    '7d': 'INTERVAL 7 DAY',
-    '30d': 'INTERVAL 30 DAY',
-    'quarter': 'INTERVAL 90 DAY',
-    'year': 'INTERVAL 365 DAY'
-  };
+const PRESET_RANGES = {
+  today: 1,
+  '7d': 7,
+  '30d': 30,
+  quarter: 90,
+  year: 365
+};
 
-  const interval = validRanges[range] || validRanges['7d'];
-  return `timestamp >= DATE_SUB(UTC_TIMESTAMP(), ${interval})`;
+function startOfUtcDay(date) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
 }
 
-/**
- * Get the grouping format for timeline aggregation based on range
- * @param {string} range - Range type
- * @returns {string} MySQL DATE_FORMAT pattern
- */
-export function getTimelineGroupFormat(range = '7d') {
-  // Today & 7D: group by hour
-  if (range === 'today' || range === '7d') {
+function endOfUtcDay(date) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 23, 59, 59, 999));
+}
+
+function toMysqlDateTime(date) {
+  return date.toISOString().slice(0, 23).replace('T', ' ');
+}
+
+function parseDateOnly(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value || '')) {
+    return null;
+  }
+
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function daysBetweenInclusive(start, end) {
+  return Math.floor((startOfUtcDay(end).getTime() - startOfUtcDay(start).getTime()) / DAY_MS) + 1;
+}
+
+function getTimelineGroupFormatForDays(days) {
+  if (days <= 7) {
     return '%Y-%m-%d %H:00:00';
   }
 
-  // 30D, Quarter: group by day
-  if (range === '30d' || range === 'quarter') {
+  if (days <= 90) {
     return '%Y-%m-%d';
   }
 
-  // Year: group by month
-  if (range === 'year') {
-    return '%Y-%m-01';
-  }
-
-  // Default: daily
-  return '%Y-%m-%d';
+  return '%Y-%m-01';
 }
 
-/**
- * Get human-readable description for a range
- * @param {string} range - Range type
- * @returns {string} Description
- */
-export function getRangeDescription(range = '7d') {
-  const descriptions = {
-    'today': 'Today',
-    '7d': 'Last 7 days',
-    '30d': 'Last 30 days',
-    'quarter': 'Last 90 days (Quarter)',
-    'year': 'Last 365 days (Year)'
-  };
-
-  return descriptions[range] || descriptions['7d'];
-}
-
-/**
- * Validate if a range is supported
- * @param {string} range - Range to validate
- * @returns {boolean} True if range is supported
- */
 export function isValidRange(range) {
-  return ['today', '7d', '30d', 'quarter', 'year'].includes(range);
+  return Object.hasOwn(PRESET_RANGES, range);
 }
 
-/**
- * Get default range for new users or if invalid range provided
- * @returns {string} Default range ('7d')
- */
 export function getDefaultRange() {
   return '7d';
+}
+
+export function resolveDateFilter(query = {}) {
+  const now = new Date();
+  const customStart = parseDateOnly(query.start);
+  const customEnd = parseDateOnly(query.end);
+
+  if (customStart && customEnd) {
+    const start = startOfUtcDay(customStart);
+    const end = endOfUtcDay(customEnd);
+    const days = daysBetweenInclusive(start, end);
+
+    if (end >= start && days <= MAX_CUSTOM_DAYS) {
+      return {
+        clause: 'timestamp BETWEEN ? AND ?',
+        values: [toMysqlDateTime(start), toMysqlDateTime(end)],
+        range: 'custom',
+        start: query.start,
+        end: query.end,
+        days,
+        timelineFormat: getTimelineGroupFormatForDays(days)
+      };
+    }
+  }
+
+  const range = isValidRange(query.range) ? query.range : getDefaultRange();
+  const days = PRESET_RANGES[range];
+  const presetEnd = now;
+  const presetStart = startOfUtcDay(new Date(now.getTime() - (days - 1) * DAY_MS));
+
+  return {
+    clause: 'timestamp BETWEEN ? AND ?',
+    values: [toMysqlDateTime(presetStart), toMysqlDateTime(presetEnd)],
+    range,
+    days,
+    timelineFormat: getTimelineGroupFormatForDays(days)
+  };
+}
+
+export function getRangeDescription(range = '7d') {
+  const descriptions = {
+    today: 'Today',
+    '7d': 'Last 7 days',
+    '30d': 'Last 30 days',
+    quarter: 'Last 90 days',
+    year: 'Last 365 days',
+    custom: 'Custom range'
+  };
+
+  return descriptions[range] || descriptions[getDefaultRange()];
 }

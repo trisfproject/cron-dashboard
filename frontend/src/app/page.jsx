@@ -16,6 +16,24 @@ const emptyStats = {
   range: '7d'
 };
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function isDateOnly(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value || '');
+}
+
+function isValidCustomRange(range) {
+  if (!isDateOnly(range?.start) || !isDateOnly(range?.end)) {
+    return false;
+  }
+
+  const start = new Date(`${range.start}T00:00:00.000Z`);
+  const end = new Date(`${range.end}T00:00:00.000Z`);
+  const days = Math.floor((end.getTime() - start.getTime()) / DAY_MS) + 1;
+
+  return days > 0 && days <= 365;
+}
+
 function normalizeStatsResponse(data, range) {
   const source = data?.data && typeof data.data === 'object' ? data.data : data;
 
@@ -31,12 +49,18 @@ function normalizeLogsResponse(data) {
   return Array.isArray(source?.logs) ? source.logs : [];
 }
 
-function DashboardContent({ initialRange = '7d' }) {
+function DashboardContent({ initialRange = '7d', initialCustomRange = null }) {
   const [range, setRange] = useState(initialRange);
+  const [customRange, setCustomRange] = useState(isValidCustomRange(initialCustomRange) ? initialCustomRange : null);
   const [stats, setStats] = useState(emptyStats);
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  useEffect(() => {
+    setRange(initialRange);
+    setCustomRange(isValidCustomRange(initialCustomRange) ? initialCustomRange : null);
+  }, [initialRange, initialCustomRange?.start, initialCustomRange?.end]);
 
   useEffect(() => {
     let cancelled = false;
@@ -46,9 +70,14 @@ function DashboardContent({ initialRange = '7d' }) {
 
     async function loadDashboard() {
       try {
+        const customParams = isValidCustomRange(customRange)
+          ? { start: customRange.start, end: customRange.end }
+          : null;
+        const params = customParams || { range };
+
         const [statsData, logsData] = await Promise.all([
-          getStats({ range }),
-          getLogs({ range, limit: 20 })
+          getStats(params),
+          getLogs({ ...params, limit: 20 })
         ]);
 
         console.log('stats response', statsData);
@@ -80,7 +109,7 @@ function DashboardContent({ initialRange = '7d' }) {
     return () => {
       cancelled = true;
     };
-  }, [range]);
+  }, [range, customRange]);
 
   if (loading) {
     return (
@@ -145,7 +174,19 @@ function DashboardContent({ initialRange = '7d' }) {
           <h1 className="text-2xl font-semibold tracking-normal text-ink">Dashboard</h1>
           <p className="mt-1 text-sm text-slate-500">Live health and execution trends across monitored cron jobs.</p>
         </div>
-        <TimeRangeFilter selectedRange={range} onRangeChange={setRange} />
+        <TimeRangeFilter
+          selectedRange={range}
+          customRange={customRange}
+          onRangeChange={(nextRange) => {
+            setCustomRange(null);
+            setRange(nextRange);
+          }}
+          onCustomRangeChange={(nextCustomRange) => {
+            if (isValidCustomRange(nextCustomRange)) {
+              setCustomRange(nextCustomRange);
+            }
+          }}
+        />
       </div>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -179,11 +220,12 @@ function DashboardContent({ initialRange = '7d' }) {
         <div className="mb-4">
           <h2 className="text-base font-semibold text-ink">Timeline</h2>
           <p className="mt-1 text-sm text-slate-500">
-            {range === 'today' && 'Hourly run outcomes from today.'}
-            {range === '7d' && 'Hourly run outcomes from the last seven days.'}
-            {range === '30d' && 'Daily run outcomes from the last thirty days.'}
-            {range === 'quarter' && 'Daily run outcomes from the last ninety days.'}
-            {range === 'year' && 'Monthly run outcomes from the last year.'}
+            {customRange?.start && customRange?.end && `Custom range from ${customRange.start} to ${customRange.end}.`}
+            {!customRange && range === 'today' && 'Hourly run outcomes from today.'}
+            {!customRange && range === '7d' && 'Hourly run outcomes from the last seven days.'}
+            {!customRange && range === '30d' && 'Daily run outcomes from the last thirty days.'}
+            {!customRange && range === 'quarter' && 'Daily run outcomes from the last ninety days.'}
+            {!customRange && range === 'year' && 'Monthly run outcomes from the last year.'}
           </p>
         </div>
         <TimelineChart data={timeline} />
@@ -203,8 +245,11 @@ function DashboardContent({ initialRange = '7d' }) {
 function DashboardWithSearchParams() {
   const searchParams = useSearchParams();
   const range = searchParams?.get('range') || '7d';
+  const start = searchParams?.get('start');
+  const end = searchParams?.get('end');
+  const initialCustomRange = start && end ? { start, end } : null;
 
-  return <DashboardContent initialRange={range} />;
+  return <DashboardContent initialRange={range} initialCustomRange={initialCustomRange} />;
 }
 
 export default function DashboardPage() {
