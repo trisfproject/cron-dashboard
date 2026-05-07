@@ -148,13 +148,35 @@ export async function registerRoutes(app) {
             range: { type: 'string', enum: ['today', '7d', '30d'] },
             window: { type: 'string', enum: ['5m', '15m', '30m', '1h', '4h'] },
             start: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}(([ T]\\d{2}:\\d{2}(:\\d{2})?)|(T\\d{2}:\\d{2}(:\\d{2})?([+-]\\d{2}:\\d{2}|Z)))?$' },
-            end: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}(([ T]\\d{2}:\\d{2}(:\\d{2})?)|(T\\d{2}:\\d{2}(:\\d{2})?([+-]\\d{2}:\\d{2}|Z)))?$' }
+            end: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}(([ T]\\d{2}:\\d{2}(:\\d{2})?)|(T\\d{2}:\\d{2}(:\\d{2})?([+-]\\d{2}:\\d{2}|Z)))?$' },
+            cron_name: { type: 'string' },
+            server: { type: 'string' },
+            env: { type: 'string' }
           }
         }
       }
     },
     async (request) => {
       const dateFilter = resolveDateFilter(request.query);
+      const filters = [dateFilter.clause];
+      const values = [...dateFilter.values];
+
+      if (request.query.cron_name) {
+        filters.push('cron_name = ?');
+        values.push(request.query.cron_name);
+      }
+
+      if (request.query.server) {
+        filters.push('server = ?');
+        values.push(request.query.server);
+      }
+
+      if (request.query.env) {
+        filters.push('env = ?');
+        values.push(request.query.env);
+      }
+
+      const where = filters.join(' AND ');
 
       const [[summary]] = await pool.query(`
         SELECT
@@ -166,8 +188,8 @@ export async function registerRoutes(app) {
           COALESCE(AVG(duration), 0) AS average_duration,
           CASE WHEN COUNT(*) = 0 THEN 0 ELSE ROUND((SUM(status = 0) / COUNT(*)) * 100, 2) END AS success_rate
         FROM cron_logs
-        WHERE ${dateFilter.clause}
-      `, dateFilter.values);
+        WHERE ${where}
+      `, values);
 
       const [timeline] = await pool.query(`
         SELECT
@@ -178,10 +200,10 @@ export async function registerRoutes(app) {
           SUM(CASE WHEN status = 2 THEN 1 ELSE 0 END) AS warning,
           ROUND(AVG(duration), 2) AS average_duration
         FROM cron_logs
-        WHERE ${dateFilter.clause}
+        WHERE ${where}
         GROUP BY bucket
         ORDER BY bucket ASC
-      `, dateFilter.values);
+      `, values);
       const normalizedTimeline = normalizeTimelineBuckets(timeline, dateFilter);
 
       return {
