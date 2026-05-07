@@ -13,11 +13,33 @@ import {
   YAxis
 } from 'recharts';
 
-export function TimelineChart({ data }) {
+function normalizeTimeline(data) {
+  return Array.isArray(data)
+    ? data.map((item) => ({
+        ...item,
+        bucket: item?.bucket || item?.date || item?.timestamp || '',
+        success: Number(item?.success ?? 0),
+        failed: Number(item?.failed ?? 0),
+        warning: Number(item?.warning ?? 0)
+      }))
+    : [];
+}
+
+export function TimelineChart({ data = [] }) {
+  const chartData = normalizeTimeline(data);
+
+  if (chartData.length === 0) {
+    return (
+      <div className="flex h-80 w-full items-center justify-center rounded-md bg-slate-50 text-sm text-slate-500">
+        No timeline data available
+      </div>
+    );
+  }
+
   return (
     <div className="h-80 w-full">
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={data} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
+        <LineChart data={chartData} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
           <XAxis dataKey="bucket" tick={{ fontSize: 12 }} stroke="#64748b" minTickGap={28} />
           <YAxis tick={{ fontSize: 12 }} stroke="#64748b" allowDecimals={false} />
@@ -32,11 +54,21 @@ export function TimelineChart({ data }) {
   );
 }
 
-export function DurationChart({ data }) {
+export function DurationChart({ data = [] }) {
+  const chartData = Array.isArray(data) ? data : [];
+
+  if (chartData.length === 0) {
+    return (
+      <div className="flex h-72 w-full items-center justify-center rounded-md bg-slate-50 text-sm text-slate-500">
+        No duration data available
+      </div>
+    );
+  }
+
   return (
     <div className="h-72 w-full">
       <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={data} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
+        <AreaChart data={chartData} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
           <defs>
             <linearGradient id="durationFill" x1="0" y1="0" x2="0" y2="1">
               <stop offset="5%" stopColor="#2563eb" stopOpacity={0.28} />
@@ -53,4 +85,3 @@ export function DurationChart({ data }) {
     </div>
   );
 }
-

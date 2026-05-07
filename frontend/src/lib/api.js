@@ -1,12 +1,20 @@
-const API_URL = process.env.INTERNAL_API_URL || 'http://127.0.0.1:3000';
+const API_URL = '/api';
 
 async function request(path) {
   const response = await fetch(`${API_URL}${path}`, {
-    next: { revalidate: 15 }
+    cache: 'no-store'
   });
 
   if (!response.ok) {
-    throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+    let detail = '';
+    try {
+      const body = await response.json();
+      detail = body?.error ? `: ${body.error}` : '';
+    } catch {
+      detail = '';
+    }
+
+    throw new Error(`API request failed: ${response.status} ${response.statusText}${detail}`);
   }
 
   return response.json();
