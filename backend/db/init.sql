@@ -2,6 +2,13 @@ CREATE TABLE IF NOT EXISTS cron_logs (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   cron_name VARCHAR(255) NOT NULL,
   command TEXT NOT NULL,
+  stdout LONGTEXT NULL,
+  stderr LONGTEXT NULL,
+  output LONGTEXT NULL,
+  warning_messages TEXT NULL,
+  exception_trace LONGTEXT NULL,
+  retry_logs LONGTEXT NULL,
+  timeout_info TEXT NULL,
   server VARCHAR(255) NOT NULL,
   env VARCHAR(80) NOT NULL,
   status TINYINT NOT NULL,
@@ -16,4 +23,3 @@ CREATE TABLE IF NOT EXISTS cron_logs (
   KEY idx_cron_logs_status (status),
   KEY idx_cron_logs_cron_server_timestamp (cron_name, server, timestamp)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-

@@ -161,9 +161,17 @@ curl -X POST https://api.cron-dashboard.example.com/ingest \
     "env": "production",
     "status": 0,
     "duration": 1832,
-    "timestamp": "2026-05-06T03:00:00.000Z"
+    "timestamp": "2026-05-06T03:00:00.000Z",
+    "stdout": "backup completed",
+    "stderr": "",
+    "warning_messages": "",
+    "exception_trace": "",
+    "retry_logs": "",
+    "timeout_info": ""
   }'
 ```
+
+Optional output fields are stored for in-dashboard troubleshooting and rendered lazily in Recent Logs and Execution History.
 
 `status` values:
 

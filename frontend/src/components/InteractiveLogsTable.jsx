@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
 import { formatDate, formatDuration } from '@/lib/format';
+import { ExecutionOutputInspector } from './ExecutionOutputInspector';
 import { StatusBadge } from './StatusBadge';
 
 function compareValues(left, right, direction) {
@@ -134,12 +135,7 @@ export function InteractiveLogsTable({ logs = [] }) {
                   <p className="text-xs font-medium uppercase tracking-normal text-slate-500">Command</p>
                   <pre className="mt-1 max-h-44 overflow-auto whitespace-pre-wrap break-words rounded-md bg-slate-950 p-3 font-mono text-xs text-slate-100">{log?.command ?? '-'}</pre>
                 </div>
-                <div>
-                  <p className="text-xs font-medium uppercase tracking-normal text-slate-500">Output preview</p>
-                  <p className="mt-1 rounded-md bg-white p-3 text-sm text-slate-600 ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-800">
-                    {log?.output || log?.message || 'No output payload captured for this execution.'}
-                  </p>
-                </div>
+                <ExecutionOutputInspector log={log} compact />
                 <div className="grid grid-cols-2 gap-2 text-xs text-slate-500">
                   <div>
                     <p className="font-medium text-slate-600 dark:text-slate-300">Created</p>
@@ -172,6 +168,7 @@ export function InteractiveLogsTable({ logs = [] }) {
               <th className="px-4 py-3">Server</th>
               <th className="px-4 py-3">Env</th>
               <th className="px-4 py-3">Command</th>
+              <th className="px-4 py-3">Output</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -188,11 +185,14 @@ export function InteractiveLogsTable({ logs = [] }) {
                     <pre className="mt-2 whitespace-pre-wrap rounded-md bg-slate-950 p-3 font-mono text-xs text-slate-100">{log?.command ?? '-'}</pre>
                   </details>
                 </td>
+                <td className="min-w-[28rem] px-4 py-3">
+                  <ExecutionOutputInspector log={log} />
+                </td>
               </tr>
             ))}
             {filteredLogs.length === 0 ? (
               <tr>
-                <td className="px-4 py-8 text-center text-slate-500" colSpan={6}>No executions match the current filters.</td>
+                <td className="px-4 py-8 text-center text-slate-500" colSpan={7}>No executions match the current filters.</td>
               </tr>
             ) : null}
           </tbody>

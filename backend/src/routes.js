@@ -13,7 +13,14 @@ const ingestBodySchema = {
     env: { type: 'string', minLength: 1, maxLength: 80 },
     status: { type: 'integer', enum: [0, 1, 2] },
     duration: { type: 'integer', minimum: 0 },
-    timestamp: { type: 'string', format: 'date-time' }
+    timestamp: { type: 'string', format: 'date-time' },
+    stdout: { type: 'string', nullable: true },
+    stderr: { type: 'string', nullable: true },
+    output: { type: 'string', nullable: true },
+    warning_messages: { type: 'string', nullable: true },
+    exception_trace: { type: 'string', nullable: true },
+    retry_logs: { type: 'string', nullable: true },
+    timeout_info: { type: 'string', nullable: true }
   }
 };
 
@@ -28,6 +35,13 @@ const logResponseSchema = {
     status: { type: 'number' },
     duration: { type: 'number' },
     timestamp: { type: 'string' },
+    stdout: { type: 'string', nullable: true },
+    stderr: { type: 'string', nullable: true },
+    output: { type: 'string', nullable: true },
+    warning_messages: { type: 'string', nullable: true },
+    exception_trace: { type: 'string', nullable: true },
+    retry_logs: { type: 'string', nullable: true },
+    timeout_info: { type: 'string', nullable: true },
     hash: { type: 'string' },
     created_at: { type: 'string' }
   }
@@ -111,8 +125,9 @@ export async function registerRoutes(app) {
       try {
         const [result] = await pool.execute(
           `INSERT INTO cron_logs
-            (cron_name, command, server, env, status, duration, timestamp, hash)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            (cron_name, command, server, env, status, duration, timestamp, hash,
+             stdout, stderr, output, warning_messages, exception_trace, retry_logs, timeout_info)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             payload.cron_name,
             payload.command,
@@ -121,7 +136,14 @@ export async function registerRoutes(app) {
             payload.status,
             payload.duration,
             timestamp,
-            hash
+            hash,
+            payload.stdout ?? null,
+            payload.stderr ?? null,
+            payload.output ?? null,
+            payload.warning_messages ?? null,
+            payload.exception_trace ?? null,
+            payload.retry_logs ?? null,
+            payload.timeout_info ?? null
           ]
         );
 
@@ -373,6 +395,13 @@ export async function registerRoutes(app) {
       const [logs] = await pool.query(
         `SELECT id, cron_name, command, server, env, status, duration,
            ${JAKARTA_TIMESTAMP_SQL} AS timestamp,
+           stdout,
+           stderr,
+           output,
+           warning_messages,
+           exception_trace,
+           retry_logs,
+           timeout_info,
            hash,
            ${JAKARTA_CREATED_AT_SQL} AS created_at
          FROM cron_logs
