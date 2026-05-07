@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { pool } from './db.js';
+import { buildDateWhereClause, getTimelineGroupFormat, isValidRange, getDefaultRange } from './utils/range-filter.js';
 
 const ingestBodySchema = {
   type: 'object',
@@ -132,35 +133,57 @@ export async function registerRoutes(app) {
     }
   );
 
-  app.get('/stats', async () => {
-    const [[summary]] = await pool.query(`
-      SELECT
-        COUNT(*) AS total_runs,
-        COUNT(DISTINCT cron_name) AS total_jobs,
-        SUM(status = 0) AS success_count,
-        SUM(status = 1) AS failed_count,
-        SUM(status = 2) AS warning_count,
-        COALESCE(AVG(duration), 0) AS average_duration,
-        CASE WHEN COUNT(*) = 0 THEN 0 ELSE ROUND((SUM(status = 0) / COUNT(*)) * 100, 2) END AS success_rate
-      FROM cron_logs
-    `);
+  app.get(
+    '/stats',
+    {
+      schema: {
+        querystring: {
+          type: 'object',
+          properties: {
+            range: { type: 'string', enum: ['today', '7d', '30d', 'quarter', 'year'], default: '7d' }
+          }
+        }
+      }
+    },
+    async (request) => {
+      let range = request.query.range || '7d';
+      if (!isValidRange(range)) {
+        range = getDefaultRange();
+      }
 
-    const [timeline] = await pool.query(`
-      SELECT
-        DATE_FORMAT(timestamp, '%Y-%m-%d %H:00:00') AS bucket,
-        COUNT(*) AS total,
-        SUM(status = 0) AS success,
-        SUM(status = 1) AS failed,
-        SUM(status = 2) AS warning,
-        ROUND(AVG(duration), 2) AS average_duration
-      FROM cron_logs
-      WHERE timestamp >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)
-      GROUP BY bucket
-      ORDER BY bucket ASC
-    `);
+      const dateFilter = buildDateWhereClause(range);
+      const timelineFormat = getTimelineGroupFormat(range);
 
-    return { summary, timeline };
-  });
+      const [[summary]] = await pool.query(`
+        SELECT
+          COUNT(*) AS total_runs,
+          COUNT(DISTINCT cron_name) AS total_jobs,
+          SUM(status = 0) AS success_count,
+          SUM(status = 1) AS failed_count,
+          SUM(status = 2) AS warning_count,
+          COALESCE(AVG(duration), 0) AS average_duration,
+          CASE WHEN COUNT(*) = 0 THEN 0 ELSE ROUND((SUM(status = 0) / COUNT(*)) * 100, 2) END AS success_rate
+        FROM cron_logs
+        WHERE ${dateFilter}
+      `);
+
+      const [timeline] = await pool.query(`
+        SELECT
+          DATE_FORMAT(timestamp, '${timelineFormat}') AS bucket,
+          COUNT(*) AS total,
+          SUM(status = 0) AS success,
+          SUM(status = 1) AS failed,
+          SUM(status = 2) AS warning,
+          ROUND(AVG(duration), 2) AS average_duration
+        FROM cron_logs
+        WHERE ${dateFilter}
+        GROUP BY bucket
+        ORDER BY bucket ASC
+      `);
+
+      return { summary, timeline, range };
+    }
+  );
 
   app.get('/cron-list', async () => {
     const [rows] = await pool.query(`
@@ -208,7 +231,8 @@ export async function registerRoutes(app) {
             cron_name: { type: 'string' },
             server: { type: 'string' },
             status: { type: 'integer', enum: [0, 1, 2] },
-            limit: { type: 'integer', minimum: 1, maximum: 500, default: 100 }
+            range: { type: 'string', enum: ['today', '7d', '30d', 'quarter', 'year'], default: '7d' },
+            limit: { type: 'integer', minimum: 1, maximum: 500, default: 50 }
           }
         },
         response: {
@@ -223,9 +247,17 @@ export async function registerRoutes(app) {
     },
     async (request) => {
       const { cron_name, server, status } = request.query;
-      const limit = Number(request.query.limit || 100);
+      let range = request.query.range || '7d';
+      if (!isValidRange(range)) {
+        range = getDefaultRange();
+      }
+
+      const limit = Number(request.query.limit || 50);
       const filters = [];
       const values = [];
+
+      // Add time range filter
+      filters.push(buildDateWhereClause(range));
 
       if (cron_name) {
         filters.push('cron_name = ?');

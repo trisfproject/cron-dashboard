@@ -12,8 +12,17 @@ async function request(path) {
   return response.json();
 }
 
-export function getStats() {
-  return request('/stats');
+export function getStats(params = {}) {
+  const query = new URLSearchParams();
+
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== '') {
+      query.set(key, String(value));
+    }
+  }
+
+  const suffix = query.toString() ? `?${query.toString()}` : '';
+  return request(`/stats${suffix}`);
 }
 
 export function getCronList() {
