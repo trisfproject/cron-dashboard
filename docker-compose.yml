@@ -1,8 +1,7 @@
 services:
-  # EXPERIMENTAL: MySQL on NFS is not a standard production recommendation.
-  # Risks include increased latency, file locking inconsistencies, and possible
-  # data corruption under network or NFS server failure. Prefer local disk or a
-  # managed MySQL service for long-term production use.
+  # MySQL storage migrated from NFS to local disk for lower latency, better
+  # stability, and reduced data corruption risk. Keep /var/lib/mysql on local
+  # disk; use managed MySQL for a future external database migration.
   mysql:
     container_name: cron-mysql
     image: mysql:8.4
@@ -10,7 +9,7 @@ services:
     env_file:
       - /mnt/nfs/docker/cron-dashboard/.env
     volumes:
-      - /mnt/nfs/docker/cron-dashboard/mysql:/var/lib/mysql
+      - /var/lib/docker/cron-mysql-data:/var/lib/mysql
       - ./backend/db/init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
       - ./backend/db/my.cnf:/etc/mysql/conf.d/custom.cnf:ro
     healthcheck:
