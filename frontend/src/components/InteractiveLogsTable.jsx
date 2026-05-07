@@ -86,7 +86,33 @@ export function InteractiveLogsTable({ logs = [] }) {
         </select>
       </div>
 
-      <div className="overflow-x-auto">
+      <div className="divide-y divide-slate-100 md:hidden">
+        {filteredLogs.map((log, index) => (
+          <article key={log?.id ?? `${log?.cron_name ?? 'log'}-${index}`} className="space-y-3 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <StatusBadge status={log?.status} />
+              <span className="whitespace-nowrap text-xs text-slate-500">{formatDate(log?.timestamp)}</span>
+            </div>
+            <div>
+              <p className="break-words font-medium text-ink">{log?.cron_name ?? '-'}</p>
+              <p className="mt-1 text-sm text-slate-500">{log?.server ?? '-'} · {log?.env ?? '-'}</p>
+            </div>
+            <div className="flex items-center justify-between gap-3 text-sm">
+              <span className="text-slate-500">Duration</span>
+              <span className="font-medium text-slate-700">{formatDuration(log?.duration ?? 0)}</span>
+            </div>
+            <details>
+              <summary className="cursor-pointer text-sm font-medium text-blue-700 dark:text-blue-300">Details</summary>
+              <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-md bg-slate-950 p-3 font-mono text-xs text-slate-100">{log?.command ?? '-'}</pre>
+            </details>
+          </article>
+        ))}
+        {filteredLogs.length === 0 ? (
+          <div className="px-4 py-8 text-center text-sm text-slate-500">No executions match the current filters.</div>
+        ) : null}
+      </div>
+
+      <div className="hidden overflow-x-auto md:block">
         <table className="min-w-full divide-y divide-slate-200 text-sm">
           <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
             <tr>

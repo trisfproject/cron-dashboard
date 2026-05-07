@@ -143,8 +143,8 @@ export function TimeRangeFilter({
   }
 
   return (
-    <div className="relative flex flex-col items-start gap-2 sm:items-end" ref={popoverRef}>
-      <div className="flex flex-wrap items-center gap-2">
+    <div className="relative flex w-full flex-col items-start gap-2 sm:w-auto sm:items-end" ref={popoverRef}>
+      <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
         <div className="flex flex-wrap gap-1">
           {OPTIONS.map((option) => {
             const active = !isCustom && selectedFilter?.type === option.type && selectedFilter?.value === option.value;
@@ -154,7 +154,7 @@ export function TimeRangeFilter({
                 key={`${option.type}-${option.value}`}
                 type="button"
                 onClick={() => onFilterChange?.({ type: option.type, value: option.value })}
-                className={`rounded px-3 py-1.5 text-sm font-medium transition-colors ${
+                className={`min-h-10 rounded px-3 py-1.5 text-sm font-medium transition-colors ${
                   active
                     ? 'bg-blue-600 text-white'
                     : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
@@ -168,7 +168,7 @@ export function TimeRangeFilter({
           <button
             type="button"
             onClick={() => setOpen((value) => !value)}
-            className={`inline-flex items-center gap-1 rounded px-3 py-1.5 text-sm font-medium transition-colors ${
+            className={`inline-flex min-h-10 items-center gap-1 rounded px-3 py-1.5 text-sm font-medium transition-colors ${
               isCustom
                 ? 'bg-blue-600 text-white'
                 : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
@@ -180,7 +180,7 @@ export function TimeRangeFilter({
           </button>
         </div>
 
-        <label className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+        <label className="inline-flex min-h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
           <RefreshCw className="h-4 w-4" aria-hidden="true" />
           <select
             value={refreshInterval}
@@ -206,7 +206,7 @@ export function TimeRangeFilter({
       ) : null}
 
       {open ? (
-        <div className="absolute right-0 top-full z-20 mt-2 w-[calc(100vw-2rem)] max-w-md rounded-lg border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+        <div className="absolute left-0 right-auto top-full z-20 mt-2 w-[calc(100vw-2rem)] max-w-md rounded-lg border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900 sm:left-auto sm:right-0">
           <div className="mb-3">
             <p className="text-sm font-semibold text-ink dark:text-slate-100">Custom window</p>
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Select start and end in WIB. Custom ranges override live windows.</p>

@@ -32,6 +32,8 @@ body {
   background: #f8fafc;
   color: #111827;
   transition: background-color 160ms ease, color 160ms ease;
+  overflow-x: hidden;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .dark body {
@@ -42,6 +44,30 @@ body {
 a {
   color: inherit;
   text-decoration: none;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button,
+select,
+input[type='button'],
+input[type='submit'] {
+  min-height: 40px;
+}
+
+@media (max-width: 640px) {
+  .rounded-lg.border.bg-white.p-5 {
+    padding: 1rem;
+  }
+
+  table {
+    font-size: 0.8125rem;
+  }
 }
 
 .dark .bg-surface {
@@ -182,4 +208,9 @@ a {
 
 .recharts-cartesian-axis-tick-value {
   fill: var(--chart-axis);
+}
+
+.recharts-wrapper,
+.recharts-surface {
+  max-width: 100%;
 }

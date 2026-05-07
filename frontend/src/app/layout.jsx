@@ -35,17 +35,17 @@ export default function RootLayout({ children }) {
         <ThemeProvider>
           <div className="min-h-screen bg-surface">
             <header className="border-b border-slate-200 bg-white">
-              <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-4 sm:px-6 md:flex-row md:items-center md:justify-between lg:px-8">
+              <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-3 sm:px-6 md:flex-row md:items-center md:justify-between md:py-4 lg:px-8">
                 <Link href="/" className="flex items-center gap-3">
                   <BrandMark />
                 </Link>
-                <div className="flex flex-wrap items-center gap-3">
-                  <nav className="flex items-center gap-2 text-sm font-medium text-slate-600">
-                    <Link className="flex items-center gap-2 rounded-md px-3 py-2 hover:bg-slate-100" href="/">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <nav className="flex min-w-0 flex-1 items-center gap-1 text-sm font-medium text-slate-600 sm:gap-2">
+                    <Link className="flex min-h-10 items-center gap-2 rounded-md px-3 py-2 hover:bg-slate-100" href="/">
                       <Activity className="h-4 w-4" aria-hidden="true" />
                       Dashboard
                     </Link>
-                    <Link className="flex items-center gap-2 rounded-md px-3 py-2 hover:bg-slate-100" href="/cron">
+                    <Link className="flex min-h-10 items-center gap-2 rounded-md px-3 py-2 hover:bg-slate-100" href="/cron">
                       <ListChecks className="h-4 w-4" aria-hidden="true" />
                       Cron
                     </Link>
@@ -54,7 +54,7 @@ export default function RootLayout({ children }) {
                 </div>
               </div>
             </header>
-            <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">{children}</main>
+            <main className="mx-auto max-w-7xl px-4 pb-[calc(2rem+env(safe-area-inset-bottom))] pt-5 sm:px-6 sm:py-8 lg:px-8">{children}</main>
           </div>
         </ThemeProvider>
       </body>

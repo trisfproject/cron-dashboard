@@ -138,19 +138,19 @@ export function TimelineChart({ data = [], interval = 'hour', onRangeSelect }) {
   }
 
   return (
-    <div className="h-80 w-full">
+    <div className="h-64 w-full sm:h-80">
       <ResponsiveContainer width="100%" height="100%">
         <LineChart
           data={chartData}
-          margin={{ top: 10, right: 12, left: 0, bottom: 0 }}
+          margin={{ top: 10, right: 8, left: -16, bottom: 0 }}
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onMouseLeave={resetSelection}
         >
           <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
-          <XAxis dataKey="bucket" tick={{ fontSize: 12 }} stroke="var(--chart-axis)" minTickGap={28} />
-          <YAxis tick={{ fontSize: 12 }} stroke="var(--chart-axis)" allowDecimals={false} />
+          <XAxis dataKey="bucket" tick={{ fontSize: 11 }} stroke="var(--chart-axis)" minTickGap={42} />
+          <YAxis tick={{ fontSize: 11 }} stroke="var(--chart-axis)" allowDecimals={false} width={36} />
           <Tooltip content={<TimelineTooltip interval={interval} />} />
           <Legend />
           <Line type="linear" dataKey="success" name="Success" stroke="#10b981" strokeWidth={2} dot={false} isAnimationActive={false} />
@@ -182,9 +182,9 @@ export function DurationChart({ data = [] }) {
   }
 
   return (
-    <div className="h-72 w-full">
+    <div className="h-64 w-full sm:h-72">
       <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={chartData} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
+        <AreaChart data={chartData} margin={{ top: 10, right: 8, left: -16, bottom: 0 }}>
           <defs>
             <linearGradient id="durationFill" x1="0" y1="0" x2="0" y2="1">
               <stop offset="5%" stopColor="#2563eb" stopOpacity={0.28} />
@@ -192,8 +192,8 @@ export function DurationChart({ data = [] }) {
             </linearGradient>
           </defs>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
-          <XAxis dataKey="timestamp" tick={{ fontSize: 12 }} stroke="var(--chart-axis)" minTickGap={28} />
-          <YAxis tick={{ fontSize: 12 }} stroke="var(--chart-axis)" />
+          <XAxis dataKey="timestamp" tick={{ fontSize: 11 }} stroke="var(--chart-axis)" minTickGap={42} />
+          <YAxis tick={{ fontSize: 11 }} stroke="var(--chart-axis)" width={36} />
           <Tooltip contentStyle={{ background: 'var(--chart-tooltip-bg)', borderColor: 'var(--chart-tooltip-border)', color: 'var(--chart-tooltip-text)' }} labelStyle={{ color: 'var(--chart-tooltip-text)' }} />
           <Area type="monotone" dataKey="duration" stroke="#3b82f6" fill="url(#durationFill)" strokeWidth={2} />
         </AreaChart>
@@ -214,9 +214,9 @@ export function ThroughputChart({ data = [] }) {
   }
 
   return (
-    <div className="h-72 w-full">
+    <div className="h-64 w-full sm:h-72">
       <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={chartData} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
+        <AreaChart data={chartData} margin={{ top: 10, right: 8, left: -16, bottom: 0 }}>
           <defs>
             <linearGradient id="throughputFill" x1="0" y1="0" x2="0" y2="1">
               <stop offset="5%" stopColor="#0f766e" stopOpacity={0.26} />
@@ -224,8 +224,8 @@ export function ThroughputChart({ data = [] }) {
             </linearGradient>
           </defs>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
-          <XAxis dataKey="bucket" tick={{ fontSize: 12 }} stroke="var(--chart-axis)" minTickGap={28} />
-          <YAxis tick={{ fontSize: 12 }} stroke="var(--chart-axis)" allowDecimals={false} />
+          <XAxis dataKey="bucket" tick={{ fontSize: 11 }} stroke="var(--chart-axis)" minTickGap={42} />
+          <YAxis tick={{ fontSize: 11 }} stroke="var(--chart-axis)" allowDecimals={false} width={36} />
           <Tooltip contentStyle={{ background: 'var(--chart-tooltip-bg)', borderColor: 'var(--chart-tooltip-border)', color: 'var(--chart-tooltip-text)' }} labelStyle={{ color: 'var(--chart-tooltip-text)' }} />
           <Area type="linear" dataKey="total" name="Runs" stroke="#10b981" fill="url(#throughputFill)" strokeWidth={2} isAnimationActive={false} />
         </AreaChart>
@@ -246,12 +246,12 @@ export function FailureWarningChart({ data = [] }) {
   }
 
   return (
-    <div className="h-72 w-full">
+    <div className="h-64 w-full sm:h-72">
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={chartData} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
+        <LineChart data={chartData} margin={{ top: 10, right: 8, left: -16, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
-          <XAxis dataKey="bucket" tick={{ fontSize: 12 }} stroke="var(--chart-axis)" minTickGap={28} />
-          <YAxis tick={{ fontSize: 12 }} stroke="var(--chart-axis)" allowDecimals={false} />
+          <XAxis dataKey="bucket" tick={{ fontSize: 11 }} stroke="var(--chart-axis)" minTickGap={42} />
+          <YAxis tick={{ fontSize: 11 }} stroke="var(--chart-axis)" allowDecimals={false} width={36} />
           <Tooltip contentStyle={{ background: 'var(--chart-tooltip-bg)', borderColor: 'var(--chart-tooltip-border)', color: 'var(--chart-tooltip-text)' }} labelStyle={{ color: 'var(--chart-tooltip-text)' }} />
           <Legend />
           <Line type="linear" dataKey="failed" name="Failed" stroke="#f43f5e" strokeWidth={2} dot={false} isAnimationActive={false} />
