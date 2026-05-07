@@ -13,6 +13,22 @@ function compareValues(left, right, direction) {
   return (left > right ? 1 : -1) * direction;
 }
 
+function statusAccent(status) {
+  return {
+    0: 'border-l-emerald-500',
+    1: 'border-l-rose-500',
+    2: 'border-l-amber-500'
+  }[Number(status)] || 'border-l-slate-400';
+}
+
+function statusDetail(status) {
+  return {
+    0: 'Execution completed successfully.',
+    1: 'Failure captured for this execution. Review command context and upstream output.',
+    2: 'Warning captured for this execution. Check partial failures, retries, or degraded dependencies.'
+  }[Number(status)] || 'Unknown execution status.';
+}
+
 export function InteractiveLogsTable({ logs = [] }) {
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('');
@@ -86,24 +102,58 @@ export function InteractiveLogsTable({ logs = [] }) {
         </select>
       </div>
 
-      <div className="divide-y divide-slate-100 md:hidden">
+      <div className="space-y-3 p-3 md:hidden">
         {filteredLogs.map((log, index) => (
-          <article key={log?.id ?? `${log?.cron_name ?? 'log'}-${index}`} className="space-y-3 p-4">
+          <article
+            key={log?.id ?? `${log?.cron_name ?? 'log'}-${index}`}
+            className={`space-y-3 rounded-lg border border-l-4 border-slate-200 bg-slate-50 p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950 ${statusAccent(log?.status)}`}
+          >
             <div className="flex items-start justify-between gap-3">
               <StatusBadge status={log?.status} />
               <span className="whitespace-nowrap text-xs text-slate-500">{formatDate(log?.timestamp)}</span>
             </div>
             <div>
               <p className="break-words font-medium text-ink">{log?.cron_name ?? '-'}</p>
-              <p className="mt-1 text-sm text-slate-500">{log?.server ?? '-'} · {log?.env ?? '-'}</p>
+              <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                <span className="rounded-md bg-white px-2 py-1 font-medium text-slate-600 ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-800">
+                  {log?.server ?? '-'}
+                </span>
+                <span className="rounded-md bg-white px-2 py-1 font-medium text-slate-600 ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-800">
+                  {log?.env ?? '-'}
+                </span>
+              </div>
             </div>
             <div className="flex items-center justify-between gap-3 text-sm">
               <span className="text-slate-500">Duration</span>
               <span className="font-medium text-slate-700">{formatDuration(log?.duration ?? 0)}</span>
             </div>
             <details>
-              <summary className="cursor-pointer text-sm font-medium text-blue-700 dark:text-blue-300">Details</summary>
-              <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-md bg-slate-950 p-3 font-mono text-xs text-slate-100">{log?.command ?? '-'}</pre>
+              <summary className="min-h-10 cursor-pointer rounded-md py-2 text-sm font-medium text-blue-700 dark:text-blue-300">Execution details</summary>
+              <div className="space-y-3 pt-2">
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-normal text-slate-500">Command</p>
+                  <pre className="mt-1 max-h-44 overflow-auto whitespace-pre-wrap break-words rounded-md bg-slate-950 p-3 font-mono text-xs text-slate-100">{log?.command ?? '-'}</pre>
+                </div>
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-normal text-slate-500">Output preview</p>
+                  <p className="mt-1 rounded-md bg-white p-3 text-sm text-slate-600 ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-800">
+                    {log?.output || log?.message || 'No output payload captured for this execution.'}
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs text-slate-500">
+                  <div>
+                    <p className="font-medium text-slate-600 dark:text-slate-300">Created</p>
+                    <p className="mt-1 break-words">{formatDate(log?.created_at)}</p>
+                  </div>
+                  <div>
+                    <p className="font-medium text-slate-600 dark:text-slate-300">Hash</p>
+                    <p className="mt-1 break-all font-mono">{log?.hash ?? '-'}</p>
+                  </div>
+                </div>
+                <p className="rounded-md bg-white p-3 text-sm text-slate-600 ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-800">
+                  {statusDetail(log?.status)}
+                </p>
+              </div>
             </details>
           </article>
         ))}
