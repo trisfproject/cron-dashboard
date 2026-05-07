@@ -73,6 +73,24 @@ function telegramChatIds() {
     .filter(Boolean);
 }
 
+function normalizeTelegramTopicId(value) {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+
+  const topicId = Number(value);
+  return Number.isFinite(topicId) && topicId > 0 ? topicId : null;
+}
+
+function telegramTopicIdForSeverity(severity) {
+  const normalizedSeverity = String(severity || '').toUpperCase();
+  const severityTopic = normalizeTelegramTopicId(process.env[`TELEGRAM_${normalizedSeverity}_TOPIC_ID`]);
+
+  return severityTopic
+    || normalizeTelegramTopicId(process.env.TELEGRAM_TOPIC_ID)
+    || normalizeTelegramTopicId(process.env.TELEGRAM_MESSAGE_THREAD_ID);
+}
+
 function severityIcon(severity) {
   return {
     info: '🔵',
@@ -152,25 +170,41 @@ async function buildTelegramMessage(alert, rule, lifecycle = 'triggered') {
   ].join('\n');
 }
 
-async function sendTelegram(text) {
+async function sendTelegram(text, { severity } = {}) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const chatIds = telegramChatIds();
+  const topicId = telegramTopicIdForSeverity(severity);
 
   if (!token || chatIds.length === 0) {
     return { sent: false, error: 'Telegram credentials are not configured' };
   }
 
   const results = await Promise.all(chatIds.map(async (chatId) => {
-    const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    const basePayload = {
+      chat_id: chatId,
+      text,
+      parse_mode: 'HTML',
+      disable_web_page_preview: true
+    };
+    const payload = { ...basePayload };
+
+    if (topicId) {
+      payload.message_thread_id = topicId;
+    }
+
+    let response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text,
-        parse_mode: 'HTML',
-        disable_web_page_preview: true
-      })
+      body: JSON.stringify(payload)
     });
+
+    if (!response.ok && topicId) {
+      response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(basePayload)
+      });
+    }
 
     if (!response.ok) {
       const responseText = await response.text();
@@ -180,7 +214,7 @@ async function sendTelegram(text) {
     return response.json();
   }));
 
-  return { sent: true, count: results.length };
+  return { sent: true, count: results.length, topic_id: topicId };
 }
 
 async function sendWebhook(url, text, flavor) {
@@ -220,7 +254,7 @@ async function notifyAlert(app, alert, rule, lifecycle = 'triggered') {
   const tasks = channels.map(async (channel) => {
     try {
       if (channel === 'telegram') {
-        const result = await sendTelegram(text);
+        const result = await sendTelegram(text, { severity: alert.severity });
         delivered = delivered || Boolean(result.sent);
         if (!result.sent && result.error) {
           errors.push(result.error);

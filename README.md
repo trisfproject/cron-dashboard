@@ -90,7 +90,7 @@ sudo chmod 600 /mnt/nfs/docker/cron-dashboard/.env
 
 Edit `/mnt/nfs/docker/cron-dashboard/.env` and replace every placeholder with a real value generated for your environment, especially `API_KEY`, `MYSQL_ROOT_PASSWORD`, and `MYSQL_PASSWORD`.
 
-Optional alert notifications use environment variables only. Set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`, `DISCORD_WEBHOOK_URL`, or `SLACK_WEBHOOK_URL` to enable the matching notification channel. `ALERT_EVALUATION_INTERVAL_MS` controls the periodic evaluator used for silence/no-execution alerts.
+Optional alert notifications use environment variables only. Set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`, `DISCORD_WEBHOOK_URL`, or `SLACK_WEBHOOK_URL` to enable the matching notification channel. For Telegram forum topics, set `TELEGRAM_TOPIC_ID` or `TELEGRAM_MESSAGE_THREAD_ID`; severity-specific overrides are available with `TELEGRAM_WARNING_TOPIC_ID`, `TELEGRAM_CRITICAL_TOPIC_ID`, and `TELEGRAM_INFO_TOPIC_ID`. `ALERT_EVALUATION_INTERVAL_MS` controls the periodic evaluator used for silence/no-execution alerts.
 
 Start the stack:
 
