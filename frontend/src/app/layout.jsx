@@ -33,7 +33,7 @@ export default function RootLayout({ children }) {
       </head>
       <body>
         <ThemeProvider>
-          <div className="min-h-screen bg-surface">
+          <div className="flex min-h-screen flex-col bg-surface">
             <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/85 dark:border-slate-800 dark:bg-slate-950/95 dark:supports-[backdrop-filter]:bg-slate-950/85">
               <div className="mx-auto flex max-w-7xl flex-col gap-2 px-4 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))] sm:px-6 md:flex-row md:items-center md:justify-between md:gap-3 md:py-4 lg:px-8">
                 <Link href="/" className="flex min-h-12 items-center justify-center md:min-h-10 md:justify-start">
@@ -58,7 +58,19 @@ export default function RootLayout({ children }) {
                 </div>
               </div>
             </header>
-            <main className="mx-auto max-w-7xl px-4 pb-[calc(2rem+env(safe-area-inset-bottom))] pt-5 sm:px-6 sm:py-8 lg:px-8">{children}</main>
+            <main className="mx-auto w-full max-w-7xl flex-1 px-4 pb-8 pt-5 sm:px-6 sm:py-8 lg:px-8">{children}</main>
+            <footer className="border-t border-slate-200/70 bg-white/60 px-4 py-[calc(0.875rem+env(safe-area-inset-bottom))] text-center text-xs text-slate-500 backdrop-blur dark:border-slate-800/80 dark:bg-slate-950/50 dark:text-slate-400 sm:px-6">
+              <div className="mx-auto flex max-w-7xl flex-col items-center justify-center gap-1 sm:flex-row sm:justify-between">
+                <p className="font-medium tracking-normal text-slate-600 dark:text-slate-300">NYX × trisf.bot</p>
+                <p className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1">
+                  <span>Production</span>
+                  <span className="text-slate-300 dark:text-slate-700">•</span>
+                  <span>WIB</span>
+                  <span className="text-slate-300 dark:text-slate-700">•</span>
+                  <span>Live Monitoring</span>
+                </p>
+              </div>
+            </footer>
           </div>
         </ThemeProvider>
       </body>
