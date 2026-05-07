@@ -65,6 +65,8 @@ CREATE TABLE IF NOT EXISTS alert_events (
   resolved_at TIMESTAMP NULL,
   last_notified_at TIMESTAMP NULL,
   notification_count INT UNSIGNED NOT NULL DEFAULT 0,
+  last_notification_status ENUM('pending', 'success', 'failed', 'skipped') NULL,
+  last_notification_error TEXT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),

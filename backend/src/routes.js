@@ -7,6 +7,7 @@ import {
   evaluateAlertsSafely,
   getAlertRules,
   listAlerts,
+  sendTestTelegramNotification,
   updateAlertRule
 } from './alerting.js';
 import { normalizeTimelineBuckets, resolveDateFilter } from './utils/range-filter.js';
@@ -451,6 +452,11 @@ export async function registerRoutes(app) {
   app.post('/alerts/evaluate', async (request) => {
     const alerts = await evaluateAlerts(request.server);
     return { evaluated: true, active_triggers: alerts.length };
+  });
+
+  app.post('/alerts/test-telegram', async (request, reply) => {
+    const result = await sendTestTelegramNotification(request.server);
+    return reply.code(200).send(result);
   });
 
   app.post(

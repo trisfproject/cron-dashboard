@@ -104,6 +104,13 @@ export function evaluateAlerts() {
   });
 }
 
+export function sendTestTelegramNotification() {
+  return request('/alerts/test-telegram', {
+    method: 'POST',
+    body: JSON.stringify({})
+  });
+}
+
 export function acknowledgeAlert(id) {
   return request(`/alerts/${id}/acknowledge`, {
     method: 'POST',

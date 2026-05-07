@@ -93,6 +93,11 @@ export default function AlertsPage() {
                   <p className="text-sm text-slate-600 dark:text-slate-300">{alert.reason}</p>
                   <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
                     <AlertStateBadge state={alert.state} />
+                    {alert.last_notification_status ? (
+                      <span className="rounded-md bg-white px-2 py-1 font-medium capitalize ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
+                        Notify: {alert.last_notification_status}
+                      </span>
+                    ) : null}
                     <span>{alert.triggered_at || '-'}</span>
                   </div>
                   {alert.state === 'active' ? (
@@ -113,6 +118,7 @@ export default function AlertsPage() {
                     <th className="px-4 py-3">Severity</th>
                     <th className="px-4 py-3">State</th>
                     <th className="px-4 py-3">Reason</th>
+                    <th className="px-4 py-3">Notify</th>
                     <th className="px-4 py-3">Triggered</th>
                     <th className="px-4 py-3">Resolved</th>
                     <th className="px-4 py-3">Action</th>
@@ -125,6 +131,9 @@ export default function AlertsPage() {
                       <td className="whitespace-nowrap px-4 py-3"><AlertSeverityBadge severity={alert.severity} /></td>
                       <td className="whitespace-nowrap px-4 py-3"><AlertStateBadge state={alert.state} /></td>
                       <td className="min-w-[24rem] px-4 py-3 text-slate-600 dark:text-slate-300">{alert.reason}</td>
+                      <td className="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-300">
+                        {alert.last_notification_status || '-'}
+                      </td>
                       <td className="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-300">{alert.triggered_at || '-'}</td>
                       <td className="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-300">{alert.resolved_at || '-'}</td>
                       <td className="whitespace-nowrap px-4 py-3">
@@ -138,7 +147,7 @@ export default function AlertsPage() {
                   ))}
                   {alerts.length === 0 ? (
                     <tr>
-                      <td className="px-4 py-8 text-center text-slate-500" colSpan={7}>No alerts found.</td>
+                      <td className="px-4 py-8 text-center text-slate-500" colSpan={8}>No alerts found.</td>
                     </tr>
                   ) : null}
                 </tbody>

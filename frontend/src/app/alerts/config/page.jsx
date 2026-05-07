@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { createAlertRule, getAlertRules, updateAlertRule } from '@/lib/api';
+import { createAlertRule, getAlertRules, sendTestTelegramNotification, updateAlertRule } from '@/lib/api';
 
 const defaultRule = {
   name: '',
@@ -31,6 +31,8 @@ export default function AlertConfigPage() {
   const [form, setForm] = useState(defaultRule);
   const [editingId, setEditingId] = useState(null);
   const [error, setError] = useState('');
+  const [testStatus, setTestStatus] = useState('');
+  const [testLoading, setTestLoading] = useState(false);
 
   async function loadRules() {
     try {
@@ -99,12 +101,56 @@ export default function AlertConfigPage() {
     }
   }
 
+  async function testTelegram() {
+    setTestLoading(true);
+    setTestStatus('');
+    setError('');
+
+    try {
+      const result = await sendTestTelegramNotification();
+      setTestStatus(result?.status === 'success'
+        ? 'Telegram test notification delivered successfully.'
+        : `Telegram test notification was not delivered: ${result?.error || 'unknown error'}`);
+    } catch (testError) {
+      setTestStatus(`Telegram test notification failed: ${testError?.message || 'unknown error'}`);
+    } finally {
+      setTestLoading(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-normal text-ink">Alert Configuration</h1>
         <p className="mt-1 text-sm text-slate-500">Configure thresholds, cooldowns, and notification channels. Webhook secrets stay in environment variables.</p>
       </div>
+
+      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-ink">Telegram Delivery</h2>
+            <p className="mt-1 text-sm text-slate-500">Sends a safe test message using TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID from the backend environment.</p>
+          </div>
+          <button
+            type="button"
+            onClick={testTelegram}
+            disabled={testLoading}
+            className="inline-flex min-h-10 items-center justify-center rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300 dark:bg-blue-600 dark:hover:bg-blue-500"
+          >
+            {testLoading ? 'Sending...' : 'Send Test Notification'}
+          </button>
+        </div>
+        {testStatus ? (
+          <p className={`mt-3 rounded-md p-3 text-sm ${
+            testStatus.includes('successfully')
+              ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-200'
+              : 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-200'
+          }`}
+          >
+            {testStatus}
+          </p>
+        ) : null}
+      </section>
 
       <form onSubmit={saveRule} className="grid gap-4 rounded-lg border border-slate-200 bg-white p-5 shadow-sm md:grid-cols-2">
         {error ? <div className="rounded-md bg-rose-50 p-3 text-sm text-rose-700 md:col-span-2">{error}</div> : null}

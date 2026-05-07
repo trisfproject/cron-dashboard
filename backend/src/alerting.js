@@ -66,19 +66,121 @@ function nowIso() {
   return new Date().toISOString();
 }
 
-async function sendTelegram(alert, rule, text) {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
+function telegramChatIds() {
+  return String(process.env.TELEGRAM_CHAT_ID || '')
+    .split(',')
+    .map((chatId) => chatId.trim())
+    .filter(Boolean);
+}
 
-  if (!token || !chatId) {
-    return;
+function severityIcon(severity) {
+  return {
+    info: '🔵',
+    warning: '🟠',
+    critical: '🔴'
+  }[severity] || '⚪';
+}
+
+function stateIcon(state) {
+  return {
+    active: '🚨',
+    acknowledged: '👀',
+    resolved: '✅',
+    test: '🧪'
+  }[state] || '📡';
+}
+
+function escapeTelegramHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+}
+
+async function getAlertContext(alert, rule) {
+  const values = [Number(rule.timeframe_minutes || 5)];
+  const cronFilter = alert.cron_name ? 'AND cron_name = ?' : '';
+
+  if (alert.cron_name) {
+    values.push(alert.cron_name);
   }
 
-  await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, text })
-  });
+  const [[metrics]] = await pool.query(`
+    SELECT
+      COUNT(*) AS total_runs,
+      SUM(status = 1) AS failed_count,
+      SUM(status = 2) AS warning_count,
+      CASE WHEN COUNT(*) = 0 THEN 0 ELSE ROUND((SUM(status = 0) / COUNT(*)) * 100, 2) END AS success_rate,
+      MAX(server) AS server,
+      MAX(env) AS env,
+      DATE_FORMAT(CONVERT_TZ(MAX(timestamp), '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s') AS last_run_wib
+    FROM cron_logs
+    WHERE timestamp >= UTC_TIMESTAMP() - INTERVAL ? MINUTE
+      ${cronFilter}
+  `, values);
+
+  return metrics || {};
+}
+
+async function buildTelegramMessage(alert, rule, lifecycle = 'triggered') {
+  const context = await getAlertContext(alert, rule);
+  const title = lifecycle === 'resolved'
+    ? 'NYX Alert Resolved'
+    : lifecycle === 'test'
+      ? 'NYX Test Notification'
+      : alert.escalated
+        ? 'NYX Critical Escalation'
+        : 'NYX Alert Triggered';
+  const state = lifecycle === 'resolved' ? 'resolved' : lifecycle === 'test' ? 'test' : alert.state;
+  const timestamp = context.last_run_wib || nowIso();
+
+  return [
+    `${stateIcon(state)} <b>${escapeTelegramHtml(title)}</b>`,
+    '',
+    `${severityIcon(alert.severity)} <b>Severity:</b> ${escapeTelegramHtml(alert.severity || 'unknown')}`,
+    `📌 <b>Rule:</b> ${escapeTelegramHtml(rule.name || alert.type)}`,
+    `🧭 <b>Cron:</b> ${escapeTelegramHtml(alert.cron_name || 'all monitored cron jobs')}`,
+    `🖥️ <b>Server:</b> ${escapeTelegramHtml(context.server || '-')}`,
+    `🏷️ <b>Env:</b> ${escapeTelegramHtml(context.env || '-')}`,
+    '',
+    `❌ <b>Failures:</b> ${Number(context.failed_count || 0)}`,
+    `⚠️ <b>Warnings:</b> ${Number(context.warning_count || 0)}`,
+    `📈 <b>Success rate:</b> ${Number(context.success_rate || 0)}%`,
+    '',
+    `🧾 <b>Reason:</b> ${escapeTelegramHtml(alert.reason)}`,
+    `🕒 <b>Timestamp:</b> ${escapeTelegramHtml(timestamp)} WIB`
+  ].join('\n');
+}
+
+async function sendTelegram(text) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatIds = telegramChatIds();
+
+  if (!token || chatIds.length === 0) {
+    return { sent: false, error: 'Telegram credentials are not configured' };
+  }
+
+  const results = await Promise.all(chatIds.map(async (chatId) => {
+    const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text,
+        parse_mode: 'HTML',
+        disable_web_page_preview: true
+      })
+    });
+
+    if (!response.ok) {
+      const responseText = await response.text();
+      throw new Error(`Telegram API ${response.status}: ${responseText.slice(0, 300)}`);
+    }
+
+    return response.json();
+  }));
+
+  return { sent: true, count: results.length };
 }
 
 async function sendWebhook(url, text, flavor) {
@@ -97,37 +199,51 @@ async function sendWebhook(url, text, flavor) {
   });
 }
 
-async function notifyAlert(app, alert, rule) {
+async function notifyAlert(app, alert, rule, lifecycle = 'triggered') {
   const channels = ruleChannels(rule);
 
   if (channels.length === 0) {
-    return false;
+    return { sent: false, status: 'skipped', error: 'No notification channels selected' };
   }
 
-  const text = [
-    `[NYX ${alert.severity.toUpperCase()}] ${rule.name}`,
-    `Cron: ${alert.cron_name || 'all monitored cron jobs'}`,
-    `Reason: ${alert.reason}`,
-    `State: ${alert.state}`,
-    `Triggered: ${nowIso()}`
-  ].join('\n');
+  const text = lifecycle === 'test'
+    ? [
+        '🧪 <b>NYX Test Notification</b>',
+        '',
+        'Telegram delivery is configured correctly.',
+        `🕒 <b>Timestamp:</b> ${escapeTelegramHtml(nowIso())}`
+      ].join('\n')
+    : await buildTelegramMessage(alert, rule, lifecycle);
+  let delivered = false;
+  const errors = [];
 
   const tasks = channels.map(async (channel) => {
     try {
       if (channel === 'telegram') {
-        await sendTelegram(alert, rule, text);
+        const result = await sendTelegram(text);
+        delivered = delivered || Boolean(result.sent);
+        if (!result.sent && result.error) {
+          errors.push(result.error);
+        }
       } else if (channel === 'discord') {
         await sendWebhook(process.env.DISCORD_WEBHOOK_URL, text, 'discord');
+        delivered = true;
       } else if (channel === 'slack') {
         await sendWebhook(process.env.SLACK_WEBHOOK_URL, text, 'slack');
+        delivered = true;
       }
     } catch (error) {
+      errors.push(`${channel}: ${error.message}`);
       app.log.warn({ channel, alert_id: alert.id, error: error.message }, 'Alert notification failed');
     }
   });
 
   await Promise.all(tasks);
-  return true;
+  return {
+    sent: delivered,
+    status: delivered ? 'success' : 'failed',
+    error: errors.join('; ') || null
+  };
 }
 
 async function listRules() {
@@ -326,7 +442,7 @@ async function evaluateRule(rule) {
 async function upsertAlert(app, rule, trigger) {
   const key = alertKey(rule, trigger.cron_name);
   const [[existing]] = await pool.query(
-    `SELECT id, state, last_notified_at
+    `SELECT id, state, severity, last_notified_at
      FROM alert_events
      WHERE alert_key = ?
      LIMIT 1`,
@@ -350,10 +466,12 @@ async function upsertAlert(app, rule, trigger) {
       state: 'active'
     };
 
-    await maybeNotify(app, alert, rule, null);
+    await maybeNotify(app, alert, rule, null, 'triggered');
     return alert;
   }
 
+  const escalated = existing.severity !== 'critical' && rule.severity === 'critical';
+  const reactivated = existing.state === 'resolved';
   await pool.query(`
     UPDATE alert_events
     SET reason = ?,
@@ -372,32 +490,45 @@ async function upsertAlert(app, rule, trigger) {
     type: rule.type,
     severity: rule.severity,
     reason: trigger.reason,
-    state: existing.state === 'resolved' ? 'active' : existing.state
+    state: reactivated ? 'active' : existing.state,
+    escalated
   };
 
-  await maybeNotify(app, alert, rule, existing.last_notified_at);
+  if (reactivated || escalated) {
+    await maybeNotify(app, alert, rule, existing.last_notified_at, escalated ? 'escalated' : 'triggered');
+  }
+
   return alert;
 }
 
-async function maybeNotify(app, alert, rule, lastNotifiedAt) {
+async function updateNotificationStatus(alertId, result) {
+  await pool.query(`
+    UPDATE alert_events
+    SET last_notification_status = ?,
+      last_notification_error = ?,
+      last_notified_at = CASE WHEN ? = 'success' THEN UTC_TIMESTAMP() ELSE last_notified_at END,
+      notification_count = CASE WHEN ? = 'success' THEN notification_count + 1 ELSE notification_count END,
+      updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `, [
+    result.status,
+    result.error ? String(result.error).slice(0, 1000) : null,
+    result.status,
+    result.status,
+    alertId
+  ]);
+}
+
+async function maybeNotify(app, alert, rule, lastNotifiedAt, lifecycle = 'triggered') {
   const cooldown = Number(rule.cooldown_minutes || 10) * 60 * 1000;
   const last = lastNotifiedAt ? new Date(lastNotifiedAt).getTime() : 0;
 
-  if (last && Date.now() - last < cooldown) {
+  if (lifecycle === 'triggered' && last && Date.now() - last < cooldown) {
     return;
   }
 
-  const sent = await notifyAlert(app, alert, rule);
-
-  if (sent) {
-    await pool.query(`
-      UPDATE alert_events
-      SET last_notified_at = UTC_TIMESTAMP(),
-        notification_count = notification_count + 1,
-        updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `, [alert.id]);
-  }
+  const result = await notifyAlert(app, alert, rule, lifecycle === 'escalated' ? 'triggered' : lifecycle);
+  await updateNotificationStatus(alert.id, result);
 }
 
 export async function evaluateAlerts(app) {
@@ -430,6 +561,16 @@ export async function evaluateAlerts(app) {
       .map((row) => row.id);
 
     if (resolvedIds.length > 0) {
+      const [resolvedAlerts] = await pool.query(`
+        SELECT alert_events.id, alert_events.rule_id, alert_rules.name AS rule_name,
+          alert_rules.channels, alert_rules.cooldown_minutes,
+          alert_events.cron_name, alert_events.type, alert_events.severity,
+          alert_events.reason, alert_events.state
+        FROM alert_events
+        INNER JOIN alert_rules ON alert_rules.id = alert_events.rule_id
+        WHERE alert_events.id IN (${resolvedIds.map(() => '?').join(',')})
+      `, resolvedIds);
+
       await pool.query(
         `UPDATE alert_events
          SET state = 'resolved',
@@ -438,6 +579,17 @@ export async function evaluateAlerts(app) {
          WHERE id IN (${resolvedIds.map(() => '?').join(',')})`,
         resolvedIds
       );
+
+      for (const resolvedAlert of resolvedAlerts) {
+        const rule = {
+          id: resolvedAlert.rule_id,
+          name: resolvedAlert.rule_name,
+          channels: resolvedAlert.channels,
+          cooldown_minutes: resolvedAlert.cooldown_minutes,
+          timeframe_minutes: 5
+        };
+        await maybeNotify(app, { ...resolvedAlert, state: 'resolved' }, rule, null, 'resolved');
+      }
     }
   }
 
@@ -527,6 +679,8 @@ export async function listAlerts({ state = 'active', limit = 50 } = {}) {
       DATE_FORMAT(CONVERT_TZ(alert_events.resolved_at, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s') AS resolved_at,
       DATE_FORMAT(CONVERT_TZ(alert_events.last_notified_at, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s') AS last_notified_at,
       alert_events.notification_count,
+      alert_events.last_notification_status,
+      alert_events.last_notification_error,
       ${JAKARTA_NOW_SQL} AS now_wib
     FROM alert_events
     INNER JOIN alert_rules ON alert_rules.id = alert_events.rule_id
@@ -546,4 +700,26 @@ export async function acknowledgeAlert(id) {
       updated_at = CURRENT_TIMESTAMP
     WHERE id = ? AND state = 'active'
   `, [id]);
+}
+
+export async function sendTestTelegramNotification(app) {
+  const result = await notifyAlert(
+    app,
+    {
+      id: 0,
+      cron_name: 'nyx-test-cron',
+      severity: 'info',
+      reason: 'Manual test notification from NYX Alert Configuration',
+      state: 'test',
+      type: 'test'
+    },
+    {
+      name: 'Telegram delivery test',
+      channels: ['telegram'],
+      timeframe_minutes: 5
+    },
+    'test'
+  );
+
+  return result;
 }
