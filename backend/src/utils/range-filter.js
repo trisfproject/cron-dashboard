@@ -55,14 +55,23 @@ function daysBetweenInclusive(startDateOnly, endDateOnly) {
 
 function getTimelineGroupFormatForDays(days) {
   if (days <= 7) {
-    return '%Y-%m-%d %H:00:00';
+    return {
+      format: '%Y-%m-%d %H:00:00',
+      interval: 'hour'
+    };
   }
 
   if (days <= 90) {
-    return '%Y-%m-%d';
+    return {
+      format: '%Y-%m-%d',
+      interval: 'day'
+    };
   }
 
-  return '%Y-%m-01';
+  return {
+    format: '%Y-%m-01',
+    interval: 'month'
+  };
 }
 
 export function isValidRange(range) {
@@ -84,6 +93,8 @@ export function resolveDateFilter(query = {}) {
     const days = daysBetweenInclusive(query.start, query.end);
 
     if (end >= start && days <= MAX_CUSTOM_DAYS) {
+      const grouping = getTimelineGroupFormatForDays(days);
+
       return {
         clause: 'timestamp BETWEEN ? AND ?',
         values: [toMysqlDateTime(start), toMysqlDateTime(end)],
@@ -91,7 +102,8 @@ export function resolveDateFilter(query = {}) {
         start: query.start,
         end: query.end,
         days,
-        timelineFormat: getTimelineGroupFormatForDays(days)
+        timelineFormat: grouping.format,
+        timelineInterval: grouping.interval
       };
     }
   }
@@ -102,13 +114,15 @@ export function resolveDateFilter(query = {}) {
   const todayJakarta = getJakartaDateOnly(now);
   const presetStartDate = addDaysToDateOnly(todayJakarta, -(days - 1));
   const presetStart = startOfJakartaDay(presetStartDate);
+  const grouping = getTimelineGroupFormatForDays(days);
 
   return {
     clause: 'timestamp BETWEEN ? AND ?',
     values: [toMysqlDateTime(presetStart), toMysqlDateTime(presetEnd)],
     range,
     days,
-    timelineFormat: getTimelineGroupFormatForDays(days)
+    timelineFormat: grouping.format,
+    timelineInterval: grouping.interval
   };
 }
 

@@ -40,7 +40,8 @@ function normalizeStatsResponse(data, range) {
   return {
     summary: source?.summary && typeof source.summary === 'object' ? source.summary : {},
     timeline: Array.isArray(source?.timeline) ? source.timeline : [],
-    range: source?.range || range
+    range: source?.range || range,
+    interval: source?.interval || 'hour'
   };
 }
 
@@ -165,6 +166,7 @@ function DashboardContent({ initialRange = '7d', initialCustomRange = null }) {
 
   const summary = stats?.summary ?? {};
   const timeline = Array.isArray(stats?.timeline) ? stats.timeline : [];
+  const timelineInterval = stats?.interval || 'hour';
   const logsArray = Array.isArray(logs) ? logs : [];
 
   return (
@@ -228,7 +230,7 @@ function DashboardContent({ initialRange = '7d', initialCustomRange = null }) {
             {!customRange && range === 'year' && 'Monthly run outcomes from the last year.'}
           </p>
         </div>
-        <TimelineChart data={timeline} />
+        <TimelineChart data={timeline} interval={timelineInterval} />
       </section>
 
       <section className="space-y-4">

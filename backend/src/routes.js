@@ -172,9 +172,9 @@ export async function registerRoutes(app) {
         SELECT
           DATE_FORMAT(CONVERT_TZ(timestamp, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '${dateFilter.timelineFormat}') AS bucket,
           COUNT(*) AS total,
-          SUM(status = 0) AS success,
-          SUM(status = 1) AS failed,
-          SUM(status = 2) AS warning,
+          SUM(CASE WHEN status = 0 THEN 1 ELSE 0 END) AS success,
+          SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) AS failed,
+          SUM(CASE WHEN status = 2 THEN 1 ELSE 0 END) AS warning,
           ROUND(AVG(duration), 2) AS average_duration
         FROM cron_logs
         WHERE ${dateFilter.clause}
@@ -187,7 +187,8 @@ export async function registerRoutes(app) {
         timeline,
         range: dateFilter.range,
         start: dateFilter.start,
-        end: dateFilter.end
+        end: dateFilter.end,
+        interval: dateFilter.timelineInterval
       };
     }
   );
