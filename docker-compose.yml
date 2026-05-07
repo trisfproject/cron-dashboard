@@ -45,8 +45,16 @@ services:
       DB_HOST: mysql
       DB_PORT: 3306
       LOG_LEVEL: info
+    # Exposed to 0.0.0.0 (all interfaces) for external NGINX LB access.
+    # IMPORTANT: Binding to 127.0.0.1 restricts access to localhost only.
+    # For multi-VM architecture (Cloudflare -> NGINX LB VM -> App VM),
+    # we must bind to 0.0.0.0 to allow the LB VM to reach this service.
+    # SECURITY: Use firewall rules to restrict access:
+    #   - Allow only NGINX LB VM IP to 3100 (iptables/ufw)
+    #   - Deny public internet access (0.0.0.0/0)
+    #   - Consider network segmentation (security groups in cloud)
     ports:
-      - "127.0.0.1:3100:3000"
+      - "3100:3000"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health >/dev/null 2>&1"]
       interval: 10s
@@ -73,8 +81,16 @@ services:
     environment:
       NODE_ENV: production
       TZ: Asia/Jakarta
+    # Exposed to 0.0.0.0 (all interfaces) for external NGINX LB access.
+    # IMPORTANT: Binding to 127.0.0.1 restricts access to localhost only.
+    # For multi-VM architecture (Cloudflare -> NGINX LB VM -> App VM),
+    # we must bind to 0.0.0.0 to allow the LB VM to reach this service.
+    # SECURITY: Use firewall rules to restrict access:
+    #   - Allow only NGINX LB VM IP to 3101 (iptables/ufw)
+    #   - Deny public internet access (0.0.0.0/0)
+    #   - Consider network segmentation (security groups in cloud)
     ports:
-      - "127.0.0.1:3101:3000"
+      - "3101:3000"
     logging:
       driver: "json-file"
       options:
