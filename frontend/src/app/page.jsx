@@ -171,20 +171,50 @@ function getSystemHealth(summary) {
   return { label: 'Healthy', className: 'bg-emerald-50 text-emerald-700 ring-emerald-200' };
 }
 
-function getProblemSeverity(job) {
+function getCronHealthSeverity(job) {
   const failed = Number(job?.failed_count || 0);
   const warnings = Number(job?.warning_count || 0);
   const successRate = Number(job?.success_rate || 0);
 
   if (failed > 0 || successRate < 90) {
-    return { label: 'Critical', className: 'bg-rose-50 text-rose-700 ring-rose-200' };
+    return { label: 'Critical', score: 3, className: 'bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-950/50 dark:text-rose-200 dark:ring-rose-900' };
   }
 
-  if (warnings > 0 || successRate < 98) {
-    return { label: 'Degraded', className: 'bg-amber-50 text-amber-700 ring-amber-200' };
+  if (successRate < 98) {
+    return { label: 'Degraded', score: 2, className: 'bg-orange-50 text-orange-700 ring-orange-200 dark:bg-orange-950/50 dark:text-orange-200 dark:ring-orange-900' };
   }
 
-  return { label: 'Watch', className: 'bg-blue-50 text-blue-700 ring-blue-200' };
+  if (warnings > 0) {
+    return { label: 'Warning', score: 1, className: 'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-950/50 dark:text-amber-200 dark:ring-amber-900' };
+  }
+
+  return { label: 'Healthy', score: 0, className: 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-200 dark:ring-emerald-900' };
+}
+
+function rankCronHealthJobs(jobs) {
+  return [...jobs]
+    .map((job) => ({ ...job, health: getCronHealthSeverity(job) }))
+    .sort((left, right) => {
+      const healthDelta = right.health.score - left.health.score;
+
+      if (healthDelta !== 0) {
+        return healthDelta;
+      }
+
+      const failureDelta = Number(right.failed_count || 0) - Number(left.failed_count || 0);
+
+      if (failureDelta !== 0) {
+        return failureDelta;
+      }
+
+      const warningDelta = Number(right.warning_count || 0) - Number(left.warning_count || 0);
+
+      if (warningDelta !== 0) {
+        return warningDelta;
+      }
+
+      return Number(left.success_rate || 0) - Number(right.success_rate || 0);
+    });
 }
 
 function getPerformanceSeverity(job) {
@@ -452,6 +482,8 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
   const timelineInterval = stats?.interval || 'hour';
   const insights = stats?.insights && typeof stats.insights === 'object' ? stats.insights : {};
   const problematicJobs = Array.isArray(insights.problematic_jobs) ? insights.problematic_jobs : [];
+  const rankedHealthJobs = rankCronHealthJobs(problematicJobs);
+  const attentionHealthJobs = rankedHealthJobs.filter((job) => Number(job?.health?.score || 0) > 0);
   const slowestJobs = Array.isArray(insights.slowest_jobs) ? insights.slowest_jobs : [];
   const logsArray = Array.isArray(logs) ? logs : [];
   const isCustom = filter.type === 'custom';
@@ -616,38 +648,34 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
       <section className="grid gap-4 xl:grid-cols-2">
         <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-4">
-            <h2 className="text-base font-semibold text-ink">Top problematic cron jobs</h2>
-            <p className="mt-1 text-sm text-slate-500">Sorted by warnings, low success rate, and recent failures.</p>
+            <h2 className="text-base font-semibold text-ink">Cron Health Overview</h2>
+            <p className="mt-1 text-sm text-slate-500">Operational reliability across monitored cron jobs.</p>
           </div>
           <div className="space-y-3 md:hidden">
-            {problematicJobs.map((job, index) => {
-              const severity = getProblemSeverity(job);
-
-              return (
-                <article key={`${job?.cron_name ?? 'cron'}-${index}-mobile`} className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
-                  <div className="flex items-start justify-between gap-3">
-                    <p className="min-w-0 break-words text-sm font-semibold text-ink">{job?.cron_name ?? '-'}</p>
-                    <span className={`shrink-0 rounded-md px-2 py-1 text-xs font-medium ring-1 ${severity.className}`}>{severity.label}</span>
+            {attentionHealthJobs.map((job, index) => (
+              <article key={`${job?.cron_name ?? 'cron'}-${index}-mobile`} className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
+                <div className="flex items-start justify-between gap-3">
+                  <p className="min-w-0 break-words text-sm font-semibold text-ink">{job?.cron_name ?? '-'}</p>
+                  <span className={`shrink-0 rounded-md px-2 py-1 text-xs font-medium ring-1 ${job.health.className}`}>{job.health.label}</span>
+                </div>
+                <div className="grid grid-cols-1 gap-2 text-sm min-[420px]:grid-cols-3">
+                  <div className="rounded-md bg-white p-2 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
+                    <p className="text-xs text-slate-500">Success rate</p>
+                    <p className="mt-1 font-medium text-slate-700 dark:text-slate-200">{formatPercent(job?.success_rate ?? 0)}</p>
                   </div>
-                  <div className="grid grid-cols-3 gap-2 text-sm">
-                    <div>
-                      <p className="text-xs text-slate-500">Success</p>
-                      <p className="mt-1 font-medium text-slate-700">{formatPercent(job?.success_rate ?? 0)}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-slate-500">Warnings</p>
-                      <p className="mt-1 font-medium text-slate-700">{formatNumber(job?.warning_count ?? 0)}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-slate-500">Failed</p>
-                      <p className="mt-1 font-medium text-slate-700">{formatNumber(job?.failed_count ?? 0)}</p>
-                    </div>
+                  <div className="rounded-md bg-white p-2 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
+                    <p className="text-xs text-slate-500">Warnings</p>
+                    <p className="mt-1 font-medium text-slate-700 dark:text-slate-200">{formatNumber(job?.warning_count ?? 0)}</p>
                   </div>
-                </article>
-              );
-            })}
-            {problematicJobs.length === 0 ? (
-              <div className="rounded-lg bg-slate-50 px-3 py-8 text-center text-sm text-slate-500 dark:bg-slate-950">No cron issues in this timeframe.</div>
+                  <div className="rounded-md bg-white p-2 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
+                    <p className="text-xs text-slate-500">Failed</p>
+                    <p className="mt-1 font-medium text-slate-700 dark:text-slate-200">{formatNumber(job?.failed_count ?? 0)}</p>
+                  </div>
+                </div>
+              </article>
+            ))}
+            {attentionHealthJobs.length === 0 ? (
+              <div className="rounded-lg bg-emerald-50 px-3 py-8 text-center text-sm text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:ring-emerald-900">All monitored cron jobs are healthy.</div>
             ) : null}
           </div>
           <div className="hidden overflow-x-auto md:block">
@@ -655,23 +683,27 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
               <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
                 <tr>
                   <th className="px-3 py-2">Cron</th>
+                  <th className="px-3 py-2">Health</th>
                   <th className="px-3 py-2">Success</th>
                   <th className="px-3 py-2">Warnings</th>
                   <th className="px-3 py-2">Failed</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {problematicJobs.map((job, index) => (
+                {attentionHealthJobs.map((job, index) => (
                   <tr key={`${job?.cron_name ?? 'cron'}-${index}`}>
                     <td className="max-w-[18rem] truncate px-3 py-2 font-medium text-ink">{job?.cron_name ?? '-'}</td>
-                    <td className="whitespace-nowrap px-3 py-2 text-slate-600">{formatPercent(job?.success_rate ?? 0)}</td>
-                    <td className="whitespace-nowrap px-3 py-2 text-slate-600">{formatNumber(job?.warning_count ?? 0)}</td>
-                    <td className="whitespace-nowrap px-3 py-2 text-slate-600">{formatNumber(job?.failed_count ?? 0)}</td>
+                    <td className="whitespace-nowrap px-3 py-2">
+                      <span className={`rounded-md px-2 py-1 text-xs font-medium ring-1 ${job.health.className}`}>{job.health.label}</span>
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2 text-slate-600 dark:text-slate-300">{formatPercent(job?.success_rate ?? 0)}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-slate-600 dark:text-slate-300">{formatNumber(job?.warning_count ?? 0)}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-slate-600 dark:text-slate-300">{formatNumber(job?.failed_count ?? 0)}</td>
                   </tr>
                 ))}
-                {problematicJobs.length === 0 ? (
+                {attentionHealthJobs.length === 0 ? (
                   <tr>
-                    <td className="px-3 py-8 text-center text-slate-500" colSpan={4}>No cron issues in this timeframe.</td>
+                    <td className="px-3 py-8 text-center text-emerald-700 dark:text-emerald-200" colSpan={5}>All monitored cron jobs are healthy.</td>
                   </tr>
                 ) : null}
               </tbody>
