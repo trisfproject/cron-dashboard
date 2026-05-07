@@ -659,7 +659,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
             <p className="mt-1 text-sm text-slate-500">Latest ingested executions. Showing {formatNumber(logsArray.length)} entries.</p>
           </div>
         </div>
-        <LogsTable logs={logsArray} />
+        <LogsTable logs={logsArray} variant="activity" />
         <div className="flex flex-col items-center gap-3 rounded-lg border border-slate-200 bg-white px-4 py-4 text-sm shadow-sm">
           {logsError ? <p className="text-rose-700">{logsError}</p> : null}
           {logsLoadingMore ? (
