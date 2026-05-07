@@ -1,50 +1,57 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Calendar, X } from 'lucide-react';
+import { Calendar, RefreshCw, X } from 'lucide-react';
 
-const RANGE_OPTIONS = [
-  { value: 'today', label: 'Today', shortLabel: 'T' },
-  { value: '7d', label: '7 Days', shortLabel: '7D' },
-  { value: '30d', label: '30 Days', shortLabel: '30D' },
-  { value: 'quarter', label: 'Quarter', shortLabel: 'Q' },
-  { value: 'year', label: 'Year', shortLabel: 'Y' }
+const OPTIONS = [
+  { type: 'window', value: '5m', label: '5m' },
+  { type: 'window', value: '15m', label: '15m' },
+  { type: 'window', value: '30m', label: '30m' },
+  { type: 'window', value: '1h', label: '1H' },
+  { type: 'window', value: '4h', label: '4H' },
+  { type: 'range', value: 'today', label: 'Today' },
+  { type: 'range', value: '7d', label: '7D' },
+  { type: 'range', value: '30d', label: '30D' }
+];
+
+const REFRESH_OPTIONS = [
+  { value: 0, label: 'Off' },
+  { value: 10000, label: '10s' },
+  { value: 30000, label: '30s' },
+  { value: 60000, label: '1m' }
 ];
 
 const MAX_DAYS = 365;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-function isDateOnly(value) {
-  return /^\d{4}-\d{2}-\d{2}$/.test(value || '');
-}
-
-function daysBetween(start, end) {
-  if (!isDateOnly(start) || !isDateOnly(end)) {
-    return 0;
+function parseJakartaDateTime(value) {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value || '')) {
+    return null;
   }
 
-  const startDate = new Date(`${start}T00:00:00.000+07:00`);
-  const endDate = new Date(`${end}T00:00:00.000+07:00`);
-
-  return Math.floor((endDate.getTime() - startDate.getTime()) / DAY_MS) + 1;
+  const date = new Date(`${value}:00.000+07:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function validateRange(start, end) {
+  const startDate = parseJakartaDateTime(start);
+  const endDate = parseJakartaDateTime(end);
+
   if (!start || !end) {
-    return 'Select both start and end dates.';
+    return 'Select start and end time.';
   }
 
-  if (!isDateOnly(start) || !isDateOnly(end)) {
-    return 'Use valid dates.';
+  if (!startDate || !endDate) {
+    return 'Use valid WIB date and time values.';
   }
 
-  const days = daysBetween(start, end);
+  const duration = endDate.getTime() - startDate.getTime();
 
-  if (days <= 0) {
-    return 'End date must be after start date.';
+  if (duration <= 0) {
+    return 'End time must be after start time.';
   }
 
-  if (days > MAX_DAYS) {
+  if (duration > MAX_DAYS * DAY_MS) {
     return 'Custom range cannot exceed 365 days.';
   }
 
@@ -52,10 +59,12 @@ function validateRange(start, end) {
 }
 
 export function TimeRangeFilter({
-  selectedRange = 'today',
+  selectedFilter = { type: 'window', value: '30m' },
   customRange,
-  onRangeChange,
-  onCustomRangeChange
+  refreshInterval = 0,
+  onFilterChange,
+  onCustomRangeChange,
+  onRefreshIntervalChange
 }) {
   const [open, setOpen] = useState(false);
   const [draftStart, setDraftStart] = useState(customRange?.start || '');
@@ -86,8 +95,10 @@ export function TimeRangeFilter({
     return validateRange(draftStart, draftEnd);
   }, [draftStart, draftEnd]);
 
-  const hasCustomRange = Boolean(customRange?.start && customRange?.end);
-  const activeLabel = hasCustomRange ? `Custom: ${customRange.start} -> ${customRange.end}` : null;
+  const isCustom = selectedFilter?.type === 'custom';
+  const activeLabel = isCustom && customRange?.start && customRange?.end
+    ? `Custom: ${customRange.start.replace('T', ' ')} -> ${customRange.end.replace('T', ' ')} WIB`
+    : null;
 
   function applyCustomRange() {
     const validationError = validateRange(draftStart, draftEnd);
@@ -103,41 +114,62 @@ export function TimeRangeFilter({
   function clearCustomRange() {
     setDraftStart('');
     setDraftEnd('');
-    onRangeChange?.(selectedRange || 'today');
+    onFilterChange?.({ type: 'window', value: '30m' });
     setOpen(false);
   }
 
   return (
     <div className="relative flex flex-col items-start gap-2 sm:items-end" ref={popoverRef}>
       <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={() => setOpen((value) => !value)}
-          className={`inline-flex h-9 w-9 items-center justify-center rounded-md border text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800 ${
-            hasCustomRange ? 'border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-950' : 'border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900'
-          }`}
-          title="Custom date range"
-        >
-          <Calendar className="h-4 w-4" aria-hidden="true" />
-        </button>
-
         <div className="flex flex-wrap gap-1">
-          {RANGE_OPTIONS.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              onClick={() => onRangeChange?.(option.value)}
-              className={`rounded px-3 py-1.5 text-sm font-medium transition-colors ${
-                !hasCustomRange && selectedRange === option.value
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
-              }`}
-              title={option.label}
-            >
-              {option.shortLabel}
-            </button>
-          ))}
+          {OPTIONS.map((option) => {
+            const active = !isCustom && selectedFilter?.type === option.type && selectedFilter?.value === option.value;
+
+            return (
+              <button
+                key={`${option.type}-${option.value}`}
+                type="button"
+                onClick={() => onFilterChange?.({ type: option.type, value: option.value })}
+                className={`rounded px-3 py-1.5 text-sm font-medium transition-colors ${
+                  active
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
+                }`}
+              >
+                {option.label}
+              </button>
+            );
+          })}
+
+          <button
+            type="button"
+            onClick={() => setOpen((value) => !value)}
+            className={`inline-flex items-center gap-1 rounded px-3 py-1.5 text-sm font-medium transition-colors ${
+              isCustom
+                ? 'bg-blue-600 text-white'
+                : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
+            }`}
+            title="Custom date and time range"
+          >
+            <Calendar className="h-4 w-4" aria-hidden="true" />
+            Custom
+          </button>
         </div>
+
+        <label className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+          <RefreshCw className="h-4 w-4" aria-hidden="true" />
+          <select
+            value={refreshInterval}
+            onChange={(event) => onRefreshIntervalChange?.(Number(event.target.value))}
+            className="bg-transparent text-sm outline-none"
+          >
+            {REFRESH_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
 
       {activeLabel ? (
@@ -150,17 +182,17 @@ export function TimeRangeFilter({
       ) : null}
 
       {open ? (
-        <div className="absolute right-0 top-12 z-20 w-[calc(100vw-2rem)] max-w-sm rounded-lg border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+        <div className="absolute right-0 top-full z-20 mt-2 w-[calc(100vw-2rem)] max-w-md rounded-lg border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900">
           <div className="mb-3">
-            <p className="text-sm font-semibold text-ink dark:text-slate-100">Custom range</p>
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Up to 365 days. Custom dates override presets.</p>
+            <p className="text-sm font-semibold text-ink dark:text-slate-100">Custom window</p>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Select start and end in WIB. Custom ranges override live windows.</p>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="text-xs font-medium text-slate-600 dark:text-slate-300">
               Start
               <input
-                type="date"
+                type="datetime-local"
                 value={draftStart}
                 onChange={(event) => setDraftStart(event.target.value)}
                 className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-ink outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
@@ -170,7 +202,7 @@ export function TimeRangeFilter({
             <label className="text-xs font-medium text-slate-600 dark:text-slate-300">
               End
               <input
-                type="date"
+                type="datetime-local"
                 value={draftEnd}
                 min={draftStart || undefined}
                 onChange={(event) => setDraftEnd(event.target.value)}

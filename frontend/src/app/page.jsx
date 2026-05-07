@@ -13,22 +13,26 @@ import { formatDuration, formatNumber, formatPercent } from '@/lib/format';
 const emptyStats = {
   summary: {},
   timeline: [],
-  range: 'today'
+  mode: 'window',
+  window: '30m',
+  interval: '1m'
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const VALID_WINDOWS = new Set(['5m', '15m', '30m', '1h', '4h']);
+const VALID_RANGES = new Set(['today', '7d', '30d']);
 
-function isDateOnly(value) {
-  return /^\d{4}-\d{2}-\d{2}$/.test(value || '');
+function isDateTimeLocal(value) {
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value || '');
 }
 
 function isValidCustomRange(range) {
-  if (!isDateOnly(range?.start) || !isDateOnly(range?.end)) {
+  if (!isDateTimeLocal(range?.start) || !isDateTimeLocal(range?.end)) {
     return false;
   }
 
-  const start = new Date(`${range.start}T00:00:00.000+07:00`);
-  const end = new Date(`${range.end}T00:00:00.000+07:00`);
+  const start = new Date(`${range.start}:00.000+07:00`);
+  const end = new Date(`${range.end}:00.000+07:00`);
   const days = Math.floor((end.getTime() - start.getTime()) / DAY_MS) + 1;
 
   return days > 0 && days <= 365;
@@ -40,6 +44,8 @@ function normalizeStatsResponse(data, range) {
   return {
     summary: source?.summary && typeof source.summary === 'object' ? source.summary : {},
     timeline: Array.isArray(source?.timeline) ? source.timeline : [],
+    mode: source?.mode || 'window',
+    window: source?.window || null,
     range: source?.range || range,
     interval: source?.interval || 'hour'
   };
@@ -50,18 +56,32 @@ function normalizeLogsResponse(data) {
   return Array.isArray(source?.logs) ? source.logs : [];
 }
 
-function DashboardContent({ initialRange = 'today', initialCustomRange = null }) {
-  const [range, setRange] = useState(initialRange);
+function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, initialCustomRange = null }) {
+  const [filter, setFilter] = useState(initialFilter);
   const [customRange, setCustomRange] = useState(isValidCustomRange(initialCustomRange) ? initialCustomRange : null);
   const [stats, setStats] = useState(emptyStats);
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [refreshInterval, setRefreshInterval] = useState(0);
+  const [refreshTick, setRefreshTick] = useState(0);
 
   useEffect(() => {
-    setRange(initialRange);
+    setFilter(initialFilter);
     setCustomRange(isValidCustomRange(initialCustomRange) ? initialCustomRange : null);
-  }, [initialRange, initialCustomRange?.start, initialCustomRange?.end]);
+  }, [initialFilter.type, initialFilter.value, initialCustomRange?.start, initialCustomRange?.end]);
+
+  useEffect(() => {
+    if (!refreshInterval) {
+      return undefined;
+    }
+
+    const timer = setInterval(() => {
+      setRefreshTick((value) => value + 1);
+    }, refreshInterval);
+
+    return () => clearInterval(timer);
+  }, [refreshInterval]);
 
   useEffect(() => {
     let cancelled = false;
@@ -74,21 +94,23 @@ function DashboardContent({ initialRange = 'today', initialCustomRange = null })
         const customParams = isValidCustomRange(customRange)
           ? { start: customRange.start, end: customRange.end }
           : null;
-        const params = customParams || { range };
+        const params = customParams || { [filter.type]: filter.value };
 
         const [statsData, logsData] = await Promise.all([
           getStats(params),
           getLogs({ ...params, limit: 20 })
         ]);
 
-        console.log('stats response', statsData);
-        console.log('logs response', logsData);
+        if (process.env.NODE_ENV === 'development') {
+          console.log('stats response', statsData);
+          console.log('logs response', logsData);
+        }
 
         if (cancelled) {
           return;
         }
 
-        setStats(normalizeStatsResponse(statsData, range));
+        setStats(normalizeStatsResponse(statsData, filter.value));
         setLogs(normalizeLogsResponse(logsData));
       } catch (error) {
         console.error('Failed to fetch dashboard data:', error);
@@ -110,7 +132,7 @@ function DashboardContent({ initialRange = 'today', initialCustomRange = null })
     return () => {
       cancelled = true;
     };
-  }, [range, customRange]);
+  }, [filter, customRange, refreshTick]);
 
   if (loading) {
     return (
@@ -168,6 +190,7 @@ function DashboardContent({ initialRange = 'today', initialCustomRange = null })
   const timeline = Array.isArray(stats?.timeline) ? stats.timeline : [];
   const timelineInterval = stats?.interval || 'hour';
   const logsArray = Array.isArray(logs) ? logs : [];
+  const isCustom = filter.type === 'custom';
 
   return (
     <div className="space-y-8">
@@ -177,17 +200,20 @@ function DashboardContent({ initialRange = 'today', initialCustomRange = null })
           <p className="mt-1 text-sm text-slate-500">Live health and execution trends across monitored cron jobs.</p>
         </div>
         <TimeRangeFilter
-          selectedRange={range}
+          selectedFilter={filter}
           customRange={customRange}
-          onRangeChange={(nextRange) => {
+          refreshInterval={refreshInterval}
+          onFilterChange={(nextFilter) => {
             setCustomRange(null);
-            setRange(nextRange);
+            setFilter(nextFilter);
           }}
           onCustomRangeChange={(nextCustomRange) => {
             if (isValidCustomRange(nextCustomRange)) {
               setCustomRange(nextCustomRange);
+              setFilter({ type: 'custom', value: 'custom' });
             }
           }}
+          onRefreshIntervalChange={setRefreshInterval}
         />
       </div>
 
@@ -222,12 +248,11 @@ function DashboardContent({ initialRange = 'today', initialCustomRange = null })
         <div className="mb-4">
           <h2 className="text-base font-semibold text-ink">Timeline</h2>
           <p className="mt-1 text-sm text-slate-500">
-            {customRange?.start && customRange?.end && `Custom range from ${customRange.start} to ${customRange.end}.`}
-            {!customRange && range === 'today' && 'Hourly run outcomes from today.'}
-            {!customRange && range === '7d' && 'Hourly run outcomes from the last seven days.'}
-            {!customRange && range === '30d' && 'Daily run outcomes from the last thirty days.'}
-            {!customRange && range === 'quarter' && 'Daily run outcomes from the last ninety days.'}
-            {!customRange && range === 'year' && 'Monthly run outcomes from the last year.'}
+            {isCustom && customRange?.start && customRange?.end && `Custom window from ${customRange.start.replace('T', ' ')} to ${customRange.end.replace('T', ' ')} WIB.`}
+            {!isCustom && filter.type === 'window' && `Rolling ${filter.value.toUpperCase()} realtime window.`}
+            {!isCustom && filter.type === 'range' && filter.value === 'today' && 'Today in WIB, grouped by hour.'}
+            {!isCustom && filter.type === 'range' && filter.value === '7d' && 'Last seven days, grouped by hour.'}
+            {!isCustom && filter.type === 'range' && filter.value === '30d' && 'Last thirty days, grouped by day.'}
           </p>
         </div>
         <TimelineChart data={timeline} interval={timelineInterval} />
@@ -246,12 +271,18 @@ function DashboardContent({ initialRange = 'today', initialCustomRange = null })
 
 function DashboardWithSearchParams() {
   const searchParams = useSearchParams();
-  const range = searchParams?.get('range') || 'today';
+  const window = searchParams?.get('window');
+  const range = searchParams?.get('range');
   const start = searchParams?.get('start');
   const end = searchParams?.get('end');
   const initialCustomRange = start && end ? { start, end } : null;
+  const initialFilter = initialCustomRange
+    ? { type: 'custom', value: 'custom' }
+    : VALID_RANGES.has(range)
+      ? { type: 'range', value: range }
+      : { type: 'window', value: VALID_WINDOWS.has(window) ? window : '30m' };
 
-  return <DashboardContent initialRange={range} initialCustomRange={initialCustomRange} />;
+  return <DashboardContent initialFilter={initialFilter} initialCustomRange={initialCustomRange} />;
 }
 
 export default function DashboardPage() {

@@ -145,9 +145,10 @@ export async function registerRoutes(app) {
         querystring: {
           type: 'object',
           properties: {
-            range: { type: 'string', enum: ['today', '7d', '30d', 'quarter', 'year'], default: 'today' },
-            start: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
-            end: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' }
+            range: { type: 'string', enum: ['today', '7d', '30d'] },
+            window: { type: 'string', enum: ['5m', '15m', '30m', '1h', '4h'] },
+            start: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}([ T]\\d{2}:\\d{2}(:\\d{2})?)?$' },
+            end: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}([ T]\\d{2}:\\d{2}(:\\d{2})?)?$' }
           }
         }
       }
@@ -186,6 +187,8 @@ export async function registerRoutes(app) {
       return {
         summary,
         timeline: normalizedTimeline,
+        mode: dateFilter.mode,
+        window: dateFilter.window,
         range: dateFilter.range,
         start: dateFilter.start,
         end: dateFilter.end,
@@ -240,9 +243,10 @@ export async function registerRoutes(app) {
             cron_name: { type: 'string' },
             server: { type: 'string' },
             status: { type: 'integer', enum: [0, 1, 2] },
-            range: { type: 'string', enum: ['today', '7d', '30d', 'quarter', 'year'], default: 'today' },
-            start: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
-            end: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
+            range: { type: 'string', enum: ['today', '7d', '30d'] },
+            window: { type: 'string', enum: ['5m', '15m', '30m', '1h', '4h'] },
+            start: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}([ T]\\d{2}:\\d{2}(:\\d{2})?)?$' },
+            end: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}([ T]\\d{2}:\\d{2}(:\\d{2})?)?$' },
             limit: { type: 'integer', minimum: 1, maximum: 500, default: 50 }
           }
         },

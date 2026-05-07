@@ -37,10 +37,12 @@ function TimelineTooltip({ active, payload, label, interval = 'hour' }) {
     warning: 'Warning runs'
   };
   const intervalLabel = {
+    '30s': '30-second interval',
+    '1m': '1-minute interval',
     '5m': '5-minute interval',
+    '15m': '15-minute interval',
     hour: 'hour',
-    day: 'day',
-    month: 'month'
+    day: 'day'
   }[interval] || interval;
 
   return (
