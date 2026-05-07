@@ -52,7 +52,7 @@ function validateRange(start, end) {
 }
 
 export function TimeRangeFilter({
-  selectedRange = '7d',
+  selectedRange = 'today',
   customRange,
   onRangeChange,
   onCustomRangeChange
@@ -103,7 +103,7 @@ export function TimeRangeFilter({
   function clearCustomRange() {
     setDraftStart('');
     setDraftEnd('');
-    onRangeChange?.(selectedRange || '7d');
+    onRangeChange?.(selectedRange || 'today');
     setOpen(false);
   }
 

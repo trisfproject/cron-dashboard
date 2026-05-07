@@ -13,7 +13,7 @@ import { formatDuration, formatNumber, formatPercent } from '@/lib/format';
 const emptyStats = {
   summary: {},
   timeline: [],
-  range: '7d'
+  range: 'today'
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -50,7 +50,7 @@ function normalizeLogsResponse(data) {
   return Array.isArray(source?.logs) ? source.logs : [];
 }
 
-function DashboardContent({ initialRange = '7d', initialCustomRange = null }) {
+function DashboardContent({ initialRange = 'today', initialCustomRange = null }) {
   const [range, setRange] = useState(initialRange);
   const [customRange, setCustomRange] = useState(isValidCustomRange(initialCustomRange) ? initialCustomRange : null);
   const [stats, setStats] = useState(emptyStats);
@@ -246,7 +246,7 @@ function DashboardContent({ initialRange = '7d', initialCustomRange = null }) {
 
 function DashboardWithSearchParams() {
   const searchParams = useSearchParams();
-  const range = searchParams?.get('range') || '7d';
+  const range = searchParams?.get('range') || 'today';
   const start = searchParams?.get('start');
   const end = searchParams?.get('end');
   const initialCustomRange = start && end ? { start, end } : null;

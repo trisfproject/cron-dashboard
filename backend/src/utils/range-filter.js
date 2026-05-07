@@ -196,7 +196,7 @@ export function isValidRange(range) {
 }
 
 export function getDefaultRange() {
-  return '7d';
+  return 'today';
 }
 
 export function resolveDateFilter(query = {}) {
@@ -247,7 +247,7 @@ export function resolveDateFilter(query = {}) {
   };
 }
 
-export function getRangeDescription(range = '7d') {
+export function getRangeDescription(range = 'today') {
   const descriptions = {
     today: 'Today',
     '7d': 'Last 7 days',
