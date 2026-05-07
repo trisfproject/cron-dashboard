@@ -21,6 +21,7 @@ const PRESET_RANGES = {
 
 const MYSQL_CONVERTED_TS = "CONVERT_TZ(timestamp, '+00:00', '+07:00')";
 const MYSQL_BUCKET_EXPRESSIONS = {
+  '10s': `DATE_FORMAT(DATE_SUB(${MYSQL_CONVERTED_TS}, INTERVAL MOD(SECOND(${MYSQL_CONVERTED_TS}), 10) SECOND), '%Y-%m-%d %H:%i:%s')`,
   '30s': `DATE_FORMAT(DATE_SUB(${MYSQL_CONVERTED_TS}, INTERVAL MOD(SECOND(${MYSQL_CONVERTED_TS}), 30) SECOND), '%Y-%m-%d %H:%i:%s')`,
   '1m': `DATE_FORMAT(${MYSQL_CONVERTED_TS}, '%Y-%m-%d %H:%i:00')`,
   '5m': `DATE_FORMAT(DATE_SUB(${MYSQL_CONVERTED_TS}, INTERVAL MOD(MINUTE(${MYSQL_CONVERTED_TS}), 5) MINUTE), '%Y-%m-%d %H:%i:00')`,
@@ -71,6 +72,11 @@ function parseJakartaDateTime(value, boundary = 'start') {
     return boundary === 'end' ? endOfJakartaDay(value) : startOfJakartaDay(value);
   }
 
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?([+-]\d{2}:\d{2}|Z)$/.test(value)) {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
   if (!/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?$/.test(value)) {
     return null;
   }
@@ -84,11 +90,11 @@ function parseJakartaDateTime(value, boundary = 'start') {
 
 function getGroupingForWindow(window) {
   return {
-    '5m': '30s',
+    '5m': '10s',
     '15m': '1m',
     '30m': '1m',
     '1h': '5m',
-    '4h': '15m'
+    '4h': '5m'
   }[window] || '1m';
 }
 
@@ -103,15 +109,19 @@ function getGroupingForRange(range) {
 function getGroupingForCustom(start, end) {
   const duration = end.getTime() - start.getTime();
 
+  if (duration <= 5 * MINUTE_MS) {
+    return '10s';
+  }
+
   if (duration <= 30 * MINUTE_MS) {
     return '1m';
   }
 
-  if (duration <= HOUR_MS) {
+  if (duration <= 4 * HOUR_MS) {
     return '5m';
   }
 
-  if (duration <= 4 * HOUR_MS) {
+  if (duration <= 24 * HOUR_MS) {
     return '15m';
   }
 
@@ -125,8 +135,8 @@ function getGroupingForCustom(start, end) {
 function addStep(date, interval) {
   const next = new Date(date);
 
-  if (interval === '30s') {
-    next.setUTCSeconds(next.getUTCSeconds() + 30);
+  if (interval === '10s' || interval === '30s') {
+    next.setUTCSeconds(next.getUTCSeconds() + (interval === '10s' ? 10 : 30));
     return next;
   }
 
@@ -157,8 +167,9 @@ function addStep(date, interval) {
 function floorToBucket(date, interval) {
   const parts = getJakartaParts(date);
 
-  if (interval === '30s') {
-    return new Date(Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, Math.floor(parts.second / 30) * 30) - JAKARTA_OFFSET_HOURS * HOUR_MS);
+  if (interval === '10s' || interval === '30s') {
+    const seconds = interval === '10s' ? 10 : 30;
+    return new Date(Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, Math.floor(parts.second / seconds) * seconds) - JAKARTA_OFFSET_HOURS * HOUR_MS);
   }
 
   if (interval === '1m') {
@@ -184,7 +195,7 @@ function formatBucket(date, interval) {
   const parts = getJakartaParts(date);
   const datePart = `${parts.year}-${pad(parts.month)}-${pad(parts.day)}`;
 
-  if (['30s', '1m', '5m', '15m', 'hour'].includes(interval)) {
+  if (['10s', '30s', '1m', '5m', '15m', 'hour'].includes(interval)) {
     return `${datePart} ${pad(parts.hour)}:${pad(parts.minute)}:${pad(parts.second)}`;
   }
 

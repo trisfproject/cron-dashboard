@@ -1,8 +1,8 @@
 'use client';
 
-import { Suspense, useState, useEffect } from 'react';
+import { Suspense, useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { AlertTriangle, CheckCircle2, Clock3, ListChecks } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Clock3, ListChecks, Radio, RotateCcw } from 'lucide-react';
 import { MetricCard } from '@/components/MetricCard';
 import { TimelineChart } from '@/components/TimelineChart';
 import { LogsTable } from '@/components/LogsTable';
@@ -21,21 +21,67 @@ const emptyStats = {
 const DAY_MS = 24 * 60 * 60 * 1000;
 const VALID_WINDOWS = new Set(['5m', '15m', '30m', '1h', '4h']);
 const VALID_RANGES = new Set(['today', '7d', '30d']);
+const JAKARTA_OFFSET_MS = 7 * 60 * 60 * 1000;
 
-function isDateTimeLocal(value) {
-  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value || '');
+function parseJakartaDateTime(value) {
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value || '')) {
+    const date = new Date(`${value}:00.000+07:00`);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}([+-]\d{2}:\d{2}|Z)$/.test(value || '')) {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  return null;
+}
+
+function formatJakartaOffset(date) {
+  const jakartaDate = new Date(date.getTime() + JAKARTA_OFFSET_MS);
+  const pad = (value) => String(value).padStart(2, '0');
+
+  return `${jakartaDate.getUTCFullYear()}-${pad(jakartaDate.getUTCMonth() + 1)}-${pad(jakartaDate.getUTCDate())}T${pad(jakartaDate.getUTCHours())}:${pad(jakartaDate.getUTCMinutes())}:${pad(jakartaDate.getUTCSeconds())}+07:00`;
+}
+
+function formatJakartaDisplay(value) {
+  const date = parseJakartaDateTime(value);
+
+  if (!date) {
+    return value;
+  }
+
+  return formatJakartaOffset(date).slice(0, 19).replace('T', ' ');
 }
 
 function isValidCustomRange(range) {
-  if (!isDateTimeLocal(range?.start) || !isDateTimeLocal(range?.end)) {
+  const start = parseJakartaDateTime(range?.start);
+  const end = parseJakartaDateTime(range?.end);
+
+  if (!start || !end) {
     return false;
   }
 
-  const start = new Date(`${range.start}:00.000+07:00`);
-  const end = new Date(`${range.end}:00.000+07:00`);
-  const days = Math.floor((end.getTime() - start.getTime()) / DAY_MS) + 1;
+  const duration = end.getTime() - start.getTime();
 
-  return days > 0 && days <= 365;
+  return duration > 0 && duration <= 365 * DAY_MS;
+}
+
+function shiftCustomRange(range, direction) {
+  const start = parseJakartaDateTime(range?.start);
+  const end = parseJakartaDateTime(range?.end);
+
+  if (!start || !end || end <= start) {
+    return null;
+  }
+
+  const duration = end.getTime() - start.getTime();
+  const delta = direction * duration;
+
+  return {
+    start: formatJakartaOffset(new Date(start.getTime() + delta)),
+    end: formatJakartaOffset(new Date(end.getTime() + delta))
+  };
 }
 
 function normalizeStatsResponse(data, range) {
@@ -65,14 +111,18 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
   const [error, setError] = useState(null);
   const [refreshInterval, setRefreshInterval] = useState(0);
   const [refreshTick, setRefreshTick] = useState(0);
+  const [liveMode, setLiveMode] = useState(initialFilter.type !== 'custom');
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const selectionTimerRef = useRef(null);
 
   useEffect(() => {
     setFilter(initialFilter);
     setCustomRange(isValidCustomRange(initialCustomRange) ? initialCustomRange : null);
+    setLiveMode(initialFilter.type !== 'custom');
   }, [initialFilter.type, initialFilter.value, initialCustomRange?.start, initialCustomRange?.end]);
 
   useEffect(() => {
-    if (!refreshInterval) {
+    if (!refreshInterval || !liveMode) {
       return undefined;
     }
 
@@ -81,7 +131,13 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
     }, refreshInterval);
 
     return () => clearInterval(timer);
-  }, [refreshInterval]);
+  }, [refreshInterval, liveMode]);
+
+  useEffect(() => () => {
+    if (selectionTimerRef.current) {
+      clearTimeout(selectionTimerRef.current);
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -123,6 +179,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
       } finally {
         if (!cancelled) {
           setLoading(false);
+          setHasLoaded(true);
         }
       }
     }
@@ -134,7 +191,39 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
     };
   }, [filter, customRange, refreshTick]);
 
-  if (loading) {
+  function applyCustomRange(nextCustomRange) {
+    if (isValidCustomRange(nextCustomRange)) {
+      setCustomRange(nextCustomRange);
+      setFilter({ type: 'custom', value: 'custom' });
+      setLiveMode(false);
+    }
+  }
+
+  function applySelectedTimelineRange(nextCustomRange) {
+    if (selectionTimerRef.current) {
+      clearTimeout(selectionTimerRef.current);
+    }
+
+    selectionTimerRef.current = setTimeout(() => {
+      applyCustomRange(nextCustomRange);
+    }, 250);
+  }
+
+  function resetZoom() {
+    setCustomRange(null);
+    setFilter({ type: 'window', value: '30m' });
+    setLiveMode(true);
+  }
+
+  function panCustomRange(direction) {
+    const nextRange = shiftCustomRange(customRange, direction);
+
+    if (nextRange) {
+      applyCustomRange(nextRange);
+    }
+  }
+
+  if (loading && !hasLoaded) {
     return (
       <div className="space-y-8">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
@@ -206,13 +295,9 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
           onFilterChange={(nextFilter) => {
             setCustomRange(null);
             setFilter(nextFilter);
+            setLiveMode(true);
           }}
-          onCustomRangeChange={(nextCustomRange) => {
-            if (isValidCustomRange(nextCustomRange)) {
-              setCustomRange(nextCustomRange);
-              setFilter({ type: 'custom', value: 'custom' });
-            }
-          }}
+          onCustomRangeChange={applyCustomRange}
           onRefreshIntervalChange={setRefreshInterval}
         />
       </div>
@@ -245,17 +330,72 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
       </section>
 
       <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="mb-4">
-          <h2 className="text-base font-semibold text-ink">Timeline</h2>
+        <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-ink">Timeline</h2>
           <p className="mt-1 text-sm text-slate-500">
-            {isCustom && customRange?.start && customRange?.end && `Custom window from ${customRange.start.replace('T', ' ')} to ${customRange.end.replace('T', ' ')} WIB.`}
+            {isCustom && customRange?.start && customRange?.end && `Custom window from ${formatJakartaDisplay(customRange.start)} to ${formatJakartaDisplay(customRange.end)} WIB.`}
             {!isCustom && filter.type === 'window' && `Rolling ${filter.value.toUpperCase()} realtime window.`}
             {!isCustom && filter.type === 'range' && filter.value === 'today' && 'Today in WIB, grouped by hour.'}
             {!isCustom && filter.type === 'range' && filter.value === '7d' && 'Last seven days, grouped by hour.'}
             {!isCustom && filter.type === 'range' && filter.value === '30d' && 'Last thirty days, grouped by day.'}
+            {loading ? ' Refreshing...' : ''}
           </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                if (!liveMode && isCustom) {
+                  resetZoom();
+                  return;
+                }
+
+                setLiveMode((value) => !value);
+              }}
+              className={`inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                liveMode
+                  ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+              title="Toggle live mode"
+            >
+              <Radio className="h-4 w-4" aria-hidden="true" />
+              {liveMode ? 'Live' : 'Paused'}
+            </button>
+            <button
+              type="button"
+              onClick={() => panCustomRange(-1)}
+              disabled={!isCustom}
+              className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
+              title="Pan backward by the selected window"
+            >
+              <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+              Pan
+            </button>
+            <button
+              type="button"
+              onClick={() => panCustomRange(1)}
+              disabled={!isCustom}
+              className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
+              title="Pan forward by the selected window"
+            >
+              Pan
+              <ChevronRight className="h-4 w-4" aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              onClick={resetZoom}
+              disabled={!isCustom && filter.type === 'window' && filter.value === '30m'}
+              className="inline-flex items-center gap-1 rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+              title="Reset zoom to the default 30m live window"
+            >
+              <RotateCcw className="h-4 w-4" aria-hidden="true" />
+              Reset Zoom
+            </button>
+          </div>
         </div>
-        <TimelineChart data={timeline} interval={timelineInterval} />
+        <TimelineChart data={timeline} interval={timelineInterval} onRangeSelect={applySelectedTimelineRange} />
       </section>
 
       <section className="space-y-4">

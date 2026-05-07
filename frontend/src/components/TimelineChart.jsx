@@ -7,14 +7,18 @@ import {
   Legend,
   Line,
   LineChart,
+  ReferenceArea,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis
 } from 'recharts';
+import { useState } from 'react';
+
+const MAX_RENDERED_POINTS = 720;
 
 function normalizeTimeline(data) {
-  return Array.isArray(data)
+  const normalized = Array.isArray(data)
     ? data.map((item) => ({
         ...item,
         bucket: item?.bucket || item?.date || item?.timestamp || '',
@@ -24,6 +28,25 @@ function normalizeTimeline(data) {
         warning: Number(item?.warning ?? 0)
       }))
     : [];
+
+  if (normalized.length <= MAX_RENDERED_POINTS) {
+    return normalized;
+  }
+
+  const step = Math.ceil(normalized.length / MAX_RENDERED_POINTS);
+  return normalized.filter((_, index) => index % step === 0);
+}
+
+function toJakartaOffsetTimestamp(label) {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(label || '')) {
+    return `${label}T00:00:00+07:00`;
+  }
+
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(label || '')) {
+    return `${label.replace(' ', 'T')}+07:00`;
+  }
+
+  return null;
 }
 
 function TimelineTooltip({ active, payload, label, interval = 'hour' }) {
@@ -37,6 +60,7 @@ function TimelineTooltip({ active, payload, label, interval = 'hour' }) {
     warning: 'Warning runs'
   };
   const intervalLabel = {
+    '10s': '10-second interval',
     '30s': '30-second interval',
     '1m': '1-minute interval',
     '5m': '5-minute interval',
@@ -61,8 +85,49 @@ function TimelineTooltip({ active, payload, label, interval = 'hour' }) {
   );
 }
 
-export function TimelineChart({ data = [], interval = 'hour' }) {
+export function TimelineChart({ data = [], interval = 'hour', onRangeSelect }) {
   const chartData = normalizeTimeline(data);
+  const [selectionStart, setSelectionStart] = useState(null);
+  const [selectionEnd, setSelectionEnd] = useState(null);
+
+  function resetSelection() {
+    setSelectionStart(null);
+    setSelectionEnd(null);
+  }
+
+  function handleMouseDown(event) {
+    if (!event?.activeLabel) {
+      return;
+    }
+
+    setSelectionStart(event.activeLabel);
+    setSelectionEnd(null);
+  }
+
+  function handleMouseMove(event) {
+    if (!selectionStart || !event?.activeLabel) {
+      return;
+    }
+
+    setSelectionEnd(event.activeLabel);
+  }
+
+  function handleMouseUp() {
+    if (!selectionStart || !selectionEnd || selectionStart === selectionEnd) {
+      resetSelection();
+      return;
+    }
+
+    const ordered = [selectionStart, selectionEnd].sort();
+    const start = toJakartaOffsetTimestamp(ordered[0]);
+    const end = toJakartaOffsetTimestamp(ordered[1]);
+
+    resetSelection();
+
+    if (start && end) {
+      onRangeSelect?.({ start, end });
+    }
+  }
 
   if (chartData.length === 0) {
     return (
@@ -75,7 +140,14 @@ export function TimelineChart({ data = [], interval = 'hour' }) {
   return (
     <div className="h-80 w-full">
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={chartData} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
+        <LineChart
+          data={chartData}
+          margin={{ top: 10, right: 12, left: 0, bottom: 0 }}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={resetSelection}
+        >
           <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
           <XAxis dataKey="bucket" tick={{ fontSize: 12 }} stroke="#64748b" minTickGap={28} />
           <YAxis tick={{ fontSize: 12 }} stroke="#64748b" allowDecimals={false} />
@@ -84,6 +156,9 @@ export function TimelineChart({ data = [], interval = 'hour' }) {
           <Line type="linear" dataKey="success" name="Success" stroke="#059669" strokeWidth={2} dot={false} isAnimationActive={false} />
           <Line type="linear" dataKey="failed" name="Failed" stroke="#e11d48" strokeWidth={2} dot={false} isAnimationActive={false} />
           <Line type="linear" dataKey="warning" name="Warning" stroke="#d97706" strokeWidth={2} dot={false} isAnimationActive={false} />
+          {selectionStart && selectionEnd ? (
+            <ReferenceArea x1={selectionStart} x2={selectionEnd} strokeOpacity={0.2} fill="#2563eb" fillOpacity={0.14} />
+          ) : null}
         </LineChart>
       </ResponsiveContainer>
     </div>

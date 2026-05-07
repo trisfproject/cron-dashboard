@@ -23,14 +23,38 @@ const REFRESH_OPTIONS = [
 
 const MAX_DAYS = 365;
 const DAY_MS = 24 * 60 * 60 * 1000;
+const JAKARTA_OFFSET_MS = 7 * 60 * 60 * 1000;
 
 function parseJakartaDateTime(value) {
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value || '')) {
-    return null;
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}([+-]\d{2}:\d{2}|Z)$/.test(value || '')) {
+      return null;
+    }
+
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
   }
 
   const date = new Date(`${value}:00.000+07:00`);
   return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function toJakartaInputValue(value) {
+  const date = parseJakartaDateTime(value);
+
+  if (!date) {
+    return '';
+  }
+
+  const jakartaDate = new Date(date.getTime() + JAKARTA_OFFSET_MS);
+  const pad = (part) => String(part).padStart(2, '0');
+
+  return `${jakartaDate.getUTCFullYear()}-${pad(jakartaDate.getUTCMonth() + 1)}-${pad(jakartaDate.getUTCDate())}T${pad(jakartaDate.getUTCHours())}:${pad(jakartaDate.getUTCMinutes())}`;
+}
+
+function toDisplayValue(value) {
+  const inputValue = toJakartaInputValue(value);
+  return inputValue ? inputValue.replace('T', ' ') : value;
 }
 
 function validateRange(start, end) {
@@ -67,13 +91,13 @@ export function TimeRangeFilter({
   onRefreshIntervalChange
 }) {
   const [open, setOpen] = useState(false);
-  const [draftStart, setDraftStart] = useState(customRange?.start || '');
-  const [draftEnd, setDraftEnd] = useState(customRange?.end || '');
+  const [draftStart, setDraftStart] = useState(toJakartaInputValue(customRange?.start));
+  const [draftEnd, setDraftEnd] = useState(toJakartaInputValue(customRange?.end));
   const popoverRef = useRef(null);
 
   useEffect(() => {
-    setDraftStart(customRange?.start || '');
-    setDraftEnd(customRange?.end || '');
+    setDraftStart(toJakartaInputValue(customRange?.start));
+    setDraftEnd(toJakartaInputValue(customRange?.end));
   }, [customRange?.start, customRange?.end]);
 
   useEffect(() => {
@@ -97,7 +121,7 @@ export function TimeRangeFilter({
 
   const isCustom = selectedFilter?.type === 'custom';
   const activeLabel = isCustom && customRange?.start && customRange?.end
-    ? `Custom: ${customRange.start.replace('T', ' ')} -> ${customRange.end.replace('T', ' ')} WIB`
+    ? `Custom: ${toDisplayValue(customRange.start)} -> ${toDisplayValue(customRange.end)} WIB`
     : null;
 
   function applyCustomRange() {
