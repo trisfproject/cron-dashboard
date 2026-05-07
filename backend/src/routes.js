@@ -328,7 +328,8 @@ export async function registerRoutes(app) {
             window: { type: 'string', enum: ['5m', '15m', '30m', '1h', '4h'] },
             start: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}(([ T]\\d{2}:\\d{2}(:\\d{2})?)|(T\\d{2}:\\d{2}(:\\d{2})?([+-]\\d{2}:\\d{2}|Z)))?$' },
             end: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}(([ T]\\d{2}:\\d{2}(:\\d{2})?)|(T\\d{2}:\\d{2}(:\\d{2})?([+-]\\d{2}:\\d{2}|Z)))?$' },
-            limit: { type: 'integer', minimum: 1, maximum: 500, default: 50 }
+            limit: { type: 'integer', minimum: 1, maximum: 500, default: 50 },
+            offset: { type: 'integer', minimum: 0, maximum: 10000, default: 0 }
           }
         },
         response: {
@@ -346,6 +347,7 @@ export async function registerRoutes(app) {
       const dateFilter = resolveDateFilter(request.query);
 
       const limit = Number(request.query.limit || 50);
+      const offset = Number(request.query.offset || 0);
       const filters = [];
       const values = [];
 
@@ -376,11 +378,11 @@ export async function registerRoutes(app) {
          FROM cron_logs
          ${where}
          ORDER BY timestamp DESC
-         LIMIT ?`,
-        [...values, limit]
+         LIMIT ? OFFSET ?`,
+        [...values, limit, offset]
       );
 
-      return { logs };
+      return { logs, limit, offset };
     }
   );
 }
