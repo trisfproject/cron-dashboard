@@ -2,7 +2,7 @@
 
 import { Suspense, useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Clock3, ListChecks, Radio, RotateCcw } from 'lucide-react';
+import { Activity, AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Clock3, DatabaseZap, ListChecks, Radio, RotateCcw, TrendingUp } from 'lucide-react';
 import { MetricCard } from '@/components/MetricCard';
 import { TimelineChart } from '@/components/TimelineChart';
 import { LogsTable } from '@/components/LogsTable';
@@ -13,6 +13,10 @@ import { formatDuration, formatNumber, formatPercent } from '@/lib/format';
 const emptyStats = {
   summary: {},
   timeline: [],
+  insights: {
+    problematic_jobs: [],
+    slowest_jobs: []
+  },
   mode: 'window',
   window: '30m',
   interval: '1m'
@@ -84,12 +88,95 @@ function shiftCustomRange(range, direction) {
   };
 }
 
+function getWindowMinutes(filter, customRange) {
+  if (isValidCustomRange(customRange)) {
+    const start = parseJakartaDateTime(customRange.start);
+    const end = parseJakartaDateTime(customRange.end);
+    return Math.max((end.getTime() - start.getTime()) / 60000, 1);
+  }
+
+  if (filter.type === 'window') {
+    return {
+      '5m': 5,
+      '15m': 15,
+      '30m': 30,
+      '1h': 60,
+      '4h': 240
+    }[filter.value] || 30;
+  }
+
+  if (filter.value === 'today') {
+    const jakartaNow = new Date(Date.now() + JAKARTA_OFFSET_MS);
+    return Math.max(jakartaNow.getUTCHours() * 60 + jakartaNow.getUTCMinutes(), 1);
+  }
+
+  return filter.value === '30d' ? 30 * 24 * 60 : 7 * 24 * 60;
+}
+
+function parseWibTimestamp(value) {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = typeof value === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(value)
+    ? `${value.replace(' ', 'T')}+07:00`
+    : value;
+  const date = new Date(normalized);
+
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatRelativeTime(value) {
+  const date = parseWibTimestamp(value);
+
+  if (!date) {
+    return 'No ingest';
+  }
+
+  const seconds = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000));
+
+  if (seconds < 60) {
+    return `${seconds}s ago`;
+  }
+
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) {
+    return `${minutes}m ago`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) {
+    return `${hours}h ago`;
+  }
+
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+function getSystemHealth(summary) {
+  const totalRuns = Number(summary?.total_runs || 0);
+  const failedCount = Number(summary?.failed_count || 0);
+  const warningRate = Number(summary?.warning_rate || 0);
+  const lastIngest = parseWibTimestamp(summary?.last_ingest_at);
+  const staleMinutes = lastIngest ? (Date.now() - lastIngest.getTime()) / 60000 : Infinity;
+
+  if (!totalRuns || failedCount > 0 || staleMinutes > 30 || warningRate >= 25) {
+    return { label: 'Critical', className: 'bg-rose-50 text-rose-700 ring-rose-200' };
+  }
+
+  if (warningRate >= 10 || staleMinutes > 10) {
+    return { label: 'Degraded', className: 'bg-amber-50 text-amber-700 ring-amber-200' };
+  }
+
+  return { label: 'Healthy', className: 'bg-emerald-50 text-emerald-700 ring-emerald-200' };
+}
+
 function normalizeStatsResponse(data, range) {
   const source = data?.data && typeof data.data === 'object' ? data.data : data;
 
   return {
     summary: source?.summary && typeof source.summary === 'object' ? source.summary : {},
     timeline: Array.isArray(source?.timeline) ? source.timeline : [],
+    insights: source?.insights && typeof source.insights === 'object' ? source.insights : emptyStats.insights,
     mode: source?.mode || 'window',
     window: source?.window || null,
     range: source?.range || range,
@@ -278,8 +365,18 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
   const summary = stats?.summary ?? {};
   const timeline = Array.isArray(stats?.timeline) ? stats.timeline : [];
   const timelineInterval = stats?.interval || 'hour';
+  const insights = stats?.insights && typeof stats.insights === 'object' ? stats.insights : {};
+  const problematicJobs = Array.isArray(insights.problematic_jobs) ? insights.problematic_jobs : [];
+  const slowestJobs = Array.isArray(insights.slowest_jobs) ? insights.slowest_jobs : [];
   const logsArray = Array.isArray(logs) ? logs : [];
   const isCustom = filter.type === 'custom';
+  const windowMinutes = getWindowMinutes(filter, customRange);
+  const totalRuns = Number(summary.total_runs || 0);
+  const throughput = windowMinutes <= 60
+    ? totalRuns / Math.max(windowMinutes, 1)
+    : totalRuns / Math.max(windowMinutes / 60, 1);
+  const throughputUnit = windowMinutes <= 60 ? 'runs/min' : 'runs/hour';
+  const health = getSystemHealth(summary);
 
   return (
     <div className="space-y-8">
@@ -327,6 +424,39 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
           value={formatDuration(summary.average_duration ?? 0)} 
           subtext="Across all ingested logs" 
         />
+        <MetricCard
+          icon={AlertTriangle}
+          label="Warning rate"
+          value={formatPercent(summary.warning_rate ?? 0)}
+          subtext={`${formatNumber(summary.warning_count ?? 0)} warning runs`}
+        />
+        <MetricCard
+          icon={DatabaseZap}
+          label="Last ingest"
+          value={formatRelativeTime(summary.last_ingest_at)}
+          subtext={summary.last_ingest_at ? `${formatJakartaDisplay(`${summary.last_ingest_at.replace(' ', 'T')}+07:00`)} WIB` : 'No execution received'}
+        />
+        <MetricCard
+          icon={TrendingUp}
+          label="Throughput"
+          value={formatNumber(throughput, 2)}
+          subtext={throughputUnit}
+        />
+        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-medium text-slate-500">System health</p>
+              <p className={`mt-2 inline-flex items-center rounded-md px-2.5 py-1 text-lg font-semibold tracking-normal ring-1 ${health.className}`}>
+                <span className="mr-2 h-2 w-2 rounded-full bg-current" aria-hidden="true" />
+                {health.label}
+              </p>
+            </div>
+            <div className="rounded-md bg-slate-100 p-2 text-slate-700">
+              <Activity className="h-5 w-5" aria-hidden="true" />
+            </div>
+          </div>
+          <p className="mt-3 text-sm text-slate-500">Based on failures, warnings, and ingest freshness.</p>
+        </div>
       </section>
 
       <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
@@ -396,6 +526,76 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
           </div>
         </div>
         <TimelineChart data={timeline} interval={timelineInterval} onRangeSelect={applySelectedTimelineRange} />
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-2">
+        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-4">
+            <h2 className="text-base font-semibold text-ink">Top problematic cron jobs</h2>
+            <p className="mt-1 text-sm text-slate-500">Sorted by warnings, low success rate, and recent failures.</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-slate-200 text-sm">
+              <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
+                <tr>
+                  <th className="px-3 py-2">Cron</th>
+                  <th className="px-3 py-2">Success</th>
+                  <th className="px-3 py-2">Warnings</th>
+                  <th className="px-3 py-2">Failed</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {problematicJobs.map((job, index) => (
+                  <tr key={`${job?.cron_name ?? 'cron'}-${index}`}>
+                    <td className="max-w-[18rem] truncate px-3 py-2 font-medium text-ink">{job?.cron_name ?? '-'}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-slate-600">{formatPercent(job?.success_rate ?? 0)}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-slate-600">{formatNumber(job?.warning_count ?? 0)}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-slate-600">{formatNumber(job?.failed_count ?? 0)}</td>
+                  </tr>
+                ))}
+                {problematicJobs.length === 0 ? (
+                  <tr>
+                    <td className="px-3 py-8 text-center text-slate-500" colSpan={4}>No cron issues in this timeframe.</td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-4">
+            <h2 className="text-base font-semibold text-ink">Slowest cron jobs</h2>
+            <p className="mt-1 text-sm text-slate-500">Highest average duration in the selected timeframe.</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-slate-200 text-sm">
+              <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
+                <tr>
+                  <th className="px-3 py-2">Cron</th>
+                  <th className="px-3 py-2">Avg duration</th>
+                  <th className="px-3 py-2">Max duration</th>
+                  <th className="px-3 py-2">Runs</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {slowestJobs.map((job, index) => (
+                  <tr key={`${job?.cron_name ?? 'cron'}-${index}`}>
+                    <td className="max-w-[18rem] truncate px-3 py-2 font-medium text-ink">{job?.cron_name ?? '-'}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-slate-600">{formatDuration(job?.avg_duration ?? 0)}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-slate-600">{formatDuration(job?.max_duration ?? 0)}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-slate-600">{formatNumber(job?.total_runs ?? 0)}</td>
+                  </tr>
+                ))}
+                {slowestJobs.length === 0 ? (
+                  <tr>
+                    <td className="px-3 py-8 text-center text-slate-500" colSpan={4}>No duration data in this timeframe.</td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </section>
 
       <section className="space-y-4">

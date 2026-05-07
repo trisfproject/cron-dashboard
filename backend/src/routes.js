@@ -186,7 +186,9 @@ export async function registerRoutes(app) {
           SUM(status = 1) AS failed_count,
           SUM(status = 2) AS warning_count,
           COALESCE(AVG(duration), 0) AS average_duration,
-          CASE WHEN COUNT(*) = 0 THEN 0 ELSE ROUND((SUM(status = 0) / COUNT(*)) * 100, 2) END AS success_rate
+          CASE WHEN COUNT(*) = 0 THEN 0 ELSE ROUND((SUM(status = 0) / COUNT(*)) * 100, 2) END AS success_rate,
+          CASE WHEN COUNT(*) = 0 THEN 0 ELSE ROUND((SUM(status = 2) / COUNT(*)) * 100, 2) END AS warning_rate,
+          DATE_FORMAT(CONVERT_TZ(MAX(created_at), '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s') AS last_ingest_at
         FROM cron_logs
         WHERE ${where}
       `, values);
@@ -205,10 +207,41 @@ export async function registerRoutes(app) {
         ORDER BY bucket ASC
       `, values);
       const normalizedTimeline = normalizeTimelineBuckets(timeline, dateFilter);
+      const [problematicJobs] = await pool.query(`
+        SELECT
+          cron_name,
+          COUNT(*) AS total_runs,
+          SUM(CASE WHEN status = 0 THEN 1 ELSE 0 END) AS success_count,
+          SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) AS failed_count,
+          SUM(CASE WHEN status = 2 THEN 1 ELSE 0 END) AS warning_count,
+          CASE WHEN COUNT(*) = 0 THEN 0 ELSE ROUND((SUM(status = 0) / COUNT(*)) * 100, 2) END AS success_rate,
+          MAX(timestamp) AS latest_run
+        FROM cron_logs
+        WHERE ${where}
+        GROUP BY cron_name
+        ORDER BY warning_count DESC, success_rate ASC, failed_count DESC, latest_run DESC
+        LIMIT 5
+      `, values);
+      const [slowestJobs] = await pool.query(`
+        SELECT
+          cron_name,
+          ROUND(AVG(duration), 2) AS avg_duration,
+          MAX(duration) AS max_duration,
+          COUNT(*) AS total_runs
+        FROM cron_logs
+        WHERE ${where}
+        GROUP BY cron_name
+        ORDER BY avg_duration DESC, max_duration DESC
+        LIMIT 5
+      `, values);
 
       return {
         summary,
         timeline: normalizedTimeline,
+        insights: {
+          problematic_jobs: problematicJobs,
+          slowest_jobs: slowestJobs
+        },
         mode: dateFilter.mode,
         window: dateFilter.window,
         range: dateFilter.range,
