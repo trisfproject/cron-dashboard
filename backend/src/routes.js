@@ -78,6 +78,14 @@ const JAKARTA_SQL_TIMEZONE = '+07:00';
 const UTC_SQL_TIMEZONE = '+00:00';
 const JAKARTA_TIMESTAMP_SQL = `DATE_FORMAT(CONVERT_TZ(timestamp, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s')`;
 const JAKARTA_CREATED_AT_SQL = `DATE_FORMAT(CONVERT_TZ(created_at, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s')`;
+const INGEST_INSERT_SQL = `INSERT INTO cron_logs
+  (cron_name, command, server, env, service_group, status, duration, timestamp, hash,
+   stdout, stderr, output, warning_messages, exception_trace, retry_logs, timeout_info)
+ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+
+function compactSql(sql) {
+  return String(sql || '').replace(/\s+/g, ' ').trim();
+}
 
 function normalizeTimestamp(value) {
   const date = new Date(value);
@@ -242,10 +250,7 @@ export async function registerRoutes(app) {
 
       try {
         const [result] = await pool.execute(
-          `INSERT INTO cron_logs
-            (cron_name, command, server, env, service_group, status, duration, timestamp, hash,
-             stdout, stderr, output, warning_messages, exception_trace, retry_logs, timeout_info)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          INGEST_INSERT_SQL,
           [
             payload.cron_name,
             payload.command,
@@ -274,6 +279,25 @@ export async function registerRoutes(app) {
           const [[existing]] = await pool.execute('SELECT id FROM cron_logs WHERE hash = ? LIMIT 1', [hash]);
           return reply.code(200).send({ id: existing?.id || 0, hash, duplicate: true });
         }
+
+        request.log.error({
+          err: error,
+          error: error.message,
+          code: error.code,
+          errno: error.errno,
+          sql_state: error.sqlState,
+          stack: error.stack,
+          query_context: {
+            operation: 'insert_cron_log',
+            table: 'cron_logs',
+            sql: compactSql(INGEST_INSERT_SQL),
+            parameter_count: 16
+          },
+          cron_name: payload.cron_name,
+          env: payload.env,
+          service_group: serviceGroup,
+          hash
+        }, 'Cron ingest failed');
 
         throw error;
       }
@@ -457,8 +481,8 @@ export async function registerRoutes(app) {
           INNER JOIN latest
             ON latest.cron_name = filtered.cron_name
             AND latest.server = filtered.server
-            AND latest.env = filtered.env
-            AND latest.service_group = filtered.service_group
+            AND latest.env <=> filtered.env
+            AND latest.service_group <=> filtered.service_group
             AND latest.last_run = filtered.timestamp
         ),
         agg AS (
@@ -480,8 +504,8 @@ export async function registerRoutes(app) {
         INNER JOIN agg
           ON agg.cron_name = current.cron_name
           AND agg.server = current.server
-          AND agg.env = current.env
-          AND agg.service_group = current.service_group
+          AND agg.env <=> current.env
+          AND agg.service_group <=> current.service_group
         ORDER BY current.service_group ASC, current.last_run DESC
       `, values);
 
