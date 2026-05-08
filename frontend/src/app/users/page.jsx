@@ -5,7 +5,7 @@ import ActionDropdown from '@/components/ActionDropdown';
 import ConfirmationDialog from '@/components/ConfirmationDialog';
 import EditUserModal from '@/components/EditUserModal';
 import ResetPasswordModal from '@/components/ResetPasswordModal';
-import { archiveUser, canDeleteUser, createUser, deactivateUser, deleteUser, forceLogoutUser, getUsers, reactivateUser, resetUserPassword, updateUser } from '@/lib/api';
+import { archiveUser, canDeleteUser, createUser, deactivateUser, deleteUser, forceLogoutUser, getCurrentUser, getUsers, reactivateUser, resetUserPassword, updateUser } from '@/lib/api';
 
 const emptyForm = {
   name: '',
@@ -86,11 +86,8 @@ export default function UsersPage() {
 
   async function loadCurrentUser() {
     try {
-      const response = await fetch('/api/auth/me');
-      if (response.ok) {
-        const data = await response.json();
-        setCurrentUser(data.user);
-      }
+      const data = await getCurrentUser();
+      setCurrentUser(data?.user || null);
     } catch {
       // Silent fail
     }
@@ -424,4 +421,3 @@ export default function UsersPage() {
     </div>
   );
 }
-

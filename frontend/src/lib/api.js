@@ -14,16 +14,45 @@ function getApiBaseUrl() {
   }
 }
 
+export class AuthenticationRequiredError extends Error {
+  constructor(message = 'Authentication required') {
+    super(message);
+    this.name = 'AuthenticationRequiredError';
+    this.status = 401;
+  }
+}
+
+export function isAuthenticationRequired(error) {
+  return error instanceof AuthenticationRequiredError || Number(error?.status) === 401;
+}
+
+function redirectToLogin() {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  const currentPath = `${window.location.pathname}${window.location.search}`;
+  const loginUrl = new URL('/login', window.location.origin);
+
+  if (currentPath && currentPath !== '/login') {
+    loginUrl.searchParams.set('next', currentPath);
+  }
+
+  window.location.assign(loginUrl.toString());
+}
+
 async function request(path, options = {}) {
   let response;
+  const { headers: optionHeaders, credentials, ...fetchOptions } = options;
 
   try {
     response = await fetch(`${getApiBaseUrl()}${path}`, {
       cache: 'no-store',
-      ...options,
+      ...fetchOptions,
+      credentials: credentials || 'include',
       headers: {
-        ...(options.body ? { 'content-type': 'application/json' } : {}),
-        ...(options.headers || {})
+        ...(fetchOptions.body ? { 'content-type': 'application/json' } : {}),
+        ...(optionHeaders || {})
       }
     });
   } catch (error) {
@@ -39,7 +68,17 @@ async function request(path, options = {}) {
       detail = '';
     }
 
-    throw new Error(`API request failed: ${response.status} ${response.statusText}${detail}`);
+    if (response.status === 401) {
+      if (path !== '/auth/login') {
+        redirectToLogin();
+      }
+
+      throw new AuthenticationRequiredError(detail ? detail.slice(2) : 'Authentication required');
+    }
+
+    const error = new Error(`API request failed: ${response.status} ${response.statusText}${detail}`);
+    error.status = response.status;
+    throw error;
   }
 
   return response.json();
