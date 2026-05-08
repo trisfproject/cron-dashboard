@@ -118,7 +118,7 @@ export default function AuditPage() {
                 </div>
                 <StatusBadge status={log.status} />
               </div>
-              <p className="text-sm text-slate-600 dark:text-slate-300">{log.user_email || 'System'} -> {log.target_label || log.target_id || log.target_type || 'NYX'}</p>
+              <p className="text-sm text-slate-600 dark:text-slate-300">{log.user_email || 'System'} → {log.target_label || log.target_id || log.target_type || 'NYX'}</p>
               <p className="text-xs text-slate-500">IP: {log.ip_address || '-'}</p>
             </article>
           ))}

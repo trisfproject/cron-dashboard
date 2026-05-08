@@ -121,7 +121,7 @@ export function TimeRangeFilter({
 
   const isCustom = selectedFilter?.type === 'custom';
   const activeLabel = isCustom && customRange?.start && customRange?.end
-    ? `Custom: ${toDisplayValue(customRange.start)} -> ${toDisplayValue(customRange.end)} WIB`
+    ? `Custom: ${toDisplayValue(customRange.start)} → ${toDisplayValue(customRange.end)} WIB`
     : null;
 
   function applyCustomRange() {
