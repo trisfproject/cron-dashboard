@@ -1,5 +1,7 @@
 import Link from 'next/link';
 import { Fragment } from 'react';
+import { headers } from 'next/headers';
+import { redirect } from 'next/navigation';
 import { getCronList, getScopeOptions } from '@/lib/api';
 import { formatDate, formatDuration, formatNumber, formatPercent } from '@/lib/format';
 import { EnvironmentBadge, ServiceGroupBadge } from '@/components/EnvironmentBadge';
@@ -9,6 +11,15 @@ export const dynamic = 'force-dynamic';
 
 export default async function CronListPage({ searchParams }) {
   const resolvedSearchParams = await searchParams;
+  const requestHeaders = await headers();
+  const cookie = requestHeaders.get('cookie') || '';
+  const authorization = requestHeaders.get('authorization') || '';
+  const apiOptions = {
+    headers: {
+      ...(cookie ? { cookie } : {}),
+      ...(authorization ? { authorization } : {})
+    }
+  };
   const nameFilter = resolvedSearchParams?.cron_name || '';
   const serverFilter = resolvedSearchParams?.server || '';
   const statusFilter = resolvedSearchParams?.status || '';
@@ -28,8 +39,14 @@ export default async function CronListPage({ searchParams }) {
 
   try {
     const [response, scopeResponse] = await Promise.all([
-      getCronList({ range: rangeFilter, env: envFilter, service_group: serviceGroupFilter }),
-      getScopeOptions().catch(() => ({ environments: [], service_groups: [] }))
+      getCronList({ range: rangeFilter, env: envFilter, service_group: serviceGroupFilter }, apiOptions),
+      getScopeOptions(apiOptions).catch((scopeError) => {
+        if (scopeError?.status === 401) {
+          throw scopeError;
+        }
+
+        return { environments: [], service_groups: [] };
+      })
     ]);
     jobs = Array.isArray(response?.jobs) ? response.jobs : [];
     scopeOptions = {
@@ -37,6 +54,10 @@ export default async function CronListPage({ searchParams }) {
       service_groups: Array.isArray(scopeResponse?.service_groups) ? scopeResponse.service_groups : []
     };
   } catch (fetchError) {
+    if (fetchError?.status === 401) {
+      redirect('/login?next=/cron');
+    }
+
     console.error('Failed to fetch cron list:', fetchError);
     error = fetchError?.message || 'Failed to load cron jobs';
   }
@@ -179,7 +200,7 @@ export default async function CronListPage({ searchParams }) {
               ))}
             </div>
           ))}
-          {filteredJobs.length === 0 ? (
+          {filteredJobs.length === 0 && !error ? (
             <div className="px-4 py-8 text-center text-sm text-slate-500">No cron executions found for {rangeLabel}.</div>
           ) : null}
         </div>
@@ -224,7 +245,7 @@ export default async function CronListPage({ searchParams }) {
                   ))}
                 </Fragment>
               ))}
-              {filteredJobs.length === 0 ? (
+              {filteredJobs.length === 0 && !error ? (
                 <tr>
                   <td className="px-4 py-8 text-center text-slate-500" colSpan={9}>No cron executions found for {rangeLabel}.</td>
                 </tr>

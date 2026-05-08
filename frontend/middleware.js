@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 
 const SESSION_COOKIE = 'nyx_session';
 const PUBLIC_PATHS = ['/login'];
-const PUBLIC_API_PATHS = ['/api/auth/login', '/api/auth/logout'];
 
 function base64urlDecode(value) {
   const normalized = String(value || '').replaceAll('-', '+').replaceAll('_', '/');
@@ -69,7 +68,7 @@ function isPublicPath(pathname) {
 export async function middleware(request) {
   const { pathname, search } = request.nextUrl;
 
-  if (PUBLIC_API_PATHS.includes(pathname)) {
+  if (pathname.startsWith('/api/')) {
     return NextResponse.next();
   }
 
@@ -83,15 +82,9 @@ export async function middleware(request) {
     }
 
     const adminOnlyPaths = ['/alerts', '/users', '/audit'];
-    const adminOnlyApiPaths = ['/api/alerts', '/api/alert-rules', '/api/users', '/api/audit-logs'];
-    const adminOnly = adminOnlyPaths.some((path) => pathname === path || pathname.startsWith(`${path}/`))
-      || adminOnlyApiPaths.some((path) => pathname === path || pathname.startsWith(`${path}/`));
+    const adminOnly = adminOnlyPaths.some((path) => pathname === path || pathname.startsWith(`${path}/`));
 
     if (adminOnly && session.role !== 'admin') {
-      if (pathname.startsWith('/api/')) {
-        return NextResponse.json({ error: 'Admin role required' }, { status: 403 });
-      }
-
       return NextResponse.redirect(new URL('/', request.url));
     }
 
@@ -100,10 +93,6 @@ export async function middleware(request) {
 
   if (isPublicPath(pathname)) {
     return NextResponse.next();
-  }
-
-  if (pathname.startsWith('/api/')) {
-    return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
   }
 
   const loginUrl = new URL('/login', request.url);

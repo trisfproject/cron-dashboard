@@ -84,7 +84,7 @@ async function request(path, options = {}) {
   return response.json();
 }
 
-export function getStats(params = {}) {
+export function getStats(params = {}, options = {}) {
   const query = new URLSearchParams();
 
   for (const [key, value] of Object.entries(params)) {
@@ -94,10 +94,10 @@ export function getStats(params = {}) {
   }
 
   const suffix = query.toString() ? `?${query.toString()}` : '';
-  return request(`/stats${suffix}`);
+  return request(`/stats${suffix}`, options);
 }
 
-export function getCronList(params = {}) {
+export function getCronList(params = {}, options = {}) {
   const query = new URLSearchParams();
 
   for (const [key, value] of Object.entries(params)) {
@@ -107,10 +107,10 @@ export function getCronList(params = {}) {
   }
 
   const suffix = query.toString() ? `?${query.toString()}` : '';
-  return request(`/cron-list${suffix}`);
+  return request(`/cron-list${suffix}`, options);
 }
 
-export function getLogs(params = {}) {
+export function getLogs(params = {}, options = {}) {
   const query = new URLSearchParams();
 
   for (const [key, value] of Object.entries(params)) {
@@ -120,10 +120,10 @@ export function getLogs(params = {}) {
   }
 
   const suffix = query.toString() ? `?${query.toString()}` : '';
-  return request(`/logs${suffix}`);
+  return request(`/logs${suffix}`, options);
 }
 
-export function getAlerts(params = {}) {
+export function getAlerts(params = {}, options = {}) {
   const query = new URLSearchParams();
 
   for (const [key, value] of Object.entries(params)) {
@@ -133,11 +133,11 @@ export function getAlerts(params = {}) {
   }
 
   const suffix = query.toString() ? `?${query.toString()}` : '';
-  return request(`/alerts${suffix}`);
+  return request(`/alerts${suffix}`, options);
 }
 
-export function getScopeOptions() {
-  return request('/scope-options');
+export function getScopeOptions(options = {}) {
+  return request('/scope-options', options);
 }
 
 export function login(email, password) {
