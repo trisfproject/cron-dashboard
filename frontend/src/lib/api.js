@@ -277,3 +277,10 @@ export function getAuditLogs(params = {}) {
 export function getAuthActivity() {
   return request('/auth/activity');
 }
+
+export function changePassword(payload) {
+  return request('/auth/change-password', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}

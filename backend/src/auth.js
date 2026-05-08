@@ -6,6 +6,7 @@ const COOKIE_NAME = 'nyx_session';
 const MAX_LOGIN_ATTEMPTS = 5;
 const LOCKOUT_MS = 5 * 60 * 1000;
 const attempts = new Map();
+const PASSWORD_POLICY_MESSAGE = 'Password must be at least 8 characters and include uppercase, lowercase, number, and special character.';
 
 function base64url(input) {
   return Buffer.from(input)
@@ -132,6 +133,19 @@ function verifyPassword(password, storedHash) {
   }).toString('base64url');
 
   return timingSafeCompare(actualHash, expectedHash);
+}
+
+function passwordPolicyErrors(password) {
+  const value = String(password || '');
+  const errors = [];
+
+  if (value.length < 8) errors.push('Use at least 8 characters.');
+  if (!/[A-Z]/.test(value)) errors.push('Add an uppercase letter.');
+  if (!/[a-z]/.test(value)) errors.push('Add a lowercase letter.');
+  if (!/[0-9]/.test(value)) errors.push('Add a number.');
+  if (!/[^A-Za-z0-9]/.test(value)) errors.push('Add a special character.');
+
+  return errors;
 }
 
 function clientKey(request, email) {
@@ -466,6 +480,56 @@ export async function resetUserPassword(id, password) {
   );
 }
 
+export async function changeOwnPassword(userId, currentPassword, newPassword) {
+  const [rows] = await pool.query(
+    "SELECT id, name, email, password_hash, role, is_active, locked_until, session_version, DATE_FORMAT(last_login_at, '%Y-%m-%d %H:%i:%s') AS last_login_at FROM users WHERE id = ? LIMIT 1",
+    [Number(userId)]
+  );
+  const user = rows[0];
+
+  if (!user || !user.is_active || (user.locked_until && new Date(user.locked_until).getTime() > Date.now())) {
+    const error = new Error('Account is not available for password change.');
+    error.statusCode = 403;
+    throw error;
+  }
+
+  if (!verifyPassword(currentPassword, user.password_hash)) {
+    const error = new Error('Current password is incorrect.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const policyErrors = passwordPolicyErrors(newPassword);
+  if (policyErrors.length > 0) {
+    const error = new Error(PASSWORD_POLICY_MESSAGE);
+    error.statusCode = 400;
+    error.details = policyErrors;
+    throw error;
+  }
+
+  if (verifyPassword(newPassword, user.password_hash)) {
+    const error = new Error('New password must be different from your current password.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const nextSessionVersion = Number(user.session_version || 1) + 1;
+
+  await pool.query(
+    'UPDATE users SET password_hash = ?, session_version = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+    [hashPassword(newPassword), nextSessionVersion, Number(user.id)]
+  );
+
+  return {
+    ...publicUser({
+      ...user,
+      session_version: nextSessionVersion,
+      last_login_at: user.last_login_at || null
+    }),
+    _sessionVersion: nextSessionVersion
+  };
+}
+
 export async function forceLogoutUser(id) {
   await pool.query(
     'UPDATE users SET session_version = session_version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
@@ -671,4 +735,69 @@ export async function registerAuthRoutes(app) {
   app.get('/auth/activity', { preHandler: requireAuth }, async (request) => ({
     activity: await listAuthActivityForUser(request.user.id)
   }));
+  app.post('/auth/change-password', {
+    preHandler: requireAuth,
+    schema: {
+      body: {
+        type: 'object',
+        required: ['current_password', 'new_password', 'confirm_password'],
+        additionalProperties: false,
+        properties: {
+          current_password: { type: 'string', minLength: 1, maxLength: 1024 },
+          new_password: { type: 'string', minLength: 1, maxLength: 1024 },
+          confirm_password: { type: 'string', minLength: 1, maxLength: 1024 }
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const { current_password: currentPassword, new_password: newPassword, confirm_password: confirmPassword } = request.body;
+
+    if (newPassword !== confirmPassword) {
+      await logAudit({
+        user: request.user,
+        action: 'password_change_failed',
+        targetType: 'user',
+        targetId: request.user.id,
+        targetLabel: request.user.email,
+        request,
+        status: 'failed',
+        metadata: { reason: 'confirmation_mismatch' }
+      });
+      return reply.code(400).send({ error: 'New password confirmation does not match.' });
+    }
+
+    try {
+      const updatedUser = await changeOwnPassword(request.user.id, currentPassword, newPassword);
+      const token = createSessionToken(updatedUser, app.config);
+      const { _sessionVersion, ...responseUser } = updatedUser;
+
+      reply.header('set-cookie', sessionCookie(token, app.config.sessionTtlSeconds, process.env.NODE_ENV === 'production'));
+      await logAudit({
+        user: request.user,
+        action: 'password_changed',
+        targetType: 'user',
+        targetId: request.user.id,
+        targetLabel: request.user.email,
+        request,
+        metadata: { invalidated_other_sessions: true }
+      });
+
+      return { ok: true, user: responseUser };
+    } catch (error) {
+      await logAudit({
+        user: request.user,
+        action: 'password_change_failed',
+        targetType: 'user',
+        targetId: request.user.id,
+        targetLabel: request.user.email,
+        request,
+        status: 'failed',
+        metadata: { reason: error.message }
+      });
+      return reply.code(error.statusCode || 400).send({
+        error: error.message || 'Unable to change password',
+        details: error.details || undefined
+      });
+    }
+  });
 }
