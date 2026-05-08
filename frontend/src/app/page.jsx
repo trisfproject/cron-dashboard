@@ -173,6 +173,28 @@ function getSystemHealth(summary) {
   return { label: 'Healthy', className: 'bg-emerald-50 text-emerald-700 ring-emerald-200' };
 }
 
+function getSystemHealthContext(summary, healthLabel) {
+  const totalRuns = Number(summary?.total_runs || 0);
+  const failedCount = Number(summary?.failed_count || 0);
+  const warningRate = Number(summary?.warning_rate || 0);
+  const lastIngest = parseWibTimestamp(summary?.last_ingest_at);
+  const staleMinutes = lastIngest ? (Date.now() - lastIngest.getTime()) / 60000 : Infinity;
+
+  if (healthLabel === 'Critical') {
+    if (!totalRuns) return 'No executions in window';
+    if (failedCount > 0) return `${formatNumber(failedCount)} failed runs detected`;
+    if (staleMinutes > 30) return 'Ingest freshness is critical';
+    if (warningRate >= 25) return 'Warning rate is critical';
+  }
+
+  if (healthLabel === 'Degraded') {
+    if (warningRate >= 10) return 'Degraded due to elevated warning rate';
+    if (staleMinutes > 10) return 'Degraded due to ingest freshness';
+  }
+
+  return 'No active health degradation';
+}
+
 function getCronHealthSeverity(job) {
   const failed = Number(job?.failed_count || 0);
   const warnings = Number(job?.warning_count || 0);
@@ -504,11 +526,12 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
     : totalRuns / Math.max(windowMinutes / 60, 1);
   const throughputUnit = windowMinutes <= 60 ? 'runs/min' : 'runs/hour';
   const health = getSystemHealth(summary);
-  const healthAccentClass = {
-    Healthy: 'border-l-emerald-500 ring-emerald-100 dark:border-l-emerald-400 dark:ring-emerald-900/40',
-    Degraded: 'border-l-orange-500 ring-orange-100 dark:border-l-orange-400 dark:ring-orange-900/40',
-    Critical: 'border-l-rose-500 ring-rose-100 dark:border-l-rose-400 dark:ring-rose-900/40'
-  }[health.label] || 'border-l-slate-400 ring-slate-100 dark:border-l-slate-500 dark:ring-slate-800';
+  const healthContext = getSystemHealthContext(summary, health.label);
+  const healthIconClass = {
+    Healthy: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-200',
+    Degraded: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-200',
+    Critical: 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-200'
+  }[health.label] || 'bg-slate-100 text-slate-700';
 
   return (
     <div className="space-y-6 sm:space-y-8">
@@ -574,7 +597,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
           value={formatNumber(throughput, 2)}
           subtext={throughputUnit}
         />
-        <div className={`min-h-[7.25rem] rounded-lg border-y border-r border-l-4 border-y-slate-200 border-r-slate-200 bg-white p-3 shadow-sm ring-1 dark:border-y-slate-700 dark:border-r-slate-700 sm:min-h-[9.25rem] sm:p-5 ${healthAccentClass}`}>
+        <div className="min-h-[7.25rem] rounded-lg border border-slate-200 bg-white p-3 shadow-sm sm:min-h-[9.25rem] sm:p-5">
           <div className="flex items-start justify-between gap-2 sm:gap-3">
             <div className="min-w-0">
               <p className="text-[0.7rem] font-medium uppercase leading-tight tracking-wide text-slate-500 sm:text-sm sm:normal-case sm:tracking-normal">System health</p>
@@ -583,14 +606,11 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
                 {health.label}
               </p>
             </div>
-            <div className="shrink-0 rounded-md bg-slate-100 p-1.5 text-slate-700 sm:p-2">
+            <div className={`shrink-0 rounded-md p-1.5 sm:p-2 ${healthIconClass}`}>
               <Activity className="h-4 w-4 sm:h-5 sm:w-5" aria-hidden="true" />
             </div>
           </div>
-          <p className="mt-2 text-xs leading-snug text-slate-500 sm:mt-3 sm:text-sm">
-            <span className="sm:hidden">Failures, warnings, ingest.</span>
-            <span className="hidden sm:inline">Failures, warnings, and ingest freshness.</span>
-          </p>
+          <p className="mt-2 text-xs leading-snug text-slate-500 sm:mt-3 sm:text-sm">{healthContext}</p>
         </div>
       </section>
 
