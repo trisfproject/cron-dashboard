@@ -1,15 +1,31 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { passwordPolicyChecks, PasswordPolicyChecklist } from '@/components/PasswordPolicyChecklist';
+import { formatApiError } from '@/lib/api';
 
 export default function ResetPasswordModal({ user, onSave, onCancel, isLoading }) {
   const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const passwordValid = passwordPolicyChecks(password).every((check) => check.valid);
+
+  useEffect(() => {
+    setPassword('');
+    setError('');
+  }, [user?.id]);
 
   if (!user) return null;
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
-    onSave(password);
+    setError('');
+
+    try {
+      await onSave(password);
+      setPassword('');
+    } catch (saveError) {
+      setError(formatApiError(saveError, 'Failed to reset password'));
+    }
   }
 
   return (
@@ -29,14 +45,18 @@ export default function ResetPasswordModal({ user, onSave, onCancel, isLoading }
             <input
               type="password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                setError('');
+              }}
               minLength={8}
               className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-950"
               required
               autoFocus
             />
-            <p className="text-xs text-slate-500 dark:text-slate-400">Minimum 8 characters</p>
           </label>
+          <PasswordPolicyChecklist password={password} />
+          {error ? <p className="whitespace-pre-line rounded-md bg-rose-50 p-3 text-sm font-medium text-rose-700 dark:bg-rose-950/40 dark:text-rose-200">{error}</p> : null}
 
           <div className="flex gap-3 pt-4">
             <button
@@ -49,7 +69,7 @@ export default function ResetPasswordModal({ user, onSave, onCancel, isLoading }
             </button>
             <button
               type="submit"
-              disabled={isLoading || password.length < 8}
+              disabled={isLoading || !passwordValid}
               className="flex-1 rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-blue-600 dark:hover:bg-blue-500"
             >
               {isLoading ? 'Resetting...' : 'Reset password'}

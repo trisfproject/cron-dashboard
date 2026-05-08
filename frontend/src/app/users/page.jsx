@@ -4,8 +4,9 @@ import { useEffect, useState } from 'react';
 import ActionDropdown from '@/components/ActionDropdown';
 import ConfirmationDialog from '@/components/ConfirmationDialog';
 import EditUserModal from '@/components/EditUserModal';
+import { passwordPolicyChecks, PasswordPolicyChecklist } from '@/components/PasswordPolicyChecklist';
 import ResetPasswordModal from '@/components/ResetPasswordModal';
-import { archiveUser, canDeleteUser, createUser, deactivateUser, deleteUser, forceLogoutUser, getCurrentUser, getUsers, reactivateUser, resetUserPassword, updateUser } from '@/lib/api';
+import { archiveUser, canDeleteUser, createUser, deactivateUser, deleteUser, forceLogoutUser, formatApiError, getCurrentUser, getUsers, reactivateUser, resetUserPassword, updateUser } from '@/lib/api';
 
 const emptyForm = {
   name: '',
@@ -69,6 +70,7 @@ export default function UsersPage() {
     title: '',
     description: ''
   });
+  const passwordValid = passwordPolicyChecks(form.password).every((check) => check.valid);
 
   async function loadUsers() {
     setLoading(true);
@@ -100,6 +102,7 @@ export default function UsersPage() {
 
   function updateForm(key, value) {
     setForm((current) => ({ ...current, [key]: value }));
+    setError('');
   }
 
   async function submitUser(event) {
@@ -112,7 +115,7 @@ export default function UsersPage() {
       setForm(emptyForm);
       await loadUsers();
     } catch (saveError) {
-      setError(saveError?.message || 'Failed to create user');
+      setError(formatApiError(saveError, 'Failed to create user'));
     } finally {
       setSaving(false);
     }
@@ -127,7 +130,7 @@ export default function UsersPage() {
       setEditingUser(null);
       await loadUsers();
     } catch (updateError) {
-      setError(updateError?.message || 'Failed to update user');
+      setError(formatApiError(updateError, 'Failed to update user'));
     } finally {
       setSaving(false);
     }
@@ -142,7 +145,7 @@ export default function UsersPage() {
       setResetPasswordUser(null);
       await loadUsers();
     } catch (resetError) {
-      setError(resetError?.message || 'Failed to reset password');
+      throw resetError;
     } finally {
       setSaving(false);
     }
@@ -278,7 +281,7 @@ export default function UsersPage() {
           <h2 className="text-base font-semibold text-ink">Create User</h2>
           <p className="mt-1 text-sm text-slate-500">New users can sign in immediately when active.</p>
         </div>
-        {error ? <p className="rounded-md bg-rose-50 p-3 text-sm font-medium text-rose-700 dark:bg-rose-950/40 dark:text-rose-200 md:col-span-4">{error}</p> : null}
+        {error ? <p className="whitespace-pre-line rounded-md bg-rose-50 p-3 text-sm font-medium text-rose-700 dark:bg-rose-950/40 dark:text-rose-200 md:col-span-4">{error}</p> : null}
         <label className="space-y-1">
           <span className="text-sm font-medium text-slate-600 dark:text-slate-300">Name</span>
           <input value={form.name} onChange={(event) => updateForm('name', event.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-950" required />
@@ -287,7 +290,7 @@ export default function UsersPage() {
           <span className="text-sm font-medium text-slate-600 dark:text-slate-300">Email</span>
           <input type="email" value={form.email} onChange={(event) => updateForm('email', event.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-950" required />
         </label>
-        <label className="space-y-1">
+        <label className="space-y-1 md:col-span-2">
           <span className="text-sm font-medium text-slate-600 dark:text-slate-300">Temporary password</span>
           <input type="password" minLength={8} value={form.password} onChange={(event) => updateForm('password', event.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-950" required />
         </label>
@@ -299,7 +302,10 @@ export default function UsersPage() {
           </select>
         </label>
         <div className="md:col-span-4">
-          <button type="submit" disabled={saving} className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300 dark:bg-blue-600 dark:hover:bg-blue-500">
+          <PasswordPolicyChecklist password={form.password} />
+        </div>
+        <div className="md:col-span-4">
+          <button type="submit" disabled={saving || !passwordValid} className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300 dark:bg-blue-600 dark:hover:bg-blue-500 dark:disabled:bg-slate-800">
             {saving ? 'Creating...' : 'Create user'}
           </button>
         </div>

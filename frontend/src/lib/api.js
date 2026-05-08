@@ -26,6 +26,50 @@ export function isAuthenticationRequired(error) {
   return error instanceof AuthenticationRequiredError || Number(error?.status) === 401;
 }
 
+function collectErrorDetails(value, messages = []) {
+  if (!value) {
+    return messages;
+  }
+
+  if (typeof value === 'string') {
+    messages.push(value);
+    return messages;
+  }
+
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectErrorDetails(item, messages));
+    return messages;
+  }
+
+  if (typeof value === 'object') {
+    if (typeof value.message === 'string') messages.push(value.message);
+    if (typeof value.error === 'string') messages.push(value.error);
+    if (value.details) collectErrorDetails(value.details, messages);
+    if (value.errors) collectErrorDetails(value.errors, messages);
+    if (value.validation) collectErrorDetails(value.validation, messages);
+  }
+
+  return messages;
+}
+
+function uniqueMessages(messages) {
+  return [...new Set(messages.map((message) => String(message || '').trim()).filter(Boolean))];
+}
+
+export function formatApiError(error, fallback = 'Request failed') {
+  const details = uniqueMessages(error?.details || []);
+
+  if (details.length > 0) {
+    const rawHeading = error?.userMessage || error?.message || fallback;
+    const heading = /password must|password requirement/i.test(rawHeading)
+      ? 'Password requirements not met'
+      : rawHeading;
+    return `${heading}:\n${details.map((detail) => `• ${detail}`).join('\n')}`;
+  }
+
+  return error?.userMessage || error?.message || fallback;
+}
+
 function redirectToLogin() {
   if (typeof window === 'undefined') {
     return;
@@ -60,24 +104,28 @@ async function request(path, options = {}) {
   }
 
   if (!response.ok) {
-    let detail = '';
+    let body = null;
     try {
-      const body = await response.json();
-      detail = body?.error ? `: ${body.error}` : '';
+      body = await response.json();
     } catch {
-      detail = '';
+      body = null;
     }
+    const details = uniqueMessages(collectErrorDetails(body?.details || body?.errors || body?.validation || []));
+    const serverMessage = body?.error || body?.message || response.statusText || 'Request failed';
 
     if (response.status === 401) {
       if (path !== '/auth/login') {
         redirectToLogin();
       }
 
-      throw new AuthenticationRequiredError(detail ? detail.slice(2) : 'Authentication required');
+      throw new AuthenticationRequiredError(serverMessage || 'Authentication required');
     }
 
-    const error = new Error(`API request failed: ${response.status} ${response.statusText}${detail}`);
+    const error = new Error(serverMessage);
+    error.userMessage = serverMessage;
     error.status = response.status;
+    error.details = details;
+    error.body = body;
     throw error;
   }
 

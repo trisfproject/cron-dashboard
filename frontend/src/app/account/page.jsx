@@ -2,25 +2,14 @@
 
 import { useEffect, useState } from 'react';
 import { Eye, EyeOff, ShieldCheck } from 'lucide-react';
-import { changePassword, getAuthActivity, getCurrentUser } from '@/lib/api';
+import { PasswordPolicyChecklist, passwordPolicyChecks } from '@/components/PasswordPolicyChecklist';
+import { changePassword, formatApiError, getAuthActivity, getCurrentUser } from '@/lib/api';
 
 const initialPasswordForm = {
   current_password: '',
   new_password: '',
   confirm_password: ''
 };
-
-function passwordPolicyChecks(password) {
-  const value = String(password || '');
-
-  return [
-    { key: 'length', label: 'At least 8 characters', valid: value.length >= 8 },
-    { key: 'uppercase', label: 'Uppercase letter', valid: /[A-Z]/.test(value) },
-    { key: 'lowercase', label: 'Lowercase letter', valid: /[a-z]/.test(value) },
-    { key: 'number', label: 'Number', valid: /[0-9]/.test(value) },
-    { key: 'special', label: 'Special character', valid: /[^A-Za-z0-9]/.test(value) }
-  ];
-}
 
 function PasswordField({ id, label, value, onChange, visible, onToggle, autoComplete }) {
   return (
@@ -154,7 +143,7 @@ export default function AccountPage() {
       const activityData = await getAuthActivity();
       setActivity(Array.isArray(activityData?.activity) ? activityData.activity : []);
     } catch (changeError) {
-      setPasswordError(changeError?.message?.replace(/^API request failed: \d+ [^:]+:?\s*/, '') || 'Unable to change password.');
+      setPasswordError(formatApiError(changeError, 'Unable to change password'));
     } finally {
       setPasswordLoading(false);
     }
@@ -257,7 +246,7 @@ export default function AccountPage() {
             <p className="mt-3 rounded-md bg-amber-50 p-3 text-sm font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-200">New password must be different from your current password.</p>
           ) : null}
           {passwordError ? (
-            <p className="mt-3 rounded-md bg-rose-50 p-3 text-sm font-medium text-rose-700 dark:bg-rose-950/40 dark:text-rose-200">{passwordError}</p>
+            <p className="mt-3 whitespace-pre-line rounded-md bg-rose-50 p-3 text-sm font-medium text-rose-700 dark:bg-rose-950/40 dark:text-rose-200">{passwordError}</p>
           ) : null}
           {passwordSuccess ? (
             <p className="mt-3 rounded-md bg-emerald-50 p-3 text-sm font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-200">{passwordSuccess}</p>
@@ -275,12 +264,7 @@ export default function AccountPage() {
         <aside className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950">
           <h3 className="text-sm font-semibold text-ink">Password Policy</h3>
           <div className="mt-3 space-y-2">
-            {policyChecks.map((check) => (
-              <div key={check.key} className="flex items-center gap-2 text-sm">
-                <span className={`h-2.5 w-2.5 rounded-full ${check.valid ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-700'}`} aria-hidden="true" />
-                <span className={check.valid ? 'text-slate-700 dark:text-slate-200' : 'text-slate-500 dark:text-slate-400'}>{check.label}</span>
-              </div>
-            ))}
+            <PasswordPolicyChecklist password={passwordForm.new_password} className="border-0 bg-transparent p-0 dark:bg-transparent" />
           </div>
           <p className="mt-4 text-sm leading-6 text-slate-500 dark:text-slate-400">
             Changing your password updates your security stamp. Existing sessions on other devices will be rejected on their next request.
