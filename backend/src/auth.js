@@ -189,6 +189,39 @@ function publicUser(row) {
   };
 }
 
+async function tableExists(tableName) {
+  const [[row]] = await pool.query(
+    `SELECT COUNT(*) AS count
+     FROM INFORMATION_SCHEMA.TABLES
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = ?`,
+    [tableName]
+  );
+
+  return Number(row?.count || 0) > 0;
+}
+
+async function columnExists(tableName, columnName) {
+  const [[row]] = await pool.query(
+    `SELECT COUNT(*) AS count
+     FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = ?
+       AND COLUMN_NAME = ?`,
+    [tableName, columnName]
+  );
+
+  return Number(row?.count || 0) > 0;
+}
+
+async function ensureColumn(tableName, columnName, alterSql) {
+  if (!(await tableExists(tableName)) || await columnExists(tableName, columnName)) {
+    return;
+  }
+
+  await pool.query(alterSql);
+}
+
 export async function ensureAuthSchema() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
@@ -209,10 +242,10 @@ export async function ensureAuthSchema() {
       KEY idx_users_role_active (role, is_active)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
-  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMP NULL AFTER is_active');
-  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMP NULL AFTER last_login_at');
-  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_login_count INT UNSIGNED NOT NULL DEFAULT 0 AFTER locked_until');
-  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS session_version INT UNSIGNED NOT NULL DEFAULT 1 AFTER failed_login_count');
+  await ensureColumn('users', 'last_login_at', 'ALTER TABLE users ADD COLUMN last_login_at TIMESTAMP NULL');
+  await ensureColumn('users', 'locked_until', 'ALTER TABLE users ADD COLUMN locked_until TIMESTAMP NULL');
+  await ensureColumn('users', 'failed_login_count', 'ALTER TABLE users ADD COLUMN failed_login_count INT UNSIGNED NOT NULL DEFAULT 0');
+  await ensureColumn('users', 'session_version', 'ALTER TABLE users ADD COLUMN session_version INT UNSIGNED NOT NULL DEFAULT 1');
   await pool.query(`
     CREATE TABLE IF NOT EXISTS audit_logs (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -224,7 +257,7 @@ export async function ensureAuthSchema() {
       target_label VARCHAR(255) NULL,
       ip_address VARCHAR(255) NULL,
       status ENUM('success', 'failed') NOT NULL DEFAULT 'success',
-      metadata JSON NULL,
+      metadata LONGTEXT NULL,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
       KEY idx_audit_logs_created_at (created_at),

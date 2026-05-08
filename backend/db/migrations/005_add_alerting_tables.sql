@@ -1,6 +1,9 @@
 -- Migration: 005_add_alerting_tables
 -- Description: Alert rules, alert lifecycle events, and default observability rules
--- Compatibility: MySQL 8.0+
+-- Compatibility: MySQL and MariaDB.
+--
+-- Defaults use literal JSON text instead of JSON constructor functions so older MariaDB/MySQL
+-- deployments do not need a newer JSON function set during bootstrapping.
 
 CREATE TABLE IF NOT EXISTS alert_rules (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -20,7 +23,7 @@ CREATE TABLE IF NOT EXISTS alert_rules (
   cooldown_minutes INT UNSIGNED NOT NULL DEFAULT 10,
   expected_interval_minutes INT UNSIGNED NULL,
   duration_spike_percent INT UNSIGNED NULL,
-  channels JSON NULL,
+  channels LONGTEXT NULL,
   enabled TINYINT(1) NOT NULL DEFAULT 1,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -58,25 +61,25 @@ CREATE TABLE IF NOT EXISTS alert_events (
 
 INSERT INTO alert_rules
   (name, type, severity, threshold, timeframe_minutes, cooldown_minutes, channels, enabled)
-SELECT 'Cron failed 3 times within 5 minutes', 'failed_threshold', 'critical', 3, 5, 10, JSON_ARRAY('telegram'), 1
+SELECT 'Cron failed 3 times within 5 minutes', 'failed_threshold', 'critical', 3, 5, 10, '["telegram"]', 1
 WHERE NOT EXISTS (SELECT 1 FROM alert_rules WHERE name = 'Cron failed 3 times within 5 minutes');
 
 INSERT INTO alert_rules
   (name, type, severity, threshold, timeframe_minutes, cooldown_minutes, channels, enabled)
-SELECT 'Warnings exceed 5 runs within 15 minutes', 'warning_threshold', 'warning', 5, 15, 15, JSON_ARRAY('telegram'), 1
+SELECT 'Warnings exceed 5 runs within 15 minutes', 'warning_threshold', 'warning', 5, 15, 15, '["telegram"]', 1
 WHERE NOT EXISTS (SELECT 1 FROM alert_rules WHERE name = 'Warnings exceed 5 runs within 15 minutes');
 
 INSERT INTO alert_rules
   (name, type, severity, threshold, timeframe_minutes, cooldown_minutes, channels, enabled)
-SELECT 'Success rate below 80%', 'success_rate_degradation', 'critical', 80, 15, 10, JSON_ARRAY('telegram'), 1
+SELECT 'Success rate below 80%', 'success_rate_degradation', 'critical', 80, 15, 10, '["telegram"]', 1
 WHERE NOT EXISTS (SELECT 1 FROM alert_rules WHERE name = 'Success rate below 80%');
 
 INSERT INTO alert_rules
   (name, type, severity, threshold, timeframe_minutes, cooldown_minutes, duration_spike_percent, channels, enabled)
-SELECT 'Duration spike over 300%', 'duration_anomaly', 'warning', 300, 15, 20, 300, JSON_ARRAY('telegram'), 1
+SELECT 'Duration spike over 300%', 'duration_anomaly', 'warning', 300, 15, 20, 300, '["telegram"]', 1
 WHERE NOT EXISTS (SELECT 1 FROM alert_rules WHERE name = 'Duration spike over 300%');
 
 INSERT INTO alert_rules
   (name, type, severity, threshold, timeframe_minutes, cooldown_minutes, channels, enabled)
-SELECT 'Retry storm detected', 'retry_storm', 'warning', 3, 5, 10, JSON_ARRAY('telegram'), 1
+SELECT 'Retry storm detected', 'retry_storm', 'warning', 3, 5, 10, '["telegram"]', 1
 WHERE NOT EXISTS (SELECT 1 FROM alert_rules WHERE name = 'Retry storm detected');
