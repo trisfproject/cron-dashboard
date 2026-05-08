@@ -6,7 +6,7 @@ import ConfirmationDialog from '@/components/ConfirmationDialog';
 import EditUserModal from '@/components/EditUserModal';
 import { passwordPolicyChecks, PasswordPolicyChecklist } from '@/components/PasswordPolicyChecklist';
 import ResetPasswordModal from '@/components/ResetPasswordModal';
-import { archiveUser, canDeleteUser, createUser, deactivateUser, deleteUser, forceLogoutUser, formatApiError, getCurrentUser, getUsers, reactivateUser, resetUserPassword, updateUser } from '@/lib/api';
+import { archiveUser, canDeleteUser, createUser, deactivateUser, deleteUser, forceLogoutUser, formatApiError, getCurrentUser, getUsers, reactivateUser, resetUserPassword, restoreUser, updateUser } from '@/lib/api';
 
 const emptyForm = {
   name: '',
@@ -52,12 +52,33 @@ function RoleBadge({ role }) {
   );
 }
 
+function lifecycleConflictCopy(conflict) {
+  return {
+    USER_ACTIVE: {
+      title: 'Active user already exists',
+      message: 'This email belongs to an active user. Use the existing account instead of creating a duplicate identity.'
+    },
+    USER_DISABLED: {
+      title: 'Disabled user already exists',
+      message: 'This email belongs to a disabled user. You can reactivate the account and optionally reset the password.'
+    },
+    USER_ARCHIVED: {
+      title: 'Archived user already exists',
+      message: 'This email belongs to an archived user. Restore the account to preserve audit and login history.'
+    }
+  }[conflict?.code] || {
+    title: 'User already exists',
+    message: conflict?.message || 'This email is already attached to an existing NYX account.'
+  };
+}
+
 export default function UsersPage() {
   const [users, setUsers] = useState([]);
   const [form, setForm] = useState(emptyForm);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [lifecycleConflict, setLifecycleConflict] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
 
   // Modal states
@@ -103,6 +124,7 @@ export default function UsersPage() {
   function updateForm(key, value) {
     setForm((current) => ({ ...current, [key]: value }));
     setError('');
+    setLifecycleConflict(null);
   }
 
   async function submitUser(event) {
@@ -113,9 +135,55 @@ export default function UsersPage() {
     try {
       await createUser(form);
       setForm(emptyForm);
+      setLifecycleConflict(null);
       await loadUsers();
     } catch (saveError) {
-      setError(formatApiError(saveError, 'Failed to create user'));
+      if (saveError?.status === 409 && saveError?.code?.startsWith('USER_')) {
+        setLifecycleConflict({
+          code: saveError.code,
+          message: saveError.userMessage || saveError.message,
+          userId: saveError.userId,
+          email: saveError.email,
+          lifecycle_state: saveError.lifecycle_state,
+          available_actions: saveError.available_actions || []
+        });
+      } else {
+        setError(formatApiError(saveError, 'Failed to create user'));
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleLifecycleRecover(action) {
+    if (!lifecycleConflict?.userId) {
+      return;
+    }
+
+    setSaving(true);
+    setError('');
+
+    try {
+      if (action === 'restore') {
+        await restoreUser(lifecycleConflict.userId);
+      }
+
+      if (action === 'reactivate') {
+        await reactivateUser(lifecycleConflict.userId);
+      }
+
+      setLifecycleConflict(null);
+      await loadUsers();
+
+      if (action === 'reset_password') {
+        setResetPasswordUser({
+          id: lifecycleConflict.userId,
+          email: lifecycleConflict.email,
+          name: lifecycleConflict.email
+        });
+      }
+    } catch (recoverError) {
+      setError(formatApiError(recoverError, 'Failed to recover user'));
     } finally {
       setSaving(false);
     }
@@ -282,6 +350,29 @@ export default function UsersPage() {
           <p className="mt-1 text-sm text-slate-500">New users can sign in immediately when active.</p>
         </div>
         {error ? <p className="whitespace-pre-line rounded-md bg-rose-50 p-3 text-sm font-medium text-rose-700 dark:bg-rose-950/40 dark:text-rose-200 md:col-span-4">{error}</p> : null}
+        {lifecycleConflict ? (
+          <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-100 md:col-span-4">
+            <p className="font-semibold">{lifecycleConflictCopy(lifecycleConflict).title}</p>
+            <p className="mt-1">{lifecycleConflictCopy(lifecycleConflict).message}</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {lifecycleConflict.available_actions?.includes('restore') ? (
+                <button type="button" disabled={saving} onClick={() => handleLifecycleRecover('restore')} className="rounded-md bg-amber-700 px-3 py-2 text-xs font-semibold text-white hover:bg-amber-800 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-amber-500 dark:text-slate-950 dark:hover:bg-amber-400">
+                  Restore account
+                </button>
+              ) : null}
+              {lifecycleConflict.available_actions?.includes('reactivate') ? (
+                <button type="button" disabled={saving} onClick={() => handleLifecycleRecover('reactivate')} className="rounded-md bg-amber-700 px-3 py-2 text-xs font-semibold text-white hover:bg-amber-800 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-amber-500 dark:text-slate-950 dark:hover:bg-amber-400">
+                  Reactivate account
+                </button>
+              ) : null}
+              {lifecycleConflict.available_actions?.includes('reset_password') ? (
+                <button type="button" disabled={saving} onClick={() => handleLifecycleRecover('reset_password')} className="rounded-md border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-amber-800 dark:bg-slate-950 dark:text-amber-100 dark:hover:bg-amber-950">
+                  Reset password
+                </button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
         <label className="space-y-1">
           <span className="text-sm font-medium text-slate-600 dark:text-slate-300">Name</span>
           <input value={form.name} onChange={(event) => updateForm('name', event.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-950" required />

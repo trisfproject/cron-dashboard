@@ -124,6 +124,11 @@ async function request(path, options = {}) {
     const error = new Error(serverMessage);
     error.userMessage = serverMessage;
     error.status = response.status;
+    error.code = body?.code;
+    error.userId = body?.userId;
+    error.email = body?.email;
+    error.lifecycle_state = body?.lifecycle_state;
+    error.available_actions = body?.available_actions;
     error.details = details;
     error.body = body;
     throw error;
@@ -279,6 +284,13 @@ export function deactivateUser(id) {
 
 export function reactivateUser(id) {
   return request(`/users/${id}/reactivate`, {
+    method: 'POST',
+    body: JSON.stringify({})
+  });
+}
+
+export function restoreUser(id) {
+  return request(`/users/${id}/restore`, {
     method: 'POST',
     body: JSON.stringify({})
   });

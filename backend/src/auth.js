@@ -184,6 +184,10 @@ function clearLoginFailures(request, email) {
 }
 
 function accountStatus(row) {
+  if (row.archived_at) {
+    return 'archived';
+  }
+
   if (!row.is_active) {
     return 'disabled';
   }
@@ -312,6 +316,7 @@ export async function ensureAuthSchema() {
   await ensureColumn('users', 'session_version', 'ALTER TABLE users ADD COLUMN session_version INT UNSIGNED NOT NULL DEFAULT 1');
   await ensureColumn('users', 'password_changed_at', 'ALTER TABLE users ADD COLUMN password_changed_at TIMESTAMP NULL');
   await ensureColumn('users', 'password_expires_at', 'ALTER TABLE users ADD COLUMN password_expires_at TIMESTAMP NULL');
+  await ensureColumn('users', 'archived_at', 'ALTER TABLE users ADD COLUMN archived_at TIMESTAMP NULL');
   await pool.query(`
     UPDATE users
     SET password_changed_at = COALESCE(password_changed_at, created_at, UTC_TIMESTAMP()),
@@ -366,12 +371,12 @@ export async function bootstrapAdminUser(config, logger) {
 
 export async function authenticateUser(email, password) {
   const [rows] = await pool.query(
-    "SELECT id, name, email, password_hash, role, is_active, locked_until, session_version, DATE_FORMAT(last_login_at, '%Y-%m-%d %H:%i:%s') AS last_login_at, DATE_FORMAT(password_changed_at, '%Y-%m-%d %H:%i:%s') AS password_changed_at, DATE_FORMAT(password_expires_at, '%Y-%m-%d %H:%i:%s') AS password_expires_at FROM users WHERE email = ? LIMIT 1",
+    "SELECT id, name, email, password_hash, role, is_active, locked_until, session_version, DATE_FORMAT(last_login_at, '%Y-%m-%d %H:%i:%s') AS last_login_at, DATE_FORMAT(password_changed_at, '%Y-%m-%d %H:%i:%s') AS password_changed_at, DATE_FORMAT(password_expires_at, '%Y-%m-%d %H:%i:%s') AS password_expires_at, DATE_FORMAT(archived_at, '%Y-%m-%d %H:%i:%s') AS archived_at FROM users WHERE email = ? LIMIT 1",
     [String(email || '').toLowerCase()]
   );
   const user = rows[0];
 
-  if (!user || !user.is_active || (user.locked_until && new Date(user.locked_until).getTime() > Date.now()) || !verifyPassword(password, user.password_hash)) {
+  if (!user || user.archived_at || !user.is_active || (user.locked_until && new Date(user.locked_until).getTime() > Date.now()) || !verifyPassword(password, user.password_hash)) {
     return null;
   }
 
@@ -407,12 +412,12 @@ export async function requireAuth(request, reply) {
   }
 
   const [rows] = await pool.query(
-    "SELECT id, name, email, role, is_active, locked_until, session_version, DATE_FORMAT(last_login_at, '%Y-%m-%d %H:%i:%s') AS last_login_at, DATE_FORMAT(password_changed_at, '%Y-%m-%d %H:%i:%s') AS password_changed_at, DATE_FORMAT(password_expires_at, '%Y-%m-%d %H:%i:%s') AS password_expires_at FROM users WHERE id = ? LIMIT 1",
+    "SELECT id, name, email, role, is_active, locked_until, session_version, DATE_FORMAT(last_login_at, '%Y-%m-%d %H:%i:%s') AS last_login_at, DATE_FORMAT(password_changed_at, '%Y-%m-%d %H:%i:%s') AS password_changed_at, DATE_FORMAT(password_expires_at, '%Y-%m-%d %H:%i:%s') AS password_expires_at, DATE_FORMAT(archived_at, '%Y-%m-%d %H:%i:%s') AS archived_at FROM users WHERE id = ? LIMIT 1",
     [Number(payload.sub)]
   );
   const user = rows[0];
 
-  if (!user || !user.is_active || Number(payload.sv || 0) !== Number(user.session_version || 1)) {
+  if (!user || user.archived_at || !user.is_active || Number(payload.sv || 0) !== Number(user.session_version || 1)) {
     reply.code(401).send({ error: 'Authentication required' });
     return;
   }
@@ -476,7 +481,62 @@ export async function listUsers(includeArchived = false) {
   }));
 }
 
+function userLifecycleConflict(row) {
+  if (!row) {
+    return null;
+  }
+
+  if (row.archived_at) {
+    return {
+      code: 'USER_ARCHIVED',
+      message: 'User already exists in archived state.',
+      userId: Number(row.id),
+      email: row.email,
+      lifecycle_state: 'archived',
+      available_actions: ['restore', 'reset_password']
+    };
+  }
+
+  if (!row.is_active) {
+    return {
+      code: 'USER_DISABLED',
+      message: 'User already exists in disabled state.',
+      userId: Number(row.id),
+      email: row.email,
+      lifecycle_state: 'disabled',
+      available_actions: ['reactivate', 'reset_password']
+    };
+  }
+
+  return {
+    code: 'USER_ACTIVE',
+    message: 'User already exists and is active.',
+    userId: Number(row.id),
+    email: row.email,
+    lifecycle_state: 'active',
+    available_actions: ['reset_password']
+  };
+}
+
 export async function createUser(payload) {
+  const email = String(payload.email || '').toLowerCase().trim();
+  const [existingRows] = await pool.query(
+    "SELECT id, email, is_active, DATE_FORMAT(archived_at, '%Y-%m-%d %H:%i:%s') AS archived_at FROM users WHERE email = ? LIMIT 1",
+    [email]
+  );
+  const conflict = userLifecycleConflict(existingRows[0]);
+
+  if (conflict) {
+    const error = new Error(conflict.message);
+    error.statusCode = 409;
+    error.code = conflict.code;
+    error.userId = conflict.userId;
+    error.email = conflict.email;
+    error.lifecycle_state = conflict.lifecycle_state;
+    error.available_actions = conflict.available_actions;
+    throw error;
+  }
+
   const policyErrors = passwordPolicyErrors(payload.password);
   if (policyErrors.length > 0) {
     const error = new Error(PASSWORD_POLICY_MESSAGE);
@@ -487,17 +547,42 @@ export async function createUser(payload) {
 
   const role = payload.role === 'admin' ? 'admin' : 'user';
   const isActive = payload.is_active === false ? 0 : 1;
-  const [result] = await pool.query(
-    `INSERT INTO users (name, email, password_hash, role, is_active, password_changed_at, password_expires_at)
-     VALUES (?, ?, ?, ?, ?, UTC_TIMESTAMP(), DATE_ADD(UTC_TIMESTAMP(), INTERVAL ${PASSWORD_EXPIRY_DAYS} DAY))`,
-    [
-      String(payload.name || '').trim(),
-      String(payload.email || '').toLowerCase().trim(),
-      hashPassword(payload.password),
-      role,
-      isActive
-    ]
-  );
+  let result;
+
+  try {
+    [result] = await pool.query(
+      `INSERT INTO users (name, email, password_hash, role, is_active, password_changed_at, password_expires_at)
+       VALUES (?, ?, ?, ?, ?, UTC_TIMESTAMP(), DATE_ADD(UTC_TIMESTAMP(), INTERVAL ${PASSWORD_EXPIRY_DAYS} DAY))`,
+      [
+        String(payload.name || '').trim(),
+        email,
+        hashPassword(payload.password),
+        role,
+        isActive
+      ]
+    );
+  } catch (error) {
+    if (error.code === 'ER_DUP_ENTRY') {
+      const [duplicateRows] = await pool.query(
+        "SELECT id, email, is_active, DATE_FORMAT(archived_at, '%Y-%m-%d %H:%i:%s') AS archived_at FROM users WHERE email = ? LIMIT 1",
+        [email]
+      );
+      const duplicateConflict = userLifecycleConflict(duplicateRows[0]);
+
+      if (duplicateConflict) {
+        const conflictError = new Error(duplicateConflict.message);
+        conflictError.statusCode = 409;
+        conflictError.code = duplicateConflict.code;
+        conflictError.userId = duplicateConflict.userId;
+        conflictError.email = duplicateConflict.email;
+        conflictError.lifecycle_state = duplicateConflict.lifecycle_state;
+        conflictError.available_actions = duplicateConflict.available_actions;
+        throw conflictError;
+      }
+    }
+
+    throw error;
+  }
 
   const users = await listUsers();
   return users.find((user) => user.id === Number(result.insertId));
@@ -638,6 +723,16 @@ export async function archiveUser(id) {
     'UPDATE users SET archived_at = CURRENT_TIMESTAMP, session_version = session_version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
     [Number(id)]
   );
+}
+
+export async function restoreUser(id) {
+  await pool.query(
+    'UPDATE users SET archived_at = NULL, is_active = 1, session_version = session_version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+    [Number(id)]
+  );
+
+  const users = await listUsers(true);
+  return users.find((user) => user.id === Number(id));
 }
 
 export async function permanentDeleteUser(id) {

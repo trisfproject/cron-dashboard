@@ -13,6 +13,7 @@ import {
   requireAdmin,
   requireAuth,
   resetUserPassword,
+  restoreUser,
   updateUser
 } from './auth.js';
 import {
@@ -844,17 +845,32 @@ export async function registerRoutes(app) {
       }
     },
     async (request, reply) => {
-      const user = await createUser(request.body);
-      await logAudit({
-        user: request.user,
-        action: 'user_created',
-        targetType: 'user',
-        targetId: user.id,
-        targetLabel: user.email,
-        request,
-        metadata: { role: user.role }
-      });
-      return reply.code(201).send({ user });
+      try {
+        const user = await createUser(request.body);
+        await logAudit({
+          user: request.user,
+          action: 'user_created',
+          targetType: 'user',
+          targetId: user.id,
+          targetLabel: user.email,
+          request,
+          metadata: { role: user.role }
+        });
+        return reply.code(201).send({ user });
+      } catch (error) {
+        if (error.statusCode === 409) {
+          return reply.code(409).send({
+            code: error.code,
+            message: error.message,
+            userId: error.userId,
+            email: error.email,
+            lifecycle_state: error.lifecycle_state,
+            available_actions: error.available_actions
+          });
+        }
+
+        throw error;
+      }
     }
   );
 
@@ -999,6 +1015,36 @@ export async function registerRoutes(app) {
       await logAudit({
         user: request.user,
         action: 'user_reactivated',
+        targetType: 'user',
+        targetId: user.id,
+        targetLabel: user.email,
+        request
+      });
+      return { user };
+    }
+  );
+
+  app.post(
+    '/users/:id/restore',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          properties: {
+            id: { type: 'integer' }
+          },
+          required: ['id']
+        }
+      }
+    },
+    async (request, reply) => {
+      const user = await restoreUser(Number(request.params.id));
+      if (!user) {
+        return reply.code(404).send({ error: 'User not found' });
+      }
+      await logAudit({
+        user: request.user,
+        action: 'user_restored',
         targetType: 'user',
         targetId: user.id,
         targetLabel: user.email,
