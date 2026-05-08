@@ -3,16 +3,33 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { Activity, Bell, ClipboardList, ListChecks, Users } from 'lucide-react';
+import { Activity, Bell, ClipboardList, ListChecks, Menu, UserCircle, Users, X } from 'lucide-react';
 import { BrandMark } from '@/components/BrandMark';
 import { LogoutButton } from '@/components/LogoutButton';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { getCurrentUser } from '@/lib/api';
 
+const NAV_ITEMS = [
+  { href: '/', label: 'Dashboard', icon: Activity, adminOnly: false },
+  { href: '/cron', label: 'Cron', icon: ListChecks, adminOnly: false },
+  { href: '/alerts', label: 'Alerts', icon: Bell, adminOnly: true },
+  { href: '/users', label: 'Users', icon: Users, adminOnly: true },
+  { href: '/audit', label: 'Audit', icon: ClipboardList, adminOnly: true }
+];
+
+function isActivePath(pathname, href) {
+  if (href === '/') {
+    return pathname === '/';
+  }
+
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
 export function AppShell({ children }) {
   const pathname = usePathname();
   const authScreen = pathname === '/login';
   const [user, setUser] = useState(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   useEffect(() => {
     if (authScreen) {
@@ -40,6 +57,33 @@ export function AppShell({ children }) {
   }, [authScreen]);
 
   const isAdmin = user?.role === 'admin';
+  const visibleNavItems = NAV_ITEMS.filter((item) => !item.adminOnly || isAdmin);
+
+  useEffect(() => {
+    setDrawerOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!drawerOpen) {
+      return undefined;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') {
+        setDrawerOpen(false);
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [drawerOpen]);
 
   if (authScreen) {
     return (
@@ -52,40 +96,37 @@ export function AppShell({ children }) {
   return (
     <div className="flex min-h-screen flex-col bg-surface">
       <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/85 dark:border-slate-800 dark:bg-slate-950/95 dark:supports-[backdrop-filter]:bg-slate-950/85">
-        <div className="mx-auto flex max-w-7xl flex-col gap-2 px-4 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))] sm:px-6 md:flex-row md:items-center md:justify-between md:gap-3 md:py-4 lg:px-8">
-          <Link href="/" className="flex min-h-12 items-center justify-center md:min-h-10 md:justify-start">
+        <div className="mx-auto flex min-h-[4rem] max-w-7xl items-center justify-between gap-3 px-4 py-3 pt-[calc(0.75rem+env(safe-area-inset-top))] sm:px-6 lg:min-h-[4.5rem] lg:px-8">
+          <Link href="/" className="flex min-h-11 min-w-0 items-center rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-slate-950">
             <BrandMark />
           </Link>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <nav className="flex min-w-0 flex-1 items-center gap-1 text-sm font-medium text-slate-600 sm:gap-2">
-              <Link className="flex min-h-10 items-center gap-2 rounded-md px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-900" href="/">
-                <Activity className="h-4 w-4" aria-hidden="true" />
-                Dashboard
-              </Link>
-              <Link className="flex min-h-10 items-center gap-2 rounded-md px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-900" href="/cron">
-                <ListChecks className="h-4 w-4" aria-hidden="true" />
-                Cron
-              </Link>
-              {isAdmin ? (
-                <>
-                  <Link className="flex min-h-10 items-center gap-2 rounded-md px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-900" href="/alerts">
-                    <Bell className="h-4 w-4" aria-hidden="true" />
-                    Alerts
+          <div className="hidden min-w-0 items-center justify-end gap-3 lg:flex">
+            <nav className="flex min-w-0 items-center gap-1 text-sm font-medium text-slate-600 dark:text-slate-300">
+              {visibleNavItems.map((item) => {
+                const Icon = item.icon;
+                const active = isActivePath(pathname, item.href);
+
+                return (
+                  <Link
+                    key={item.href}
+                    className={`flex min-h-10 items-center gap-2 rounded-md px-3 py-2 transition-colors ${
+                      active
+                        ? 'bg-slate-100 text-ink dark:bg-slate-900 dark:text-white'
+                        : 'hover:bg-slate-100 hover:text-ink dark:hover:bg-slate-900 dark:hover:text-white'
+                    }`}
+                    href={item.href}
+                    aria-current={active ? 'page' : undefined}
+                  >
+                    <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    {item.label}
                   </Link>
-                  <Link className="flex min-h-10 items-center gap-2 rounded-md px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-900" href="/users">
-                    <Users className="h-4 w-4" aria-hidden="true" />
-                    Users
-                  </Link>
-                  <Link className="flex min-h-10 items-center gap-2 rounded-md px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-900" href="/audit">
-                    <ClipboardList className="h-4 w-4" aria-hidden="true" />
-                    Audit
-                  </Link>
-                </>
-              ) : null}
+                );
+              })}
             </nav>
             {user ? (
-              <Link href="/account" className="flex min-h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs shadow-sm hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:hover:bg-slate-900">
-                <span className="max-w-[10rem] truncate font-medium text-slate-700 dark:text-slate-200">{user.name || user.email}</span>
+              <Link href="/account" className="flex min-h-10 max-w-[13rem] items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs shadow-sm hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:hover:bg-slate-900">
+                <UserCircle className="h-4 w-4 shrink-0 text-slate-500" aria-hidden="true" />
+                <span className="truncate font-medium text-slate-700 dark:text-slate-200">{user.name || user.email}</span>
                 <span className={`rounded px-1.5 py-0.5 font-semibold uppercase ring-1 ${
                   isAdmin
                     ? 'bg-blue-50 text-blue-700 ring-blue-200 dark:bg-blue-950/40 dark:text-blue-200 dark:ring-blue-900'
@@ -97,10 +138,104 @@ export function AppShell({ children }) {
               </Link>
             ) : null}
             <ThemeToggle />
-            <LogoutButton />
+            <LogoutButton showLabel={false} className="flex h-10 w-10 items-center justify-center rounded-md text-slate-600 transition-colors hover:bg-slate-100 hover:text-ink dark:text-slate-300 dark:hover:bg-slate-900 dark:hover:text-white" />
           </div>
+          <button
+            type="button"
+            onClick={() => setDrawerOpen(true)}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 shadow-sm transition-colors hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-900 dark:focus:ring-offset-slate-950 lg:hidden"
+            aria-label="Open navigation menu"
+            aria-expanded={drawerOpen}
+            aria-controls="nyx-navigation-drawer"
+          >
+            <Menu className="h-5 w-5" aria-hidden="true" />
+          </button>
         </div>
       </header>
+      <div className={`fixed inset-0 z-50 lg:hidden ${drawerOpen ? '' : 'pointer-events-none'}`} aria-hidden={!drawerOpen}>
+        <div
+          className={`absolute inset-0 bg-slate-950/45 backdrop-blur-sm transition-opacity duration-200 ${drawerOpen ? 'opacity-100' : 'opacity-0'}`}
+          onClick={() => setDrawerOpen(false)}
+        />
+        <aside
+          id="nyx-navigation-drawer"
+          className={`absolute right-0 top-0 flex h-full w-[min(22rem,calc(100vw-2rem))] max-w-full flex-col border-l border-slate-200 bg-white shadow-2xl transition-transform duration-200 dark:border-slate-800 dark:bg-slate-950 ${drawerOpen ? 'translate-x-0' : 'translate-x-full'}`}
+          aria-label="Navigation menu"
+        >
+          <div className="flex min-h-[4rem] items-center justify-between gap-3 border-b border-slate-200 px-4 pt-[env(safe-area-inset-top)] dark:border-slate-800">
+            <Link href="/" className="min-w-0 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-slate-950">
+              <BrandMark />
+            </Link>
+            <button
+              type="button"
+              onClick={() => setDrawerOpen(false)}
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-slate-600 transition-colors hover:bg-slate-100 hover:text-ink focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:text-slate-300 dark:hover:bg-slate-900 dark:hover:text-white dark:focus:ring-offset-slate-950"
+              aria-label="Close navigation menu"
+            >
+              <X className="h-5 w-5" aria-hidden="true" />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto px-4 py-4">
+            {user ? (
+              <Link href="/account" className="mb-4 flex min-h-14 items-center gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 shadow-sm dark:border-slate-800 dark:bg-slate-900/60">
+                <UserCircle className="h-6 w-6 shrink-0 text-slate-500 dark:text-slate-400" aria-hidden="true" />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-semibold text-ink dark:text-slate-100">{user.name || user.email}</span>
+                  <span className={`mt-1 inline-flex rounded px-1.5 py-0.5 text-[0.68rem] font-semibold uppercase leading-5 ring-1 ${
+                    isAdmin
+                      ? 'bg-blue-50 text-blue-700 ring-blue-200 dark:bg-blue-950/40 dark:text-blue-200 dark:ring-blue-900'
+                      : 'bg-slate-100 text-slate-600 ring-slate-200 dark:bg-slate-950 dark:text-slate-300 dark:ring-slate-800'
+                  }`}
+                  >
+                    {user.role}
+                  </span>
+                </span>
+              </Link>
+            ) : null}
+            <nav className="space-y-1 text-sm font-medium text-slate-700 dark:text-slate-200">
+              {visibleNavItems.map((item) => {
+                const Icon = item.icon;
+                const active = isActivePath(pathname, item.href);
+
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`flex min-h-12 items-center gap-3 rounded-md px-3 py-2 transition-colors ${
+                      active
+                        ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100 dark:bg-blue-950/40 dark:text-blue-200 dark:ring-blue-900'
+                        : 'hover:bg-slate-100 hover:text-ink dark:hover:bg-slate-900 dark:hover:text-white'
+                    }`}
+                    aria-current={active ? 'page' : undefined}
+                  >
+                    <Icon className="h-5 w-5 shrink-0" aria-hidden="true" />
+                    <span>{item.label}</span>
+                  </Link>
+                );
+              })}
+              <Link
+                href="/account"
+                className={`flex min-h-12 items-center gap-3 rounded-md px-3 py-2 transition-colors ${
+                  isActivePath(pathname, '/account')
+                    ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100 dark:bg-blue-950/40 dark:text-blue-200 dark:ring-blue-900'
+                    : 'hover:bg-slate-100 hover:text-ink dark:hover:bg-slate-900 dark:hover:text-white'
+                }`}
+                aria-current={isActivePath(pathname, '/account') ? 'page' : undefined}
+              >
+                <UserCircle className="h-5 w-5 shrink-0" aria-hidden="true" />
+                <span>Account/Profile</span>
+              </Link>
+            </nav>
+          </div>
+          <div className="space-y-3 border-t border-slate-200 px-4 py-4 pb-[calc(1rem+env(safe-area-inset-bottom))] dark:border-slate-800">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm font-medium text-slate-600 dark:text-slate-300">Theme</span>
+              <ThemeToggle />
+            </div>
+            <LogoutButton className="flex min-h-12 w-full items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 hover:text-ink dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-900 dark:hover:text-white" />
+          </div>
+        </aside>
+      </div>
       <main className="mx-auto w-full max-w-7xl flex-1 px-4 pb-8 pt-5 sm:px-6 sm:py-8 lg:px-8">{children}</main>
       <footer className="border-t border-slate-200/70 bg-white/60 px-4 py-[calc(0.875rem+env(safe-area-inset-bottom))] text-center text-xs text-slate-500 backdrop-blur dark:border-slate-800/80 dark:bg-slate-950/50 dark:text-slate-400 sm:px-6">
         <div className="mx-auto flex max-w-7xl items-center justify-center">
