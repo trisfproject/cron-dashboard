@@ -61,6 +61,10 @@ input[type='submit'] {
 }
 
 @media (max-width: 640px) {
+  .compact-control {
+    min-height: 2rem;
+  }
+
   .rounded-lg.border.bg-white.p-5 {
     padding: 1rem;
   }

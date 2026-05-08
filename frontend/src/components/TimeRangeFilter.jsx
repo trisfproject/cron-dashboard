@@ -143,9 +143,9 @@ export function TimeRangeFilter({
   }
 
   return (
-    <div className="relative flex w-full flex-col items-start gap-2 sm:w-auto sm:items-end" ref={popoverRef}>
-      <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
-        <div className="flex flex-wrap gap-1">
+    <div className="relative flex w-full min-w-0 flex-col items-start gap-2 sm:w-auto sm:items-end" ref={popoverRef}>
+      <div className="flex w-full min-w-0 items-center gap-2 overflow-x-auto pb-1 sm:w-auto sm:overflow-visible sm:pb-0">
+        <div className="flex shrink-0 gap-1 rounded-md bg-slate-100 p-1 dark:bg-slate-800/70">
           {OPTIONS.map((option) => {
             const active = !isCustom && selectedFilter?.type === option.type && selectedFilter?.value === option.value;
 
@@ -154,10 +154,10 @@ export function TimeRangeFilter({
                 key={`${option.type}-${option.value}`}
                 type="button"
                 onClick={() => onFilterChange?.({ type: option.type, value: option.value })}
-                className={`min-h-10 rounded px-3 py-1.5 text-sm font-medium transition-colors ${
+                className={`compact-control shrink-0 rounded px-2.5 py-1 text-xs font-medium transition-colors sm:min-h-10 sm:px-3 sm:py-1.5 sm:text-sm ${
                   active
                     ? 'bg-blue-600 text-white'
-                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
+                    : 'text-slate-700 hover:bg-white dark:text-slate-200 dark:hover:bg-slate-700'
                 }`}
               >
                 {option.label}
@@ -168,10 +168,10 @@ export function TimeRangeFilter({
           <button
             type="button"
             onClick={() => setOpen((value) => !value)}
-            className={`inline-flex min-h-10 items-center gap-1 rounded px-3 py-1.5 text-sm font-medium transition-colors ${
+            className={`compact-control inline-flex shrink-0 items-center gap-1 rounded px-2.5 py-1 text-xs font-medium transition-colors sm:min-h-10 sm:px-3 sm:py-1.5 sm:text-sm ${
               isCustom
                 ? 'bg-blue-600 text-white'
-                : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
+                : 'text-slate-700 hover:bg-white dark:text-slate-200 dark:hover:bg-slate-700'
             }`}
             title="Custom date and time range"
           >
@@ -180,12 +180,12 @@ export function TimeRangeFilter({
           </button>
         </div>
 
-        <label className="inline-flex min-h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
-          <RefreshCw className="h-4 w-4" aria-hidden="true" />
+        <label className="compact-control inline-flex shrink-0 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 sm:min-h-10 sm:gap-2 sm:py-1.5 sm:text-sm">
+          <RefreshCw className="h-3.5 w-3.5 sm:h-4 sm:w-4" aria-hidden="true" />
           <select
             value={refreshInterval}
             onChange={(event) => onRefreshIntervalChange?.(Number(event.target.value))}
-            className="bg-transparent text-sm outline-none"
+            className="bg-transparent text-xs outline-none sm:text-sm"
           >
             {REFRESH_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>

@@ -506,7 +506,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
   const health = getSystemHealth(summary);
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6 sm:space-y-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-normal text-ink">Dashboard</h1>
@@ -526,7 +526,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
         />
       </div>
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <section className="grid grid-cols-2 gap-2.5 sm:gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard 
           icon={ListChecks} 
           label="Total jobs" 
@@ -569,20 +569,20 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
           value={formatNumber(throughput, 2)}
           subtext={throughputUnit}
         />
-        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-sm font-medium text-slate-500">System health</p>
-              <p className={`mt-2 inline-flex items-center rounded-md px-2.5 py-1 text-lg font-semibold tracking-normal ring-1 ${health.className}`}>
+        <div className="col-span-2 min-h-[7.25rem] rounded-lg border border-blue-200 bg-white p-3 shadow-sm ring-1 ring-blue-100 dark:border-blue-900/70 dark:ring-blue-900/40 xl:col-span-1 xl:min-h-[9.25rem] xl:p-5">
+          <div className="flex items-start justify-between gap-2 sm:gap-3">
+            <div className="min-w-0">
+              <p className="text-[0.7rem] font-medium uppercase leading-tight tracking-wide text-slate-500 sm:text-sm sm:normal-case sm:tracking-normal">System health</p>
+              <p className={`mt-1 inline-flex items-center rounded-md px-2 py-0.5 text-base font-semibold tracking-normal ring-1 sm:mt-2 sm:px-2.5 sm:py-1 sm:text-lg ${health.className}`}>
                 <span className="mr-2 h-2 w-2 rounded-full bg-current" aria-hidden="true" />
                 {health.label}
               </p>
             </div>
-            <div className="rounded-md bg-slate-100 p-2 text-slate-700">
-              <Activity className="h-5 w-5" aria-hidden="true" />
+            <div className="shrink-0 rounded-md bg-slate-100 p-1.5 text-slate-700 sm:p-2">
+              <Activity className="h-4 w-4 sm:h-5 sm:w-5" aria-hidden="true" />
             </div>
           </div>
-          <p className="mt-3 text-sm text-slate-500">Based on failures, warnings, and ingest freshness.</p>
+          <p className="mt-2 text-xs leading-snug text-slate-500 sm:mt-3 sm:text-sm">Based on failures, warnings, and ingest freshness.</p>
         </div>
       </section>
 
