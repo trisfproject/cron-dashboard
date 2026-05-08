@@ -504,6 +504,11 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
     : totalRuns / Math.max(windowMinutes / 60, 1);
   const throughputUnit = windowMinutes <= 60 ? 'runs/min' : 'runs/hour';
   const health = getSystemHealth(summary);
+  const healthAccentClass = {
+    Healthy: 'border-l-emerald-500 ring-emerald-100 dark:border-l-emerald-400 dark:ring-emerald-900/40',
+    Degraded: 'border-l-orange-500 ring-orange-100 dark:border-l-orange-400 dark:ring-orange-900/40',
+    Critical: 'border-l-rose-500 ring-rose-100 dark:border-l-rose-400 dark:ring-rose-900/40'
+  }[health.label] || 'border-l-slate-400 ring-slate-100 dark:border-l-slate-500 dark:ring-slate-800';
 
   return (
     <div className="space-y-6 sm:space-y-8">
@@ -569,20 +574,27 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
           value={formatNumber(throughput, 2)}
           subtext={throughputUnit}
         />
-        <div className="col-span-2 min-h-[7.25rem] rounded-lg border border-blue-200 bg-white p-3 shadow-sm ring-1 ring-blue-100 dark:border-blue-900/70 dark:ring-blue-900/40 xl:col-span-1 xl:min-h-[9.25rem] xl:p-5">
-          <div className="flex items-start justify-between gap-2 sm:gap-3">
-            <div className="min-w-0">
-              <p className="text-[0.7rem] font-medium uppercase leading-tight tracking-wide text-slate-500 sm:text-sm sm:normal-case sm:tracking-normal">System health</p>
-              <p className={`mt-1 inline-flex items-center rounded-md px-2 py-0.5 text-base font-semibold tracking-normal ring-1 sm:mt-2 sm:px-2.5 sm:py-1 sm:text-lg ${health.className}`}>
-                <span className="mr-2 h-2 w-2 rounded-full bg-current" aria-hidden="true" />
-                {health.label}
-              </p>
-            </div>
-            <div className="shrink-0 rounded-md bg-slate-100 p-1.5 text-slate-700 sm:p-2">
-              <Activity className="h-4 w-4 sm:h-5 sm:w-5" aria-hidden="true" />
+        <div className={`col-span-2 min-h-[5.25rem] rounded-lg border-y border-r border-l-4 border-y-slate-200 border-r-slate-200 bg-white p-3 shadow-sm ring-1 dark:border-y-slate-700 dark:border-r-slate-700 md:col-span-2 xl:col-span-4 ${healthAccentClass}`}>
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex min-w-0 flex-1 items-start gap-2.5">
+              <div className="shrink-0 rounded-md bg-slate-100 p-1.5 text-slate-700 sm:p-2">
+                <Activity className="h-4 w-4 sm:h-5 sm:w-5" aria-hidden="true" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-[0.7rem] font-medium uppercase leading-tight tracking-wide text-slate-500 sm:text-sm sm:normal-case sm:tracking-normal">System health</p>
+                  <p className={`inline-flex items-center rounded-md px-2 py-0.5 text-sm font-semibold leading-none tracking-normal ring-1 sm:text-base ${health.className}`}>
+                    <span className="mr-1.5 h-1.5 w-1.5 rounded-full bg-current sm:h-2 sm:w-2" aria-hidden="true" />
+                    {health.label}
+                  </p>
+                </div>
+                <p className="mt-1.5 text-xs leading-snug text-slate-500 sm:text-sm">
+                  <span className="sm:hidden">Failures, warnings, ingest freshness.</span>
+                  <span className="hidden sm:inline">Based on failures, warnings, and ingest freshness.</span>
+                </p>
+              </div>
             </div>
           </div>
-          <p className="mt-2 text-xs leading-snug text-slate-500 sm:mt-3 sm:text-sm">Based on failures, warnings, and ingest freshness.</p>
         </div>
       </section>
 
