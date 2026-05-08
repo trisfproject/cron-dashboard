@@ -9,6 +9,16 @@ import { StatusBadge } from '@/components/StatusBadge';
 
 export const dynamic = 'force-dynamic';
 
+function parseServiceGroup(cronName = '') {
+  return String(cronName || '').trim().split(/\s+/)[0] || 'Unassigned';
+}
+
+function compareServiceGroups(left, right) {
+  if (left === 'Unassigned') return 1;
+  if (right === 'Unassigned') return -1;
+  return left.localeCompare(right);
+}
+
 export default async function CronListPage({ searchParams }) {
   const resolvedSearchParams = await searchParams;
   const requestHeaders = await headers();
@@ -62,7 +72,12 @@ export default async function CronListPage({ searchParams }) {
     error = fetchError?.message || 'Failed to load cron jobs';
   }
 
-  const filteredJobs = jobs.filter((job) => {
+  const displayJobs = jobs.map((job) => ({
+    ...job,
+    service_group: job?.service_group || parseServiceGroup(job?.cron_name)
+  }));
+
+  const filteredJobs = displayJobs.filter((job) => {
     const cronName = String(job?.cron_name ?? '');
     const server = String(job?.server ?? '');
     const matchesName = nameFilter ? cronName.toLowerCase().includes(nameFilter.toLowerCase()) : true;
@@ -72,10 +87,11 @@ export default async function CronListPage({ searchParams }) {
     return matchesName && matchesServer && matchesStatus;
   });
   const groupedJobs = filteredJobs.reduce((groups, job) => {
-    const key = job?.service_group || 'Unassigned';
-    return { ...groups, [key]: [...(groups[key] || []), job] };
+    const key = job?.service_group;
+    groups[key] = [...(groups[key] || []), job];
+    return groups;
   }, {});
-  const serviceGroups = Object.keys(groupedJobs).sort((left, right) => left.localeCompare(right));
+  const serviceGroups = Object.keys(groupedJobs).sort(compareServiceGroups);
 
   function cronHref(job) {
     const params = new URLSearchParams();
@@ -160,7 +176,8 @@ export default async function CronListPage({ searchParams }) {
           {serviceGroups.map((group) => (
             <div key={`${group}-mobile-group`}>
               <div className="bg-slate-50 px-4 py-2 text-xs font-semibold uppercase tracking-normal text-slate-500 dark:bg-slate-950">
-                {group}
+                <span>{group}</span>
+                <span className="ml-2 font-medium normal-case text-slate-400">{formatNumber(groupedJobs[group].length)} jobs</span>
               </div>
               {groupedJobs[group].map((job, index) => (
                 <article key={`${job?.cron_name ?? 'cron'}-${job?.server ?? 'server'}-mobile-${index}`} className="space-y-3 p-4">
@@ -224,7 +241,10 @@ export default async function CronListPage({ searchParams }) {
               {serviceGroups.map((group) => (
                 <Fragment key={`${group}-desktop-group`}>
                   <tr key={`${group}-header`} className="bg-slate-50/70 dark:bg-slate-950">
-                    <td className="px-4 py-2 text-xs font-semibold uppercase tracking-normal text-slate-500" colSpan={9}>{group}</td>
+                    <td className="px-4 py-2 text-xs font-semibold uppercase tracking-normal text-slate-500" colSpan={9}>
+                      <span>{group}</span>
+                      <span className="ml-2 font-medium normal-case text-slate-400">{formatNumber(groupedJobs[group].length)} jobs</span>
+                    </td>
                   </tr>
                   {groupedJobs[group].map((job, index) => (
                     <tr key={`${job?.cron_name ?? 'cron'}-${job?.server ?? 'server'}-${index}`}>

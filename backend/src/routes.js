@@ -78,6 +78,7 @@ const JAKARTA_SQL_TIMEZONE = '+07:00';
 const UTC_SQL_TIMEZONE = '+00:00';
 const JAKARTA_TIMESTAMP_SQL = `DATE_FORMAT(CONVERT_TZ(timestamp, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s')`;
 const JAKARTA_CREATED_AT_SQL = `DATE_FORMAT(CONVERT_TZ(created_at, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s')`;
+const SERVICE_GROUP_FROM_CRON_SQL = "COALESCE(NULLIF(LEFT(SUBSTRING_INDEX(TRIM(cron_name), ' ', 1), 120), ''), 'Unassigned')";
 const INGEST_INSERT_SQL = `INSERT INTO cron_logs
   (cron_name, command, server, env, service_group, status, duration, timestamp, hash,
    stdout, stderr, output, warning_messages, exception_trace, retry_logs, timeout_info)
@@ -121,23 +122,9 @@ function buildHash({ cron_name, timestamp, server }) {
     .digest('hex');
 }
 
-function normalizeServiceGroup(value, cronName = '') {
-  const explicit = String(value || '').trim();
-
-  if (explicit) {
-    return explicit.slice(0, 120);
-  }
-
-  const name = String(cronName || '').toLowerCase();
-
-  if (/payment|invoice|billing|settlement|payout/.test(name)) return 'Payments';
-  if (/oms|order|fulfillment/.test(name)) return 'OMS';
-  if (/inventory|stock|warehouse/.test(name)) return 'Inventory';
-  if (/marketing|campaign|email|crm/.test(name)) return 'Marketing';
-  if (/sync|replication|import|export/.test(name)) return 'Sync';
-  if (/infra|backup|cleanup|health|heartbeat/.test(name)) return 'Infrastructure';
-
-  return 'Unassigned';
+function parseServiceGroupFromCronName(cronName = '') {
+  const [namespace] = String(cronName || '').trim().split(/\s+/);
+  return namespace ? namespace.slice(0, 120) : 'Unassigned';
 }
 
 function addScopeFilters(filters, values, query) {
@@ -147,7 +134,7 @@ function addScopeFilters(filters, values, query) {
   }
 
   if (query.service_group) {
-    filters.push('service_group = ?');
+    filters.push(`${SERVICE_GROUP_FROM_CRON_SQL} = ?`);
     values.push(query.service_group);
   }
 }
@@ -264,7 +251,7 @@ export async function registerRoutes(app) {
       const payload = request.body;
       const timestamp = normalizeTimestamp(payload.timestamp);
       const hash = buildHash({ ...payload, timestamp });
-      const serviceGroup = normalizeServiceGroup(payload.service_group, payload.cron_name);
+      const serviceGroup = parseServiceGroupFromCronName(payload.cron_name);
 
       try {
         const [result] = await pool.execute(
@@ -336,16 +323,15 @@ export async function registerRoutes(app) {
         env ASC
     `);
     const [serviceRows] = await pool.query(`
-      SELECT service_group AS value, COUNT(*) AS total_runs, MAX(timestamp) AS latest_run
+      SELECT ${SERVICE_GROUP_FROM_CRON_SQL} AS value, COUNT(*) AS total_runs, MAX(timestamp) AS latest_run
       FROM cron_logs
-      WHERE service_group IS NOT NULL AND service_group <> ''
-      GROUP BY service_group
-      ORDER BY service_group ASC
+      GROUP BY value
+      ORDER BY value ASC
     `);
 
     return {
       environments: mergeScopeValues(['Production', 'Staging', 'Development'], environmentRows),
-      service_groups: mergeScopeValues(['OMS', 'Payments', 'Inventory', 'Marketing', 'Sync', 'Infrastructure'], serviceRows)
+      service_groups: mergeScopeValues([], serviceRows)
     };
   });
 
@@ -420,7 +406,7 @@ export async function registerRoutes(app) {
         SELECT
           cron_name,
           MAX(env) AS env,
-          MAX(service_group) AS service_group,
+          MAX(${SERVICE_GROUP_FROM_CRON_SQL}) AS service_group,
           COUNT(*) AS total_runs,
           SUM(CASE WHEN status = 0 THEN 1 ELSE 0 END) AS success_count,
           SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) AS failed_count,
@@ -437,7 +423,7 @@ export async function registerRoutes(app) {
         SELECT
           cron_name,
           MAX(env) AS env,
-          MAX(service_group) AS service_group,
+          MAX(${SERVICE_GROUP_FROM_CRON_SQL}) AS service_group,
           ROUND(AVG(duration), 2) AS avg_duration,
           MAX(duration) AS max_duration,
           COUNT(*) AS total_runs
@@ -487,7 +473,7 @@ export async function registerRoutes(app) {
       const where = filters.join(' AND ');
       const [rows] = await pool.query(`
         WITH filtered AS (
-          SELECT id, cron_name, command, server, env, service_group, status, duration, timestamp, hash, created_at
+          SELECT id, cron_name, command, server, env, ${SERVICE_GROUP_FROM_CRON_SQL} AS service_group, status, duration, timestamp, hash, created_at
           FROM cron_logs
           WHERE ${where}
         ),
@@ -599,7 +585,7 @@ export async function registerRoutes(app) {
 
       const where = filters.length > 0 ? `WHERE ${filters.join(' AND ')}` : '';
       const [logs] = await pool.query(
-        `SELECT id, cron_name, command, server, env, service_group, status, duration,
+        `SELECT id, cron_name, command, server, env, ${SERVICE_GROUP_FROM_CRON_SQL} AS service_group, status, duration,
            ${JAKARTA_TIMESTAMP_SQL} AS timestamp,
            stdout,
            stderr,
