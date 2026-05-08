@@ -184,6 +184,7 @@ export async function ensureAuthSchema() {
       password_hash VARCHAR(255) NOT NULL,
       role ENUM('user', 'admin') NOT NULL DEFAULT 'user',
       is_active TINYINT(1) NOT NULL DEFAULT 1,
+      last_login_at TIMESTAMP NULL,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
@@ -191,6 +192,7 @@ export async function ensureAuthSchema() {
       KEY idx_users_role_active (role, is_active)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMP NULL AFTER is_active');
 }
 
 export async function bootstrapAdminUser(config, logger) {
@@ -228,6 +230,8 @@ export async function authenticateUser(email, password) {
     return null;
   }
 
+  await pool.query('UPDATE users SET last_login_at = UTC_TIMESTAMP(), updated_at = CURRENT_TIMESTAMP WHERE id = ?', [user.id]);
+
   return publicUser(user);
 }
 
@@ -256,12 +260,119 @@ export async function requireAuth(request, reply) {
     return;
   }
 
+  const [rows] = await pool.query(
+    'SELECT id, name, email, role, is_active FROM users WHERE id = ? LIMIT 1',
+    [Number(payload.sub)]
+  );
+  const user = rows[0];
+
+  if (!user || !user.is_active) {
+    reply.code(401).send({ error: 'Authentication required' });
+    return;
+  }
+
   request.user = {
-    id: Number(payload.sub),
-    name: payload.name,
-    email: payload.email,
-    role: payload.role
+    id: Number(user.id),
+    name: user.name,
+    email: user.email,
+    role: user.role
   };
+}
+
+export async function requireAdmin(request, reply) {
+  if (!request.user) {
+    await requireAuth(request, reply);
+  }
+
+  if (reply.sent) {
+    return;
+  }
+
+  if (request.user?.role !== 'admin') {
+    reply.code(403).send({ error: 'Admin role required' });
+  }
+}
+
+export async function listUsers() {
+  const [rows] = await pool.query(`
+    SELECT id, name, email, role, is_active,
+      DATE_FORMAT(last_login_at, '%Y-%m-%d %H:%i:%s') AS last_login_at,
+      DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+      DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+    FROM users
+    ORDER BY is_active DESC, role ASC, name ASC
+  `);
+
+  return rows.map((row) => ({
+    id: Number(row.id),
+    name: row.name,
+    email: row.email,
+    role: row.role,
+    is_active: Boolean(row.is_active),
+    last_login_at: row.last_login_at,
+    created_at: row.created_at,
+    updated_at: row.updated_at
+  }));
+}
+
+export async function createUser(payload) {
+  const role = payload.role === 'admin' ? 'admin' : 'user';
+  const isActive = payload.is_active === false ? 0 : 1;
+  const [result] = await pool.query(
+    'INSERT INTO users (name, email, password_hash, role, is_active) VALUES (?, ?, ?, ?, ?)',
+    [
+      String(payload.name || '').trim(),
+      String(payload.email || '').toLowerCase().trim(),
+      hashPassword(payload.password),
+      role,
+      isActive
+    ]
+  );
+
+  const users = await listUsers();
+  return users.find((user) => user.id === Number(result.insertId));
+}
+
+export async function updateUser(id, payload) {
+  const fields = [];
+  const values = [];
+
+  if (payload.name !== undefined) {
+    fields.push('name = ?');
+    values.push(String(payload.name || '').trim());
+  }
+
+  if (payload.email !== undefined) {
+    fields.push('email = ?');
+    values.push(String(payload.email || '').toLowerCase().trim());
+  }
+
+  if (payload.role !== undefined) {
+    fields.push('role = ?');
+    values.push(payload.role === 'admin' ? 'admin' : 'user');
+  }
+
+  if (payload.is_active !== undefined) {
+    fields.push('is_active = ?');
+    values.push(payload.is_active ? 1 : 0);
+  }
+
+  if (fields.length === 0) {
+    const users = await listUsers();
+    return users.find((user) => user.id === Number(id));
+  }
+
+  values.push(Number(id));
+  await pool.query(`UPDATE users SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, values);
+  const users = await listUsers();
+  return users.find((user) => user.id === Number(id));
+}
+
+export async function resetUserPassword(id, password) {
+  await pool.query(
+    'UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+    [hashPassword(password), Number(id)]
+  );
 }
 
 export async function registerAuthRoutes(app) {

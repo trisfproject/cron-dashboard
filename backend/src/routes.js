@@ -1,8 +1,13 @@
 import crypto from 'node:crypto';
 import { pool } from './db.js';
 import {
+  createUser,
+  listUsers,
   registerAuthRoutes,
-  requireAuth
+  requireAdmin,
+  requireAuth,
+  resetUserPassword,
+  updateUser
 } from './auth.js';
 import {
   acknowledgeAlert,
@@ -121,6 +126,17 @@ export async function registerRoutes(app) {
     }
 
     await requireAuth(request, reply);
+
+    if (reply.sent) {
+      return;
+    }
+
+    const adminRoutePrefixes = ['/alerts', '/alert-rules', '/users'];
+    const routePath = request.url.split('?')[0];
+
+    if (adminRoutePrefixes.some((prefix) => routePath === prefix || routePath.startsWith(`${prefix}/`))) {
+      await requireAdmin(request, reply);
+    }
   });
 
   app.post(
@@ -566,6 +582,138 @@ export async function registerRoutes(app) {
     async (request) => {
       const rule = await updateAlertRule(Number(request.params.id), request.body);
       return { rule };
+    }
+  );
+
+  app.get('/users', async () => ({ users: await listUsers() }));
+
+  app.post(
+    '/users',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['name', 'email', 'password'],
+          additionalProperties: false,
+          properties: {
+            name: { type: 'string', minLength: 1, maxLength: 255 },
+            email: { type: 'string', minLength: 3, maxLength: 255 },
+            password: { type: 'string', minLength: 8, maxLength: 1024 },
+            role: { type: 'string', enum: ['user', 'admin'], default: 'user' },
+            is_active: { type: 'boolean' }
+          }
+        }
+      }
+    },
+    async (request, reply) => {
+      const user = await createUser(request.body);
+      return reply.code(201).send({ user });
+    }
+  );
+
+  app.put(
+    '/users/:id',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          properties: {
+            id: { type: 'integer' }
+          },
+          required: ['id']
+        },
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            name: { type: 'string', minLength: 1, maxLength: 255 },
+            email: { type: 'string', minLength: 3, maxLength: 255 },
+            role: { type: 'string', enum: ['user', 'admin'] },
+            is_active: { type: 'boolean' }
+          }
+        }
+      }
+    },
+    async (request, reply) => {
+      const id = Number(request.params.id);
+
+      if (id === Number(request.user.id) && request.body.is_active === false) {
+        return reply.code(400).send({ error: 'You cannot deactivate your own account' });
+      }
+
+      const user = await updateUser(id, request.body);
+      return { user };
+    }
+  );
+
+  app.post(
+    '/users/:id/reset-password',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          properties: {
+            id: { type: 'integer' }
+          },
+          required: ['id']
+        },
+        body: {
+          type: 'object',
+          required: ['password'],
+          additionalProperties: false,
+          properties: {
+            password: { type: 'string', minLength: 8, maxLength: 1024 }
+          }
+        }
+      }
+    },
+    async (request) => {
+      await resetUserPassword(Number(request.params.id), request.body.password);
+      return { reset: true };
+    }
+  );
+
+  app.post(
+    '/users/:id/deactivate',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          properties: {
+            id: { type: 'integer' }
+          },
+          required: ['id']
+        }
+      }
+    },
+    async (request, reply) => {
+      const id = Number(request.params.id);
+
+      if (id === Number(request.user.id)) {
+        return reply.code(400).send({ error: 'You cannot deactivate your own account' });
+      }
+
+      const user = await updateUser(id, { is_active: false });
+      return { user };
+    }
+  );
+
+  app.post(
+    '/users/:id/reactivate',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          properties: {
+            id: { type: 'integer' }
+          },
+          required: ['id']
+        }
+      }
+    },
+    async (request) => {
+      const user = await updateUser(Number(request.params.id), { is_active: true });
+      return { user };
     }
   );
 }

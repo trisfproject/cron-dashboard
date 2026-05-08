@@ -2,14 +2,43 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Activity, Bell, ListChecks } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Activity, Bell, ListChecks, Users } from 'lucide-react';
 import { BrandMark } from '@/components/BrandMark';
 import { LogoutButton } from '@/components/LogoutButton';
 import { ThemeToggle } from '@/components/ThemeToggle';
+import { getCurrentUser } from '@/lib/api';
 
 export function AppShell({ children }) {
   const pathname = usePathname();
   const authScreen = pathname === '/login';
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    if (authScreen) {
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    getCurrentUser()
+      .then((data) => {
+        if (!cancelled) {
+          setUser(data?.user || null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setUser(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authScreen]);
+
+  const isAdmin = user?.role === 'admin';
 
   if (authScreen) {
     return (
@@ -36,11 +65,32 @@ export function AppShell({ children }) {
                 <ListChecks className="h-4 w-4" aria-hidden="true" />
                 Cron
               </Link>
-              <Link className="flex min-h-10 items-center gap-2 rounded-md px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-900" href="/alerts">
-                <Bell className="h-4 w-4" aria-hidden="true" />
-                Alerts
-              </Link>
+              {isAdmin ? (
+                <>
+                  <Link className="flex min-h-10 items-center gap-2 rounded-md px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-900" href="/alerts">
+                    <Bell className="h-4 w-4" aria-hidden="true" />
+                    Alerts
+                  </Link>
+                  <Link className="flex min-h-10 items-center gap-2 rounded-md px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-900" href="/users">
+                    <Users className="h-4 w-4" aria-hidden="true" />
+                    Users
+                  </Link>
+                </>
+              ) : null}
             </nav>
+            {user ? (
+              <div className="flex min-h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs shadow-sm dark:border-slate-800 dark:bg-slate-950">
+                <span className="max-w-[10rem] truncate font-medium text-slate-700 dark:text-slate-200">{user.name || user.email}</span>
+                <span className={`rounded px-1.5 py-0.5 font-semibold uppercase ring-1 ${
+                  isAdmin
+                    ? 'bg-blue-50 text-blue-700 ring-blue-200 dark:bg-blue-950/40 dark:text-blue-200 dark:ring-blue-900'
+                    : 'bg-slate-100 text-slate-600 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-800'
+                }`}
+                >
+                  {user.role}
+                </span>
+              </div>
+            ) : null}
             <ThemeToggle />
             <LogoutButton />
           </div>

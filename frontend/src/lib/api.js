@@ -153,3 +153,42 @@ export function updateAlertRule(id, rule) {
     body: JSON.stringify(rule)
   });
 }
+
+export function getUsers() {
+  return request('/users');
+}
+
+export function createUser(user) {
+  return request('/users', {
+    method: 'POST',
+    body: JSON.stringify(user)
+  });
+}
+
+export function updateUser(id, user) {
+  return request(`/users/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(user)
+  });
+}
+
+export function resetUserPassword(id, password) {
+  return request(`/users/${id}/reset-password`, {
+    method: 'POST',
+    body: JSON.stringify({ password })
+  });
+}
+
+export function deactivateUser(id) {
+  return request(`/users/${id}/deactivate`, {
+    method: 'POST',
+    body: JSON.stringify({})
+  });
+}
+
+export function reactivateUser(id) {
+  return request(`/users/${id}/reactivate`, {
+    method: 'POST',
+    body: JSON.stringify({})
+  });
+}

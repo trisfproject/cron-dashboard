@@ -53,9 +53,9 @@ async function verifyToken(token) {
 
   try {
     const decoded = JSON.parse(new TextDecoder().decode(base64urlDecode(payload)));
-    return Number(decoded.exp || 0) * 1000 > Date.now();
+    return Number(decoded.exp || 0) * 1000 > Date.now() ? decoded : null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -74,10 +74,24 @@ export async function middleware(request) {
   }
 
   const token = request.cookies.get(SESSION_COOKIE)?.value;
-  const authenticated = await verifyToken(token);
+  const session = await verifyToken(token);
+  const authenticated = Boolean(session);
 
   if (authenticated) {
     if (pathname === '/login') {
+      return NextResponse.redirect(new URL('/', request.url));
+    }
+
+    const adminOnlyPaths = ['/alerts', '/users'];
+    const adminOnlyApiPaths = ['/api/alerts', '/api/alert-rules', '/api/users'];
+    const adminOnly = adminOnlyPaths.some((path) => pathname === path || pathname.startsWith(`${path}/`))
+      || adminOnlyApiPaths.some((path) => pathname === path || pathname.startsWith(`${path}/`));
+
+    if (adminOnly && session.role !== 'admin') {
+      if (pathname.startsWith('/api/')) {
+        return NextResponse.json({ error: 'Admin role required' }, { status: 403 });
+      }
+
       return NextResponse.redirect(new URL('/', request.url));
     }
 

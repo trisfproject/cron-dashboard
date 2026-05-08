@@ -9,7 +9,7 @@ import { MetricCard } from '@/components/MetricCard';
 import { TimelineChart } from '@/components/TimelineChart';
 import { LogsTable } from '@/components/LogsTable';
 import { TimeRangeFilter } from '@/components/TimeRangeFilter';
-import { getAlerts, getLogs, getStats } from '@/lib/api';
+import { getAlerts, getCurrentUser, getLogs, getStats } from '@/lib/api';
 import { formatDuration, formatNumber, formatPercent } from '@/lib/format';
 
 const emptyStats = {
@@ -297,6 +297,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
   const [stats, setStats] = useState(emptyStats);
   const [logs, setLogs] = useState([]);
   const [alerts, setAlerts] = useState([]);
+  const [currentUser, setCurrentUser] = useState(null);
   const [hasMoreLogs, setHasMoreLogs] = useState(false);
   const [logsLoadingMore, setLogsLoadingMore] = useState(false);
   const [logsError, setLogsError] = useState(null);
@@ -345,14 +346,18 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
           : null;
         const params = customParams || { [filter.type]: filter.value };
 
-        const [statsData, logsData, alertsData] = await Promise.all([
+        const [statsData, logsData, userData] = await Promise.all([
           getStats(params),
           getLogs({ ...params, limit: LOG_PAGE_SIZE, offset: 0 }),
-          getAlerts({ state: 'active', limit: 5 }).catch((alertError) => {
+          getCurrentUser()
+        ]);
+        const user = userData?.user || null;
+        const alertsData = user?.role === 'admin'
+          ? await getAlerts({ state: 'active', limit: 5 }).catch((alertError) => {
             console.error('Failed to fetch active alerts:', alertError);
             return { alerts: [] };
           })
-        ]);
+          : { alerts: [] };
 
         if (process.env.NODE_ENV === 'development') {
           console.log('stats response', statsData);
@@ -364,6 +369,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
         }
 
         setStats(normalizeStatsResponse(statsData, filter.value));
+        setCurrentUser(user);
         const nextLogs = normalizeLogsResponse(logsData);
         setLogs(nextLogs);
         setHasMoreLogs(nextLogs.length === LOG_PAGE_SIZE);
@@ -375,6 +381,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
         if (!cancelled) {
           setError(error?.message || 'Failed to load dashboard');
           setStats(emptyStats);
+          setCurrentUser(null);
           setLogs([]);
           setAlerts([]);
           setHasMoreLogs(false);
@@ -684,6 +691,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
       </section>
 
       <section className="grid gap-4 xl:grid-cols-2">
+        {currentUser?.role === 'admin' ? (
         <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm xl:col-span-2">
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
@@ -742,6 +750,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
             </table>
           </div>
         </div>
+        ) : null}
 
         <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-4">
