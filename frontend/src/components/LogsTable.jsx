@@ -1,4 +1,5 @@
 import { formatDate, formatDuration } from '@/lib/format';
+import { EnvironmentBadge, ServiceGroupBadge } from './EnvironmentBadge';
 import { ExecutionOutputInspector } from './ExecutionOutputInspector';
 import { StatusBadge } from './StatusBadge';
 
@@ -14,11 +15,8 @@ export function LogsTable({ logs = [], variant = 'table' }) {
               <div className="grid gap-3 sm:grid-cols-[auto_1fr_auto] sm:items-center">
                 <div className="flex items-center gap-2">
                   <StatusBadge status={log?.status} />
-                  {log?.env ? (
-                    <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                      {log.env}
-                    </span>
-                  ) : null}
+                  {log?.env ? <EnvironmentBadge env={log.env} /> : null}
+                  <ServiceGroupBadge serviceGroup={log?.service_group} />
                 </div>
                 <div className="min-w-0">
                   <p className="break-words font-medium text-ink sm:truncate">{log?.cron_name ?? '-'}</p>
@@ -49,6 +47,7 @@ export function LogsTable({ logs = [], variant = 'table' }) {
               <th className="px-4 py-3">Cron</th>
               <th className="px-4 py-3">Server</th>
               <th className="px-4 py-3">Env</th>
+              <th className="px-4 py-3">Service</th>
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3">Duration</th>
               <th className="px-4 py-3">Timestamp</th>
@@ -61,7 +60,8 @@ export function LogsTable({ logs = [], variant = 'table' }) {
               <tr key={log?.id ?? `${log?.cron_name ?? 'log'}-${index}`} className="align-top">
                 <td className="whitespace-nowrap px-4 py-3 font-medium text-ink">{log?.cron_name ?? '-'}</td>
                 <td className="whitespace-nowrap px-4 py-3 text-slate-600">{log?.server ?? '-'}</td>
-                <td className="whitespace-nowrap px-4 py-3 text-slate-600">{log?.env ?? '-'}</td>
+                <td className="whitespace-nowrap px-4 py-3 text-slate-600">{log?.env ? <EnvironmentBadge env={log.env} /> : '-'}</td>
+                <td className="whitespace-nowrap px-4 py-3 text-slate-600"><ServiceGroupBadge serviceGroup={log?.service_group} />{!log?.service_group ? '-' : null}</td>
                 <td className="whitespace-nowrap px-4 py-3"><StatusBadge status={log?.status} /></td>
                 <td className="whitespace-nowrap px-4 py-3 text-slate-600">{formatDuration(log?.duration ?? 0)}</td>
                 <td className="whitespace-nowrap px-4 py-3 text-slate-600">{formatDate(log?.timestamp)}</td>
@@ -73,7 +73,7 @@ export function LogsTable({ logs = [], variant = 'table' }) {
             ))}
             {safeLogs.length === 0 ? (
               <tr>
-                <td className="px-4 py-8 text-center text-slate-500" colSpan={8}>No logs found.</td>
+                <td className="px-4 py-8 text-center text-slate-500" colSpan={9}>No logs found.</td>
               </tr>
             ) : null}
           </tbody>

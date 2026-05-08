@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
 import { formatDate, formatDuration } from '@/lib/format';
+import { EnvironmentBadge, ServiceGroupBadge } from './EnvironmentBadge';
 import { ExecutionOutputInspector } from './ExecutionOutputInspector';
 import { StatusBadge } from './StatusBadge';
 
@@ -48,6 +49,7 @@ export function InteractiveLogsTable({ logs = [] }) {
           log?.cron_name,
           log?.server,
           log?.env,
+          log?.service_group,
           log?.command,
           log?.timestamp
         ].join(' ').toLowerCase();
@@ -76,7 +78,7 @@ export function InteractiveLogsTable({ logs = [] }) {
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             className="w-full rounded-md border border-slate-300 py-2 pl-9 pr-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-            placeholder="Search command, server, env"
+            placeholder="Search command, server, env, service"
           />
         </label>
         <select
@@ -119,9 +121,8 @@ export function InteractiveLogsTable({ logs = [] }) {
                 <span className="rounded-md bg-white px-2 py-1 font-medium text-slate-600 ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-800">
                   {log?.server ?? '-'}
                 </span>
-                <span className="rounded-md bg-white px-2 py-1 font-medium text-slate-600 ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-800">
-                  {log?.env ?? '-'}
-                </span>
+                {log?.env ? <EnvironmentBadge env={log.env} /> : null}
+                <ServiceGroupBadge serviceGroup={log?.service_group} />
               </div>
             </div>
             <div className="flex items-center justify-between gap-3 text-sm">
@@ -167,6 +168,7 @@ export function InteractiveLogsTable({ logs = [] }) {
               <th className="px-4 py-3">Timestamp</th>
               <th className="px-4 py-3">Server</th>
               <th className="px-4 py-3">Env</th>
+              <th className="px-4 py-3">Service</th>
               <th className="px-4 py-3">Command</th>
               <th className="px-4 py-3">Output</th>
             </tr>
@@ -178,7 +180,8 @@ export function InteractiveLogsTable({ logs = [] }) {
                 <td className="whitespace-nowrap px-4 py-3 text-slate-600">{formatDuration(log?.duration ?? 0)}</td>
                 <td className="whitespace-nowrap px-4 py-3 text-slate-600">{formatDate(log?.timestamp)}</td>
                 <td className="whitespace-nowrap px-4 py-3 text-slate-600">{log?.server ?? '-'}</td>
-                <td className="whitespace-nowrap px-4 py-3 text-slate-600">{log?.env ?? '-'}</td>
+                <td className="whitespace-nowrap px-4 py-3 text-slate-600">{log?.env ? <EnvironmentBadge env={log.env} /> : '-'}</td>
+                <td className="whitespace-nowrap px-4 py-3 text-slate-600"><ServiceGroupBadge serviceGroup={log?.service_group} />{!log?.service_group ? '-' : null}</td>
                 <td className="min-w-[28rem] px-4 py-3">
                   <details>
                     <summary className="cursor-pointer truncate font-mono text-xs text-slate-700">{log?.command ?? '-'}</summary>
@@ -192,7 +195,7 @@ export function InteractiveLogsTable({ logs = [] }) {
             ))}
             {filteredLogs.length === 0 ? (
               <tr>
-                <td className="px-4 py-8 text-center text-slate-500" colSpan={7}>No executions match the current filters.</td>
+                <td className="px-4 py-8 text-center text-slate-500" colSpan={8}>No executions match the current filters.</td>
               </tr>
             ) : null}
           </tbody>

@@ -33,6 +33,7 @@ const ingestBodySchema = {
     command: { type: 'string', minLength: 1 },
     server: { type: 'string', minLength: 1, maxLength: 255 },
     env: { type: 'string', minLength: 1, maxLength: 80 },
+    service_group: { type: 'string', nullable: true, maxLength: 120 },
     status: { type: 'integer', enum: [0, 1, 2] },
     duration: { type: 'integer', minimum: 0 },
     timestamp: { type: 'string', format: 'date-time' },
@@ -54,6 +55,7 @@ const logResponseSchema = {
     command: { type: 'string' },
     server: { type: 'string' },
     env: { type: 'string' },
+    service_group: { type: 'string' },
     status: { type: 'number' },
     duration: { type: 'number' },
     timestamp: { type: 'string' },
@@ -88,6 +90,67 @@ function buildHash({ cron_name, timestamp, server }) {
     .createHash('sha256')
     .update(`${cron_name}:${timestamp}:${server}`)
     .digest('hex');
+}
+
+function normalizeServiceGroup(value, cronName = '') {
+  const explicit = String(value || '').trim();
+
+  if (explicit) {
+    return explicit.slice(0, 120);
+  }
+
+  const name = String(cronName || '').toLowerCase();
+
+  if (/payment|invoice|billing|settlement|payout/.test(name)) return 'Payments';
+  if (/oms|order|fulfillment/.test(name)) return 'OMS';
+  if (/inventory|stock|warehouse/.test(name)) return 'Inventory';
+  if (/marketing|campaign|email|crm/.test(name)) return 'Marketing';
+  if (/sync|replication|import|export/.test(name)) return 'Sync';
+  if (/infra|backup|cleanup|health|heartbeat/.test(name)) return 'Infrastructure';
+
+  return 'Unassigned';
+}
+
+function addScopeFilters(filters, values, query) {
+  if (query.env) {
+    filters.push('env = ?');
+    values.push(query.env);
+  }
+
+  if (query.service_group) {
+    filters.push('service_group = ?');
+    values.push(query.service_group);
+  }
+}
+
+function mergeScopeValues(defaultValues, rows) {
+  const seen = new Set();
+  const merged = [];
+
+  for (const value of defaultValues) {
+    seen.add(value.toLowerCase());
+    merged.push({ value, total_runs: 0, latest_run: null });
+  }
+
+  for (const row of rows) {
+    const value = String(row.value || '').trim();
+    const key = value.toLowerCase();
+
+    if (!value) {
+      continue;
+    }
+
+    if (seen.has(key)) {
+      const existing = merged.find((item) => item.value.toLowerCase() === key);
+      existing.total_runs = row.total_runs;
+      existing.latest_run = row.latest_run;
+    } else {
+      seen.add(key);
+      merged.push(row);
+    }
+  }
+
+  return merged;
 }
 
 function secureCompare(left, right) {
@@ -172,18 +235,20 @@ export async function registerRoutes(app) {
       const payload = request.body;
       const timestamp = normalizeTimestamp(payload.timestamp);
       const hash = buildHash({ ...payload, timestamp });
+      const serviceGroup = normalizeServiceGroup(payload.service_group, payload.cron_name);
 
       try {
         const [result] = await pool.execute(
           `INSERT INTO cron_logs
-            (cron_name, command, server, env, status, duration, timestamp, hash,
+            (cron_name, command, server, env, service_group, status, duration, timestamp, hash,
              stdout, stderr, output, warning_messages, exception_trace, retry_logs, timeout_info)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             payload.cron_name,
             payload.command,
             payload.server,
             payload.env,
+            serviceGroup,
             payload.status,
             payload.duration,
             timestamp,
@@ -212,6 +277,30 @@ export async function registerRoutes(app) {
     }
   );
 
+  app.get('/scope-options', async () => {
+    const [environmentRows] = await pool.query(`
+      SELECT env AS value, COUNT(*) AS total_runs, MAX(timestamp) AS latest_run
+      FROM cron_logs
+      WHERE env IS NOT NULL AND env <> ''
+      GROUP BY env
+      ORDER BY FIELD(LOWER(env), 'production', 'prod', 'staging', 'stage', 'development', 'dev') ASC,
+        latest_run DESC,
+        env ASC
+    `);
+    const [serviceRows] = await pool.query(`
+      SELECT service_group AS value, COUNT(*) AS total_runs, MAX(timestamp) AS latest_run
+      FROM cron_logs
+      WHERE service_group IS NOT NULL AND service_group <> ''
+      GROUP BY service_group
+      ORDER BY service_group ASC
+    `);
+
+    return {
+      environments: mergeScopeValues(['Production', 'Staging', 'Development'], environmentRows),
+      service_groups: mergeScopeValues(['OMS', 'Payments', 'Inventory', 'Marketing', 'Sync', 'Infrastructure'], serviceRows)
+    };
+  });
+
   app.get(
     '/stats',
     {
@@ -225,7 +314,8 @@ export async function registerRoutes(app) {
             end: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}(([ T]\\d{2}:\\d{2}(:\\d{2})?)|(T\\d{2}:\\d{2}(:\\d{2})?([+-]\\d{2}:\\d{2}|Z)))?$' },
             cron_name: { type: 'string' },
             server: { type: 'string' },
-            env: { type: 'string' }
+            env: { type: 'string' },
+            service_group: { type: 'string' }
           }
         }
       }
@@ -245,10 +335,7 @@ export async function registerRoutes(app) {
         values.push(request.query.server);
       }
 
-      if (request.query.env) {
-        filters.push('env = ?');
-        values.push(request.query.env);
-      }
+      addScopeFilters(filters, values, request.query);
 
       const where = filters.join(' AND ');
 
@@ -284,6 +371,8 @@ export async function registerRoutes(app) {
       const [problematicJobs] = await pool.query(`
         SELECT
           cron_name,
+          MAX(env) AS env,
+          MAX(service_group) AS service_group,
           COUNT(*) AS total_runs,
           SUM(CASE WHEN status = 0 THEN 1 ELSE 0 END) AS success_count,
           SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) AS failed_count,
@@ -299,6 +388,8 @@ export async function registerRoutes(app) {
       const [slowestJobs] = await pool.query(`
         SELECT
           cron_name,
+          MAX(env) AS env,
+          MAX(service_group) AS service_group,
           ROUND(AVG(duration), 2) AS avg_duration,
           MAX(duration) AS max_duration,
           COUNT(*) AS total_runs
@@ -333,41 +424,50 @@ export async function registerRoutes(app) {
         querystring: {
           type: 'object',
           properties: {
-            range: { type: 'string', enum: ['today', '7d', '30d'], default: 'today' }
+            range: { type: 'string', enum: ['today', '7d', '30d'], default: 'today' },
+            env: { type: 'string' },
+            service_group: { type: 'string' }
           }
         }
       }
     },
     async (request) => {
       const dateFilter = resolveDateFilter({ range: request.query.range || 'today' });
+      const filters = [dateFilter.clause];
+      const values = [...dateFilter.values];
+      addScopeFilters(filters, values, request.query);
+      const where = filters.join(' AND ');
       const [rows] = await pool.query(`
         WITH filtered AS (
-          SELECT id, cron_name, command, server, env, status, duration, timestamp, hash, created_at
+          SELECT id, cron_name, command, server, env, service_group, status, duration, timestamp, hash, created_at
           FROM cron_logs
-          WHERE ${dateFilter.clause}
+          WHERE ${where}
         ),
         latest AS (
-          SELECT cron_name, server, MAX(timestamp) AS last_run
+          SELECT cron_name, server, env, service_group, MAX(timestamp) AS last_run
           FROM filtered
-          GROUP BY cron_name, server
+          GROUP BY cron_name, server, env, service_group
         ),
         current AS (
-          SELECT filtered.cron_name, filtered.server, filtered.env, filtered.status AS last_status, filtered.timestamp AS last_run
+          SELECT filtered.cron_name, filtered.server, filtered.env, filtered.service_group, filtered.status AS last_status, filtered.timestamp AS last_run
           FROM filtered
           INNER JOIN latest
             ON latest.cron_name = filtered.cron_name
             AND latest.server = filtered.server
+            AND latest.env = filtered.env
+            AND latest.service_group = filtered.service_group
             AND latest.last_run = filtered.timestamp
         ),
         agg AS (
-          SELECT cron_name, server, AVG(duration) AS avg_duration, SUM(status = 0) AS success_count, COUNT(*) AS total_runs
+          SELECT cron_name, server, env, service_group, AVG(duration) AS avg_duration, SUM(status = 0) AS success_count, COUNT(*) AS total_runs
           FROM filtered
-          GROUP BY cron_name, server
+          GROUP BY cron_name, server, env, service_group
         )
         SELECT
           current.cron_name,
           current.server,
           current.env,
+          current.service_group,
           current.last_status,
           DATE_FORMAT(CONVERT_TZ(current.last_run, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s') AS last_run,
           ROUND(agg.avg_duration, 2) AS avg_duration,
@@ -377,8 +477,10 @@ export async function registerRoutes(app) {
         INNER JOIN agg
           ON agg.cron_name = current.cron_name
           AND agg.server = current.server
-        ORDER BY current.last_run DESC
-      `, dateFilter.values);
+          AND agg.env = current.env
+          AND agg.service_group = current.service_group
+        ORDER BY current.service_group ASC, current.last_run DESC
+      `, values);
 
       return {
         jobs: rows,
@@ -398,6 +500,8 @@ export async function registerRoutes(app) {
             cron_name: { type: 'string' },
             server: { type: 'string' },
             status: { type: 'integer', enum: [0, 1, 2] },
+            env: { type: 'string' },
+            service_group: { type: 'string' },
             range: { type: 'string', enum: ['today', '7d', '30d'] },
             window: { type: 'string', enum: ['5m', '15m', '30m', '1h', '4h'] },
             start: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}(([ T]\\d{2}:\\d{2}(:\\d{2})?)|(T\\d{2}:\\d{2}(:\\d{2})?([+-]\\d{2}:\\d{2}|Z)))?$' },
@@ -443,9 +547,11 @@ export async function registerRoutes(app) {
         values.push(Number(status));
       }
 
+      addScopeFilters(filters, values, request.query);
+
       const where = filters.length > 0 ? `WHERE ${filters.join(' AND ')}` : '';
       const [logs] = await pool.query(
-        `SELECT id, cron_name, command, server, env, status, duration,
+        `SELECT id, cron_name, command, server, env, service_group, status, duration,
            ${JAKARTA_TIMESTAMP_SQL} AS timestamp,
            stdout,
            stderr,
@@ -475,6 +581,8 @@ export async function registerRoutes(app) {
           type: 'object',
           properties: {
             state: { type: 'string', enum: ['active', 'acknowledged', 'resolved', 'all'], default: 'active' },
+            env: { type: 'string' },
+            service_group: { type: 'string' },
             limit: { type: 'integer', minimum: 1, maximum: 500, default: 50 }
           }
         }
@@ -484,6 +592,8 @@ export async function registerRoutes(app) {
       return {
         alerts: await listAlerts({
           state: request.query.state || 'active',
+          env: request.query.env,
+          service_group: request.query.service_group,
           limit: Number(request.query.limit || 50)
         })
       };
@@ -540,6 +650,8 @@ export async function registerRoutes(app) {
             name: { type: 'string', minLength: 1, maxLength: 255 },
             type: { type: 'string', enum: ['failed_threshold', 'warning_threshold', 'success_rate_degradation', 'duration_anomaly', 'retry_storm', 'cron_silence'] },
             cron_name: { type: 'string' },
+            env: { type: 'string' },
+            service_group: { type: 'string' },
             severity: { type: 'string', enum: ['info', 'warning', 'critical'] },
             threshold: { type: 'number' },
             timeframe_minutes: { type: 'integer', minimum: 1, maximum: 10080 },
@@ -585,6 +697,8 @@ export async function registerRoutes(app) {
             name: { type: 'string', minLength: 1, maxLength: 255 },
             type: { type: 'string', enum: ['failed_threshold', 'warning_threshold', 'success_rate_degradation', 'duration_anomaly', 'retry_storm', 'cron_silence'] },
             cron_name: { type: 'string' },
+            env: { type: 'string' },
+            service_group: { type: 'string' },
             severity: { type: 'string', enum: ['info', 'warning', 'critical'] },
             threshold: { type: 'number' },
             timeframe_minutes: { type: 'integer', minimum: 1, maximum: 10080 },

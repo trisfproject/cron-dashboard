@@ -41,10 +41,14 @@ function normalizeRulePayload(payload = {}) {
     throw new Error('Unsupported alert rule type');
   }
 
+  const env = payload.env ? String(payload.env).trim() : null;
+  const serviceGroup = payload.service_group ? String(payload.service_group).trim() : null;
   return {
     name: String(payload.name || type).trim(),
     type,
     cron_name: payload.cron_name ? String(payload.cron_name).trim() : null,
+    env,
+    service_group: serviceGroup,
     severity: ['info', 'warning', 'critical'].includes(payload.severity) ? payload.severity : 'warning',
     threshold: Number(payload.threshold || (type === 'success_rate_degradation' ? 80 : 3)),
     timeframe_minutes: Number(payload.timeframe_minutes || 5),
@@ -55,12 +59,94 @@ function normalizeRulePayload(payload = {}) {
   };
 }
 
+function normalizeEnvironment(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function getEnvironmentPolicy(env) {
+  const normalized = normalizeEnvironment(env);
+  const isStaging = normalized === 'staging' || normalized === 'stage' || normalized === 'stg';
+  const isDevelopment = normalized === 'development' || normalized === 'develop' || normalized === 'dev';
+
+  return {
+    severity: (severity) => {
+      if (isStaging && severity === 'critical') return 'warning';
+      if (isDevelopment && severity === 'critical') return 'warning';
+      return severity;
+    },
+    threshold: (threshold, type) => {
+      if (type === 'success_rate_degradation') return threshold;
+      if (isStaging) return Math.max(threshold, threshold * 2);
+      if (isDevelopment) return Math.max(threshold, threshold * 3);
+      return threshold;
+    },
+    timeframe: (minutes) => {
+      if (isStaging) return Math.max(minutes, Math.round(minutes * 1.5));
+      if (isDevelopment) return Math.max(minutes, minutes * 2);
+      return minutes;
+    },
+    cooldown: (minutes) => {
+      if (isStaging) return Math.max(minutes, minutes * 2);
+      if (isDevelopment) return Math.max(minutes, minutes * 4);
+      return minutes;
+    },
+    durationSpike: (percent) => {
+      if (isStaging) return Math.max(percent, Math.round(percent * 1.25));
+      if (isDevelopment) return Math.max(percent, Math.round(percent * 1.5));
+      return percent;
+    },
+    enabledByDefault: !isDevelopment
+  };
+}
+
+function applyEnvironmentRuntimePolicy(rule) {
+  const environmentPolicy = getEnvironmentPolicy(rule.env);
+
+  return {
+    ...rule,
+    severity: environmentPolicy.severity(rule.severity),
+    threshold: environmentPolicy.threshold(Number(rule.threshold || 0), rule.type),
+    timeframe_minutes: environmentPolicy.timeframe(Number(rule.timeframe_minutes || 5)),
+    cooldown_minutes: environmentPolicy.cooldown(Number(rule.cooldown_minutes || 10)),
+    duration_spike_percent: rule.duration_spike_percent
+      ? environmentPolicy.durationSpike(Number(rule.duration_spike_percent))
+      : rule.duration_spike_percent
+  };
+}
+
+function addRuleScope(filters, values, rule, tableName = 'cron_logs') {
+  const prefix = tableName ? `${tableName}.` : '';
+
+  if (rule.cron_name) {
+    filters.push(`${prefix}cron_name = ?`);
+    values.push(rule.cron_name);
+  }
+
+  if (rule.env) {
+    filters.push(`${prefix}env = ?`);
+    values.push(rule.env);
+  }
+
+  if (rule.service_group) {
+    filters.push(`${prefix}service_group = ?`);
+    values.push(rule.service_group);
+  }
+}
+
+function selectScopeFields() {
+  return 'cron_name, env, service_group';
+}
+
+function groupScopeFields() {
+  return 'cron_name, env, service_group';
+}
+
 function ruleChannels(rule) {
   return parseChannels(rule.channels);
 }
 
-function alertKey(rule, cronName) {
-  return `${rule.id}:${rule.type}:${cronName || 'global'}`;
+function alertKey(rule, cronName, env, serviceGroup) {
+  return `${rule.id}:${rule.type}:${cronName || 'global'}:${env || rule.env || 'all-env'}:${serviceGroup || rule.service_group || 'all-service'}`;
 }
 
 function nowIso() {
@@ -118,11 +204,24 @@ function escapeTelegramHtml(value) {
 
 async function getAlertContext(alert, rule) {
   const values = [Number(rule.timeframe_minutes || 5)];
-  const cronFilter = alert.cron_name ? 'AND cron_name = ?' : '';
+  const filters = [];
 
   if (alert.cron_name) {
+    filters.push('cron_name = ?');
     values.push(alert.cron_name);
   }
+
+  if (alert.env) {
+    filters.push('env = ?');
+    values.push(alert.env);
+  }
+
+  if (alert.service_group) {
+    filters.push('service_group = ?');
+    values.push(alert.service_group);
+  }
+
+  const scopeFilter = filters.length ? `AND ${filters.join(' AND ')}` : '';
 
   const [[metrics]] = await pool.query(`
     SELECT
@@ -132,10 +231,11 @@ async function getAlertContext(alert, rule) {
       CASE WHEN COUNT(*) = 0 THEN 0 ELSE ROUND((SUM(status = 0) / COUNT(*)) * 100, 2) END AS success_rate,
       MAX(server) AS server,
       MAX(env) AS env,
+      MAX(service_group) AS service_group,
       DATE_FORMAT(CONVERT_TZ(MAX(timestamp), '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s') AS last_run_wib
     FROM cron_logs
     WHERE timestamp >= UTC_TIMESTAMP() - INTERVAL ? MINUTE
-      ${cronFilter}
+      ${scopeFilter}
   `, values);
 
   return metrics || {};
@@ -161,6 +261,7 @@ async function buildTelegramMessage(alert, rule, lifecycle = 'triggered') {
     `🧭 <b>Cron:</b> ${escapeTelegramHtml(alert.cron_name || 'all monitored cron jobs')}`,
     `🖥️ <b>Server:</b> ${escapeTelegramHtml(context.server || '-')}`,
     `🏷️ <b>Env:</b> ${escapeTelegramHtml(context.env || '-')}`,
+    `🧩 <b>Service:</b> ${escapeTelegramHtml(context.service_group || '-')}`,
     '',
     `❌ <b>Failures:</b> ${Number(context.failed_count || 0)}`,
     `⚠️ <b>Warnings:</b> ${Number(context.warning_count || 0)}`,
@@ -284,6 +385,7 @@ async function notifyAlert(app, alert, rule, lifecycle = 'triggered') {
 async function listRules() {
   const [rules] = await pool.query(`
     SELECT id, name, type, cron_name, severity, threshold, timeframe_minutes,
+      env, service_group,
       cooldown_minutes, expected_interval_minutes, duration_spike_percent,
       channels, enabled, created_at, updated_at
     FROM alert_rules
@@ -295,26 +397,24 @@ async function listRules() {
 
 async function evaluateThresholdRule(rule, status) {
   const values = [Number(rule.timeframe_minutes || 5)];
-  const cronFilter = rule.cron_name ? 'AND cron_name = ?' : '';
-
-  if (rule.cron_name) {
-    values.push(rule.cron_name);
-  }
+  const filters = ['timestamp >= UTC_TIMESTAMP() - INTERVAL ? MINUTE'];
+  addRuleScope(filters, values, rule);
 
   values.push(status, Number(rule.threshold || 1));
 
   const [rows] = await pool.query(`
-    SELECT cron_name, COUNT(*) AS metric
+    SELECT ${selectScopeFields()}, COUNT(*) AS metric
     FROM cron_logs
-    WHERE timestamp >= UTC_TIMESTAMP() - INTERVAL ? MINUTE
-      ${cronFilter}
+    WHERE ${filters.join(' AND ')}
       AND status = ?
-    GROUP BY cron_name
+    GROUP BY ${groupScopeFields()}
     HAVING metric >= ?
   `, values);
 
   return rows.map((row) => ({
     cron_name: row.cron_name,
+    env: row.env,
+    service_group: row.service_group,
     metric: Number(row.metric || 0),
     reason: `${row.cron_name} recorded ${row.metric} ${status === 1 ? 'failed' : 'warning'} executions within ${rule.timeframe_minutes} minutes`
   }));
@@ -322,26 +422,24 @@ async function evaluateThresholdRule(rule, status) {
 
 async function evaluateSuccessRateRule(rule) {
   const values = [Number(rule.timeframe_minutes || 5)];
-  const cronFilter = rule.cron_name ? 'AND cron_name = ?' : '';
-
-  if (rule.cron_name) {
-    values.push(rule.cron_name);
-  }
+  const filters = ['timestamp >= UTC_TIMESTAMP() - INTERVAL ? MINUTE'];
+  addRuleScope(filters, values, rule);
 
   values.push(Number(rule.threshold || 80));
 
   const [rows] = await pool.query(`
-    SELECT cron_name, COUNT(*) AS total_runs,
+    SELECT ${selectScopeFields()}, COUNT(*) AS total_runs,
       ROUND((SUM(status = 0) / COUNT(*)) * 100, 2) AS success_rate
     FROM cron_logs
-    WHERE timestamp >= UTC_TIMESTAMP() - INTERVAL ? MINUTE
-      ${cronFilter}
-    GROUP BY cron_name
+    WHERE ${filters.join(' AND ')}
+    GROUP BY ${groupScopeFields()}
     HAVING total_runs > 0 AND success_rate < ?
   `, values);
 
   return rows.map((row) => ({
     cron_name: row.cron_name,
+    env: row.env,
+    service_group: row.service_group,
     metric: Number(row.success_rate || 0),
     reason: `${row.cron_name} success rate dropped to ${row.success_rate}% within ${rule.timeframe_minutes} minutes`
   }));
@@ -351,32 +449,36 @@ async function evaluateDurationAnomalyRule(rule) {
   const timeframe = Number(rule.timeframe_minutes || 5);
   const spikePercent = Number(rule.duration_spike_percent || rule.threshold || 300);
   const multiplier = 1 + (spikePercent / 100);
-  const values = rule.cron_name
-    ? [timeframe, rule.cron_name, timeframe, rule.cron_name, multiplier]
-    : [timeframe, timeframe, multiplier];
-  const recentCronFilter = rule.cron_name ? 'AND cron_name = ?' : '';
-  const baselineCronFilter = rule.cron_name ? 'AND cron_name = ?' : '';
+  const values = [timeframe];
+  const recentFilters = ['timestamp >= UTC_TIMESTAMP() - INTERVAL ? MINUTE'];
+  addRuleScope(recentFilters, values, rule);
+  values.push(timeframe);
+  const baselineFilters = [
+    'timestamp < UTC_TIMESTAMP() - INTERVAL ? MINUTE',
+    'timestamp >= UTC_TIMESTAMP() - INTERVAL 1 DAY'
+  ];
+  addRuleScope(baselineFilters, values, rule);
+  values.push(multiplier);
 
   const [rows] = await pool.query(`
     WITH recent AS (
-      SELECT cron_name, AVG(duration) AS recent_avg, COUNT(*) AS recent_runs
+      SELECT ${selectScopeFields()}, AVG(duration) AS recent_avg, COUNT(*) AS recent_runs
       FROM cron_logs
-      WHERE timestamp >= UTC_TIMESTAMP() - INTERVAL ? MINUTE
-        ${recentCronFilter}
-      GROUP BY cron_name
+      WHERE ${recentFilters.join(' AND ')}
+      GROUP BY ${groupScopeFields()}
     ),
     baseline AS (
-      SELECT cron_name, AVG(duration) AS baseline_avg
+      SELECT ${selectScopeFields()}, AVG(duration) AS baseline_avg
       FROM cron_logs
-      WHERE timestamp < UTC_TIMESTAMP() - INTERVAL ? MINUTE
-        AND timestamp >= UTC_TIMESTAMP() - INTERVAL 1 DAY
-        ${baselineCronFilter}
-      GROUP BY cron_name
+      WHERE ${baselineFilters.join(' AND ')}
+      GROUP BY ${groupScopeFields()}
     )
-    SELECT recent.cron_name, ROUND(recent.recent_avg, 2) AS recent_avg,
+    SELECT recent.cron_name, recent.env, recent.service_group, ROUND(recent.recent_avg, 2) AS recent_avg,
       ROUND(baseline.baseline_avg, 2) AS baseline_avg
     FROM recent
     INNER JOIN baseline ON baseline.cron_name = recent.cron_name
+      AND baseline.env = recent.env
+      AND baseline.service_group = recent.service_group
     WHERE baseline.baseline_avg > 0
       AND recent.recent_runs > 0
       AND recent.recent_avg >= baseline.baseline_avg * ?
@@ -384,6 +486,8 @@ async function evaluateDurationAnomalyRule(rule) {
 
   return rows.map((row) => ({
     cron_name: row.cron_name,
+    env: row.env,
+    service_group: row.service_group,
     metric: Number(row.recent_avg || 0),
     reason: `${row.cron_name} duration spiked to ${row.recent_avg}ms from ${row.baseline_avg}ms baseline`
   }));
@@ -391,30 +495,28 @@ async function evaluateDurationAnomalyRule(rule) {
 
 async function evaluateRetryStormRule(rule) {
   const values = [Number(rule.timeframe_minutes || 5)];
-  const cronFilter = rule.cron_name ? 'AND cron_name = ?' : '';
-
-  if (rule.cron_name) {
-    values.push(rule.cron_name);
-  }
+  const filters = ['timestamp >= UTC_TIMESTAMP() - INTERVAL ? MINUTE'];
+  addRuleScope(filters, values, rule);
 
   values.push(Number(rule.threshold || 3));
 
   const [rows] = await pool.query(`
-    SELECT cron_name, COUNT(*) AS retry_count
+    SELECT ${selectScopeFields()}, COUNT(*) AS retry_count
     FROM cron_logs
-    WHERE timestamp >= UTC_TIMESTAMP() - INTERVAL ? MINUTE
-      ${cronFilter}
+    WHERE ${filters.join(' AND ')}
       AND (
         retry_logs IS NOT NULL
         OR output REGEXP 'retry|retrying|attempt'
         OR stderr REGEXP 'retry|retrying|attempt'
       )
-    GROUP BY cron_name
+    GROUP BY ${groupScopeFields()}
     HAVING retry_count >= ?
   `, values);
 
   return rows.map((row) => ({
     cron_name: row.cron_name,
+    env: row.env,
+    service_group: row.service_group,
     metric: Number(row.retry_count || 0),
     reason: `${row.cron_name} recorded ${row.retry_count} retry-related executions within ${rule.timeframe_minutes} minutes`
   }));
@@ -422,25 +524,26 @@ async function evaluateRetryStormRule(rule) {
 
 async function evaluateSilenceRule(rule) {
   const expected = Number(rule.expected_interval_minutes || rule.threshold || 60);
-  const values = [expected];
-  const cronFilter = rule.cron_name ? 'WHERE cron_name = ?' : '';
-
-  if (rule.cron_name) {
-    values.unshift(rule.cron_name);
-  }
+  const values = [];
+  const filters = [];
+  addRuleScope(filters, values, rule);
+  values.push(expected);
+  const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
 
   const [rows] = await pool.query(`
-    SELECT cron_name,
+    SELECT ${selectScopeFields()},
       DATE_FORMAT(CONVERT_TZ(MAX(timestamp), '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s') AS last_run,
       TIMESTAMPDIFF(MINUTE, MAX(timestamp), UTC_TIMESTAMP()) AS silent_minutes
     FROM cron_logs
-    ${cronFilter}
-    GROUP BY cron_name
+    ${where}
+    GROUP BY ${groupScopeFields()}
     HAVING silent_minutes >= ?
   `, values);
 
   return rows.map((row) => ({
     cron_name: row.cron_name,
+    env: row.env,
+    service_group: row.service_group,
     metric: Number(row.silent_minutes || 0),
     reason: `${row.cron_name} has been silent for ${row.silent_minutes} minutes; last run was ${row.last_run || 'unknown'} WIB`
   }));
@@ -475,7 +578,7 @@ async function evaluateRule(rule) {
 }
 
 async function upsertAlert(app, rule, trigger) {
-  const key = alertKey(rule, trigger.cron_name);
+  const key = alertKey(rule, trigger.cron_name, trigger.env, trigger.service_group);
   const [[existing]] = await pool.query(
     `SELECT id, state, severity, last_notified_at
      FROM alert_events
@@ -487,14 +590,16 @@ async function upsertAlert(app, rule, trigger) {
   if (!existing) {
     const [result] = await pool.query(`
       INSERT INTO alert_events
-        (rule_id, alert_key, cron_name, type, severity, reason, state, triggered_at)
-      VALUES (?, ?, ?, ?, ?, ?, 'active', UTC_TIMESTAMP())
-    `, [rule.id, key, trigger.cron_name, rule.type, rule.severity, trigger.reason]);
+        (rule_id, alert_key, cron_name, env, service_group, type, severity, reason, state, triggered_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', UTC_TIMESTAMP())
+    `, [rule.id, key, trigger.cron_name, trigger.env || rule.env || null, trigger.service_group || rule.service_group || null, rule.type, rule.severity, trigger.reason]);
 
     const alert = {
       id: result.insertId,
       rule_id: rule.id,
       cron_name: trigger.cron_name,
+      env: trigger.env || rule.env || null,
+      service_group: trigger.service_group || rule.service_group || null,
       type: rule.type,
       severity: rule.severity,
       reason: trigger.reason,
@@ -510,18 +615,22 @@ async function upsertAlert(app, rule, trigger) {
   await pool.query(`
     UPDATE alert_events
     SET reason = ?,
+      env = ?,
+      service_group = ?,
       severity = ?,
       state = CASE WHEN state = 'resolved' THEN 'active' ELSE state END,
       triggered_at = CASE WHEN state = 'resolved' THEN UTC_TIMESTAMP() ELSE triggered_at END,
       resolved_at = NULL,
       updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
-  `, [trigger.reason, rule.severity, existing.id]);
+  `, [trigger.reason, trigger.env || rule.env || null, trigger.service_group || rule.service_group || null, rule.severity, existing.id]);
 
   const alert = {
     id: existing.id,
     rule_id: rule.id,
     cron_name: trigger.cron_name,
+    env: trigger.env || rule.env || null,
+    service_group: trigger.service_group || rule.service_group || null,
     type: rule.type,
     severity: rule.severity,
     reason: trigger.reason,
@@ -572,12 +681,13 @@ export async function evaluateAlerts(app) {
   const alerts = [];
 
   for (const rule of rules) {
-    const triggers = await evaluateRule(rule);
+    const effectiveRule = applyEnvironmentRuntimePolicy(rule);
+    const triggers = await evaluateRule(effectiveRule);
 
     for (const trigger of triggers) {
-      const key = alertKey(rule, trigger.cron_name);
+      const key = alertKey(effectiveRule, trigger.cron_name, trigger.env, trigger.service_group);
       activeKeys.add(key);
-      alerts.push(await upsertAlert(app, rule, trigger));
+      alerts.push(await upsertAlert(app, effectiveRule, trigger));
     }
   }
 
@@ -600,6 +710,7 @@ export async function evaluateAlerts(app) {
         SELECT alert_events.id, alert_events.rule_id, alert_rules.name AS rule_name,
           alert_rules.channels, alert_rules.cooldown_minutes,
           alert_events.cron_name, alert_events.type, alert_events.severity,
+          alert_events.env, alert_events.service_group,
           alert_events.reason, alert_events.state
         FROM alert_events
         INNER JOIN alert_rules ON alert_rules.id = alert_events.rule_id
@@ -652,15 +763,20 @@ export async function getAlertRules() {
 
 export async function createAlertRule(payload) {
   const rule = normalizeRulePayload(payload);
+  const enabled = typeof payload.enabled === 'boolean'
+    ? payload.enabled
+    : getEnvironmentPolicy(rule.env).enabledByDefault;
   const [result] = await pool.query(`
     INSERT INTO alert_rules
-      (name, type, cron_name, severity, threshold, timeframe_minutes,
+      (name, type, cron_name, env, service_group, severity, threshold, timeframe_minutes,
        cooldown_minutes, expected_interval_minutes, duration_spike_percent, channels, enabled)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `, [
     rule.name,
     rule.type,
     rule.cron_name,
+    rule.env,
+    rule.service_group,
     rule.severity,
     rule.threshold,
     rule.timeframe_minutes,
@@ -668,17 +784,17 @@ export async function createAlertRule(payload) {
     rule.expected_interval_minutes,
     rule.duration_spike_percent,
     JSON.stringify(rule.channels),
-    payload.enabled === false ? 0 : 1
+    enabled ? 1 : 0
   ]);
 
-  return { id: result.insertId, ...rule, enabled: payload.enabled !== false };
+  return { id: result.insertId, ...rule, enabled };
 }
 
 export async function updateAlertRule(id, payload) {
   const rule = normalizeRulePayload(payload);
   await pool.query(`
     UPDATE alert_rules
-    SET name = ?, type = ?, cron_name = ?, severity = ?, threshold = ?,
+    SET name = ?, type = ?, cron_name = ?, env = ?, service_group = ?, severity = ?, threshold = ?,
       timeframe_minutes = ?, cooldown_minutes = ?, expected_interval_minutes = ?,
       duration_spike_percent = ?, channels = ?, enabled = ?, updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
@@ -686,6 +802,8 @@ export async function updateAlertRule(id, payload) {
     rule.name,
     rule.type,
     rule.cron_name,
+    rule.env,
+    rule.service_group,
     rule.severity,
     rule.threshold,
     rule.timeframe_minutes,
@@ -700,7 +818,7 @@ export async function updateAlertRule(id, payload) {
   return { id, ...rule, enabled: payload.enabled !== false };
 }
 
-export async function listAlerts({ state = 'active', limit = 50 } = {}) {
+export async function listAlerts({ state = 'active', env, service_group, limit = 50 } = {}) {
   const values = [];
   const filters = [];
 
@@ -709,12 +827,23 @@ export async function listAlerts({ state = 'active', limit = 50 } = {}) {
     values.push(state);
   }
 
+  if (env) {
+    filters.push('alert_events.env = ?');
+    values.push(env);
+  }
+
+  if (service_group) {
+    filters.push('alert_events.service_group = ?');
+    values.push(service_group);
+  }
+
   values.push(Number(limit || 50));
 
   const where = filters.length > 0 ? `WHERE ${filters.join(' AND ')}` : '';
   const [rows] = await pool.query(`
     SELECT alert_events.id, alert_events.rule_id, alert_rules.name AS rule_name,
       alert_events.cron_name, alert_events.type, alert_events.severity,
+      alert_events.env, alert_events.service_group,
       alert_events.reason, alert_events.state,
       DATE_FORMAT(CONVERT_TZ(alert_events.triggered_at, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s') AS triggered_at,
       DATE_FORMAT(CONVERT_TZ(alert_events.acknowledged_at, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s') AS acknowledged_at,

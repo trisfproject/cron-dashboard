@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS cron_logs (
   timeout_info TEXT NULL,
   server VARCHAR(255) NOT NULL,
   env VARCHAR(80) NOT NULL,
+  service_group VARCHAR(120) NOT NULL DEFAULT 'Unassigned',
   status TINYINT NOT NULL,
   duration INT UNSIGNED NOT NULL,
   timestamp DATETIME(3) NOT NULL,
@@ -21,7 +22,9 @@ CREATE TABLE IF NOT EXISTS cron_logs (
   KEY idx_cron_logs_cron_name (cron_name),
   KEY idx_cron_logs_timestamp (timestamp),
   KEY idx_cron_logs_status (status),
-  KEY idx_cron_logs_cron_server_timestamp (cron_name, server, timestamp)
+  KEY idx_cron_logs_cron_server_timestamp (cron_name, server, timestamp),
+  KEY idx_cron_logs_env_service_timestamp (env, service_group, timestamp),
+  KEY idx_cron_logs_service_timestamp (service_group, timestamp)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS users (
@@ -72,6 +75,8 @@ CREATE TABLE IF NOT EXISTS alert_rules (
     'cron_silence'
   ) NOT NULL,
   cron_name VARCHAR(255) NULL,
+  env VARCHAR(80) NULL,
+  service_group VARCHAR(120) NULL,
   severity ENUM('info', 'warning', 'critical') NOT NULL DEFAULT 'warning',
   threshold DECIMAL(12, 2) NOT NULL DEFAULT 1,
   timeframe_minutes INT UNSIGNED NOT NULL DEFAULT 5,
@@ -84,7 +89,8 @@ CREATE TABLE IF NOT EXISTS alert_rules (
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   KEY idx_alert_rules_enabled_type (enabled, type),
-  KEY idx_alert_rules_cron_name (cron_name)
+  KEY idx_alert_rules_cron_name (cron_name),
+  KEY idx_alert_rules_scope (env, service_group, cron_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS alert_events (
@@ -92,6 +98,8 @@ CREATE TABLE IF NOT EXISTS alert_events (
   rule_id BIGINT UNSIGNED NOT NULL,
   alert_key VARCHAR(512) NOT NULL,
   cron_name VARCHAR(255) NULL,
+  env VARCHAR(80) NULL,
+  service_group VARCHAR(120) NULL,
   type VARCHAR(80) NOT NULL,
   severity ENUM('info', 'warning', 'critical') NOT NULL,
   reason TEXT NOT NULL,
@@ -109,6 +117,7 @@ CREATE TABLE IF NOT EXISTS alert_events (
   UNIQUE KEY uq_alert_events_key (alert_key),
   KEY idx_alert_events_state_triggered (state, triggered_at),
   KEY idx_alert_events_rule_state (rule_id, state),
+  KEY idx_alert_events_scope_state (env, service_group, state, triggered_at),
   CONSTRAINT fk_alert_events_rule_id
     FOREIGN KEY (rule_id) REFERENCES alert_rules(id)
     ON DELETE CASCADE

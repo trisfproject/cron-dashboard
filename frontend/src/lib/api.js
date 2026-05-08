@@ -97,6 +97,10 @@ export function getAlerts(params = {}) {
   return request(`/alerts${suffix}`);
 }
 
+export function getScopeOptions() {
+  return request('/scope-options');
+}
+
 export function login(email, password) {
   return request('/auth/login', {
     method: 'POST',

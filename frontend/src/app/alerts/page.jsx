@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { AlertSeverityBadge, AlertStateBadge } from '@/components/AlertBadge';
-import { acknowledgeAlert, evaluateAlerts, getAlerts } from '@/lib/api';
+import { EnvironmentBadge, ServiceGroupBadge } from '@/components/EnvironmentBadge';
+import { acknowledgeAlert, evaluateAlerts, getAlerts, getScopeOptions } from '@/lib/api';
 
 function normalizeAlerts(data) {
   return Array.isArray(data?.alerts) ? data.alerts : [];
@@ -12,15 +13,22 @@ function normalizeAlerts(data) {
 export default function AlertsPage() {
   const [alerts, setAlerts] = useState([]);
   const [state, setState] = useState('all');
+  const [scope, setScope] = useState({ env: '', service_group: '' });
+  const [scopeOptions, setScopeOptions] = useState({ environments: [], service_groups: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  async function loadAlerts(nextState = state) {
+  async function loadAlerts(nextState = state, nextScope = scope) {
     setLoading(true);
     setError('');
 
     try {
-      const data = await getAlerts({ state: nextState, limit: 200 });
+      const data = await getAlerts({
+        state: nextState,
+        limit: 200,
+        ...(nextScope.env ? { env: nextScope.env } : {}),
+        ...(nextScope.service_group ? { service_group: nextScope.service_group } : {})
+      });
       setAlerts(normalizeAlerts(data));
     } catch (fetchError) {
       setError(fetchError?.message || 'Failed to load alerts');
@@ -32,16 +40,25 @@ export default function AlertsPage() {
 
   useEffect(() => {
     loadAlerts(state);
-  }, [state]);
+  }, [state, scope.env, scope.service_group]);
+
+  useEffect(() => {
+    getScopeOptions()
+      .then((data) => setScopeOptions({
+        environments: Array.isArray(data?.environments) ? data.environments : [],
+        service_groups: Array.isArray(data?.service_groups) ? data.service_groups : []
+      }))
+      .catch((scopeError) => console.error('Failed to load scope options:', scopeError));
+  }, []);
 
   async function acknowledge(id) {
     await acknowledgeAlert(id);
-    await loadAlerts(state);
+    await loadAlerts(state, scope);
   }
 
   async function runEvaluation() {
     await evaluateAlerts();
-    await loadAlerts(state);
+    await loadAlerts(state, scope);
   }
 
   return (
@@ -78,6 +95,25 @@ export default function AlertsPage() {
         ))}
       </div>
 
+      <div className="grid gap-2 rounded-lg border border-slate-200 bg-white p-3 shadow-sm sm:grid-cols-2 lg:max-w-xl dark:border-slate-800 dark:bg-slate-950">
+        <select
+          value={scope.env}
+          onChange={(event) => setScope((current) => ({ ...current, env: event.target.value }))}
+          className="min-h-10 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-950"
+        >
+          <option value="">All environments</option>
+          {scopeOptions.environments.map((option) => <option key={option.value} value={option.value}>{option.value}</option>)}
+        </select>
+        <select
+          value={scope.service_group}
+          onChange={(event) => setScope((current) => ({ ...current, service_group: event.target.value }))}
+          className="min-h-10 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-950"
+        >
+          <option value="">All services</option>
+          {scopeOptions.service_groups.map((option) => <option key={option.value} value={option.value}>{option.value}</option>)}
+        </select>
+      </div>
+
       <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
         {error ? <div className="border-b border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error}</div> : null}
         {loading ? <div className="p-8 text-center text-sm text-slate-500">Loading alerts...</div> : null}
@@ -91,6 +127,10 @@ export default function AlertsPage() {
                     <AlertSeverityBadge severity={alert.severity} />
                   </div>
                   <p className="text-sm text-slate-600 dark:text-slate-300">{alert.reason}</p>
+                  <div className="flex flex-wrap gap-2">
+                    {alert.env ? <EnvironmentBadge env={alert.env} /> : null}
+                    <ServiceGroupBadge serviceGroup={alert.service_group} />
+                  </div>
                   <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
                     <AlertStateBadge state={alert.state} />
                     {alert.last_notification_status ? (
@@ -117,6 +157,7 @@ export default function AlertsPage() {
                     <th className="px-4 py-3">Cron</th>
                     <th className="px-4 py-3">Severity</th>
                     <th className="px-4 py-3">State</th>
+                    <th className="px-4 py-3">Scope</th>
                     <th className="px-4 py-3">Reason</th>
                     <th className="px-4 py-3">Notify</th>
                     <th className="px-4 py-3">Triggered</th>
@@ -130,6 +171,12 @@ export default function AlertsPage() {
                       <td className="max-w-[18rem] truncate px-4 py-3 font-medium text-ink">{alert.cron_name || 'All monitored cron jobs'}</td>
                       <td className="whitespace-nowrap px-4 py-3"><AlertSeverityBadge severity={alert.severity} /></td>
                       <td className="whitespace-nowrap px-4 py-3"><AlertStateBadge state={alert.state} /></td>
+                      <td className="whitespace-nowrap px-4 py-3">
+                        <div className="flex gap-1.5">
+                          {alert.env ? <EnvironmentBadge env={alert.env} /> : null}
+                          <ServiceGroupBadge serviceGroup={alert.service_group} />
+                        </div>
+                      </td>
                       <td className="min-w-[24rem] px-4 py-3 text-slate-600 dark:text-slate-300">{alert.reason}</td>
                       <td className="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-300">
                         {alert.last_notification_status || '-'}
@@ -147,7 +194,7 @@ export default function AlertsPage() {
                   ))}
                   {alerts.length === 0 ? (
                     <tr>
-                      <td className="px-4 py-8 text-center text-slate-500" colSpan={8}>No alerts found.</td>
+                      <td className="px-4 py-8 text-center text-slate-500" colSpan={9}>No alerts found.</td>
                     </tr>
                   ) : null}
                 </tbody>

@@ -1,13 +1,16 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { createAlertRule, getAlertRules, getCronList, sendTestTelegramNotification, updateAlertRule } from '@/lib/api';
+import { EnvironmentBadge, ServiceGroupBadge } from '@/components/EnvironmentBadge';
+import { createAlertRule, getAlertRules, getCronList, getScopeOptions, sendTestTelegramNotification, updateAlertRule } from '@/lib/api';
 
 const defaultRule = {
   name: '',
   type: 'failed_threshold',
   monitoring_profile: 'standard',
   cron_name: '',
+  env: '',
+  service_group: '',
   severity: 'warning',
   threshold: 3,
   timeframe_minutes: 30,
@@ -144,10 +147,15 @@ function formatRuntime(ms) {
   return remainingMinutes ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
 }
 
-function getCronBehavior(cronJobs, cronName) {
+function getCronBehavior(cronJobs, cronName, env, serviceGroup) {
   const selected = String(cronName || '').trim();
   const matchingJobs = Array.isArray(cronJobs)
-    ? cronJobs.filter((job) => !selected || job?.cron_name === selected)
+    ? cronJobs.filter((job) => {
+      const matchesName = !selected || job?.cron_name === selected;
+      const matchesEnv = !env || job?.env === env;
+      const matchesService = !serviceGroup || job?.service_group === serviceGroup;
+      return matchesName && matchesEnv && matchesService;
+    })
     : [];
   const totalRuns = matchingJobs.reduce((sum, job) => sum + Number(job?.total_runs || 0), 0);
   const weightedDuration = matchingJobs.reduce((sum, job) => {
@@ -169,6 +177,7 @@ function getCronBehavior(cronJobs, cronName) {
 export default function AlertConfigPage() {
   const [rules, setRules] = useState([]);
   const [cronJobs, setCronJobs] = useState([]);
+  const [scopeOptions, setScopeOptions] = useState({ environments: [], service_groups: [] });
   const [form, setForm] = useState(defaultRule);
   const [editingId, setEditingId] = useState(null);
   const [error, setError] = useState('');
@@ -196,10 +205,25 @@ export default function AlertConfigPage() {
   useEffect(() => {
     loadRules();
     loadCronContext();
+    getScopeOptions()
+      .then((data) => setScopeOptions({
+        environments: Array.isArray(data?.environments) ? data.environments : [],
+        service_groups: Array.isArray(data?.service_groups) ? data.service_groups : []
+      }))
+      .catch((scopeError) => console.error('Failed to load scope options:', scopeError));
   }, []);
 
   function updateField(key, value) {
-    setForm((current) => ({ ...current, [key]: value }));
+    setForm((current) => {
+      const normalizedEnv = key === 'env' ? String(value || '').toLowerCase() : '';
+      const shouldDefaultSilent = ['development', 'develop', 'dev'].includes(normalizedEnv);
+
+      return {
+        ...current,
+        [key]: value,
+        ...(shouldDefaultSilent ? { enabled: false } : {})
+      };
+    });
   }
 
   function applyMonitoringProfile(profileKey) {
@@ -229,6 +253,8 @@ export default function AlertConfigPage() {
       ...rule,
       monitoring_profile: rule.monitoring_profile || 'custom',
       cron_name: rule.cron_name || '',
+      env: rule.env || '',
+      service_group: rule.service_group || '',
       expected_interval_minutes: rule.expected_interval_minutes || '',
       duration_spike_percent: rule.duration_spike_percent || '',
       channels: Array.isArray(rule.channels) ? rule.channels : []
@@ -281,7 +307,7 @@ export default function AlertConfigPage() {
   }
 
   const selectedProfile = monitoringProfiles[form.monitoring_profile] || monitoringProfiles.standard;
-  const cronBehavior = getCronBehavior(cronJobs, form.cron_name);
+  const cronBehavior = getCronBehavior(cronJobs, form.cron_name, form.env, form.service_group);
   const scopedCronNames = [...new Set(cronJobs.map((job) => job?.cron_name).filter(Boolean))].sort();
 
   return (
@@ -433,6 +459,21 @@ export default function AlertConfigPage() {
           </datalist>
         </label>
         <label className="space-y-1">
+          <span className="text-sm font-medium text-slate-600 dark:text-slate-300">Environment scope</span>
+          <select value={form.env} onChange={(event) => updateField('env', event.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-950">
+            <option value="">All environments</option>
+            {scopeOptions.environments.map((option) => <option key={option.value} value={option.value}>{option.value}</option>)}
+          </select>
+          <p className="text-xs text-slate-500">Production remains strict; staging and development reduce noise.</p>
+        </label>
+        <label className="space-y-1">
+          <span className="text-sm font-medium text-slate-600 dark:text-slate-300">Service group scope</span>
+          <input list="service-group-options" value={form.service_group} onChange={(event) => updateField('service_group', event.target.value)} placeholder="Leave blank for all services" className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-950" />
+          <datalist id="service-group-options">
+            {scopeOptions.service_groups.map((option) => <option key={option.value} value={option.value} />)}
+          </datalist>
+        </label>
+        <label className="space-y-1">
           <span className="text-sm font-medium text-slate-600 dark:text-slate-300">Severity</span>
           <select value={form.severity} onChange={(event) => updateField('severity', event.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-950">
             <option value="info">Info</option>
@@ -496,6 +537,10 @@ export default function AlertConfigPage() {
               <div>
                 <p className="font-medium text-ink">{rule.name}</p>
                 <p className="mt-1 text-sm text-slate-500">{rule.type} · threshold {rule.threshold} · {rule.timeframe_minutes}m window · {rule.cooldown_minutes}m cooldown</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {rule.env ? <EnvironmentBadge env={rule.env} /> : <span className="text-xs text-slate-500">All environments</span>}
+                  {rule.service_group ? <ServiceGroupBadge serviceGroup={rule.service_group} /> : <span className="text-xs text-slate-500">All services</span>}
+                </div>
               </div>
               <span className={`w-fit rounded-md px-2 py-1 text-xs font-medium ring-1 ${rule.enabled ? 'bg-emerald-50 text-emerald-700 ring-emerald-200' : 'bg-slate-50 text-slate-600 ring-slate-200'}`}>
                 {rule.enabled ? 'Enabled' : 'Disabled'}

@@ -5,6 +5,7 @@ import { useParams, useSearchParams } from 'next/navigation';
 import { Activity, AlertTriangle, BarChart3, Clock3, Gauge, Radio, RotateCcw, ShieldCheck, Timer, Zap } from 'lucide-react';
 import { FailureWarningChart, DurationChart, ThroughputChart, TimelineChart } from '@/components/TimelineChart';
 import { InteractiveLogsTable } from '@/components/InteractiveLogsTable';
+import { EnvironmentBadge, ServiceGroupBadge } from '@/components/EnvironmentBadge';
 import { MetricCard } from '@/components/MetricCard';
 import { TimeRangeFilter } from '@/components/TimeRangeFilter';
 import { getLogs, getStats } from '@/lib/api';
@@ -102,6 +103,8 @@ function CronDetailContent() {
   const rawCronName = Array.isArray(params?.name) ? params.name.join('/') : params?.name || '';
   const cronName = safeDecode(rawCronName);
   const server = searchParams?.get('server') || '';
+  const env = searchParams?.get('env') || '';
+  const serviceGroup = searchParams?.get('service_group') || '';
   const initialWindow = searchParams?.get('window');
   const initialRange = searchParams?.get('range');
   const initialStart = searchParams?.get('start');
@@ -149,7 +152,9 @@ function CronDetailContent() {
           : { [filter.type]: filter.value };
         const scopeParams = {
           cron_name: cronName,
-          ...(server ? { server } : {})
+          ...(server ? { server } : {}),
+          ...(env ? { env } : {}),
+          ...(serviceGroup ? { service_group: serviceGroup } : {})
         };
         const [statsData, logsData] = await Promise.all([
           getStats({ ...timeParams, ...scopeParams }),
@@ -184,7 +189,7 @@ function CronDetailContent() {
     return () => {
       cancelled = true;
     };
-  }, [cronName, customRange, filter, refreshTick, server]);
+  }, [cronName, customRange, env, filter, refreshTick, server, serviceGroup]);
 
   const summary = stats?.summary ?? {};
   const timeline = Array.isArray(stats?.timeline) ? stats.timeline : [];
@@ -231,7 +236,11 @@ function CronDetailContent() {
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
           <h1 className="break-words text-2xl font-semibold tracking-normal text-ink">{cronName}</h1>
-          <p className="mt-1 text-sm text-slate-500">{server ? `Server: ${server}` : 'All servers'} · exact cron name match</p>
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-500">
+            <span>{server ? `Server: ${server}` : 'All servers'} · exact cron name match</span>
+            {env ? <EnvironmentBadge env={env} /> : null}
+            <ServiceGroupBadge serviceGroup={serviceGroup} />
+          </div>
         </div>
         <TimeRangeFilter
           selectedFilter={filter}

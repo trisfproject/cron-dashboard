@@ -5,11 +5,12 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Activity, AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Clock3, DatabaseZap, ListChecks, Radio, RotateCcw, TrendingUp } from 'lucide-react';
 import { AlertSeverityBadge, AlertStateBadge } from '@/components/AlertBadge';
+import { EnvironmentBadge, ServiceGroupBadge } from '@/components/EnvironmentBadge';
 import { MetricCard } from '@/components/MetricCard';
 import { TimelineChart } from '@/components/TimelineChart';
 import { LogsTable } from '@/components/LogsTable';
 import { TimeRangeFilter } from '@/components/TimeRangeFilter';
-import { getAlerts, getAuditLogs, getCurrentUser, getLogs, getStats } from '@/lib/api';
+import { getAlerts, getAuditLogs, getCurrentUser, getLogs, getScopeOptions, getStats } from '@/lib/api';
 import { formatDuration, formatNumber, formatPercent } from '@/lib/format';
 
 const emptyStats = {
@@ -291,7 +292,7 @@ function mergeLogs(existingLogs, nextLogs) {
   return merged;
 }
 
-function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, initialCustomRange = null }) {
+function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, initialCustomRange = null, initialScope = { env: '', service_group: '' } }) {
   const [filter, setFilter] = useState(initialFilter);
   const [customRange, setCustomRange] = useState(isValidCustomRange(initialCustomRange) ? initialCustomRange : null);
   const [stats, setStats] = useState(emptyStats);
@@ -299,6 +300,8 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
   const [alerts, setAlerts] = useState([]);
   const [auditFeed, setAuditFeed] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
+  const [scope, setScope] = useState(initialScope);
+  const [scopeOptions, setScopeOptions] = useState({ environments: [], service_groups: [] });
   const [hasMoreLogs, setHasMoreLogs] = useState(false);
   const [logsLoadingMore, setLogsLoadingMore] = useState(false);
   const [logsError, setLogsError] = useState(null);
@@ -315,6 +318,31 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
     setCustomRange(isValidCustomRange(initialCustomRange) ? initialCustomRange : null);
     setLiveMode(initialFilter.type !== 'custom');
   }, [initialFilter.type, initialFilter.value, initialCustomRange?.start, initialCustomRange?.end]);
+
+  useEffect(() => {
+    setScope(initialScope);
+  }, [initialScope.env, initialScope.service_group]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    getScopeOptions()
+      .then((data) => {
+        if (!cancelled) {
+          setScopeOptions({
+            environments: Array.isArray(data?.environments) ? data.environments : [],
+            service_groups: Array.isArray(data?.service_groups) ? data.service_groups : []
+          });
+        }
+      })
+      .catch((scopeError) => {
+        console.error('Failed to load scope options:', scopeError);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!refreshInterval || !liveMode) {
@@ -346,16 +374,20 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
           ? { start: customRange.start, end: customRange.end }
           : null;
         const params = customParams || { [filter.type]: filter.value };
+        const scopeParams = {
+          ...(scope.env ? { env: scope.env } : {}),
+          ...(scope.service_group ? { service_group: scope.service_group } : {})
+        };
 
         const [statsData, logsData, userData] = await Promise.all([
-          getStats(params),
-          getLogs({ ...params, limit: LOG_PAGE_SIZE, offset: 0 }),
+          getStats({ ...params, ...scopeParams }),
+          getLogs({ ...params, ...scopeParams, limit: LOG_PAGE_SIZE, offset: 0 }),
           getCurrentUser()
         ]);
         const user = userData?.user || null;
         const [alertsData, auditData] = user?.role === 'admin'
           ? await Promise.all([
-            getAlerts({ state: 'active', limit: 5 }).catch((alertError) => {
+            getAlerts({ state: 'active', limit: 5, ...scopeParams }).catch((alertError) => {
             console.error('Failed to fetch active alerts:', alertError);
             return { alerts: [] };
             }),
@@ -408,7 +440,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
     return () => {
       cancelled = true;
     };
-  }, [filter, customRange, refreshTick]);
+  }, [filter, customRange, refreshTick, scope.env, scope.service_group]);
 
   function applyCustomRange(nextCustomRange) {
     if (isValidCustomRange(nextCustomRange)) {
@@ -431,8 +463,13 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
         ? { start: customRange.start, end: customRange.end }
         : null;
       const params = customParams || { [filter.type]: filter.value };
+      const scopeParams = {
+        ...(scope.env ? { env: scope.env } : {}),
+        ...(scope.service_group ? { service_group: scope.service_group } : {})
+      };
       const logsData = await getLogs({
         ...params,
+        ...scopeParams,
         limit: LOG_PAGE_SIZE,
         offset: logs.length
       });
@@ -462,6 +499,20 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
     setCustomRange(null);
     setFilter({ type: 'window', value: '30m' });
     setLiveMode(true);
+  }
+
+  function updateScope(key, value) {
+    const nextScope = { ...scope, [key]: value };
+    setScope(nextScope);
+
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      if (nextScope.env) url.searchParams.set('env', nextScope.env);
+      else url.searchParams.delete('env');
+      if (nextScope.service_group) url.searchParams.set('service_group', nextScope.service_group);
+      else url.searchParams.delete('service_group');
+      window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+    }
   }
 
   function panCustomRange(direction) {
@@ -569,6 +620,37 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
           onRefreshIntervalChange={setRefreshInterval}
         />
       </div>
+
+      <section className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+        <div className="grid gap-2 sm:grid-cols-[minmax(0,12rem)_minmax(0,14rem)_1fr] sm:items-center">
+          <select
+            value={scope.env}
+            onChange={(event) => updateScope('env', event.target.value)}
+            className="min-h-10 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-slate-800 dark:bg-slate-950"
+            aria-label="Environment filter"
+          >
+            <option value="">All environments</option>
+            {scopeOptions.environments.map((option) => (
+              <option key={option.value} value={option.value}>{option.value}</option>
+            ))}
+          </select>
+          <select
+            value={scope.service_group}
+            onChange={(event) => updateScope('service_group', event.target.value)}
+            className="min-h-10 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-slate-800 dark:bg-slate-950"
+            aria-label="Service group filter"
+          >
+            <option value="">All service groups</option>
+            {scopeOptions.service_groups.map((option) => (
+              <option key={option.value} value={option.value}>{option.value}</option>
+            ))}
+          </select>
+          <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs text-slate-500">
+            {scope.env ? <EnvironmentBadge env={scope.env} /> : <span>All environments</span>}
+            {scope.service_group ? <ServiceGroupBadge serviceGroup={scope.service_group} /> : <span>All services</span>}
+          </div>
+        </div>
+      </section>
 
       <section className="grid grid-cols-2 gap-2.5 sm:gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard 
@@ -718,6 +800,10 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
                   <p className="min-w-0 break-words text-sm font-semibold text-ink">{alert.cron_name || 'All monitored cron jobs'}</p>
                   <AlertSeverityBadge severity={alert.severity} />
                 </div>
+                <div className="flex flex-wrap gap-2">
+                  {alert.env ? <EnvironmentBadge env={alert.env} /> : null}
+                  <ServiceGroupBadge serviceGroup={alert.service_group} />
+                </div>
                 <p className="text-sm text-slate-600 dark:text-slate-300">{alert.reason}</p>
                 <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
                   <AlertStateBadge state={alert.state} />
@@ -735,6 +821,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
                 <tr>
                   <th className="px-3 py-2">Cron</th>
                   <th className="px-3 py-2">Severity</th>
+                  <th className="px-3 py-2">Scope</th>
                   <th className="px-3 py-2">Reason</th>
                   <th className="px-3 py-2">Triggered</th>
                   <th className="px-3 py-2">State</th>
@@ -745,6 +832,12 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
                   <tr key={alert.id} className="align-top">
                     <td className="max-w-[18rem] truncate px-3 py-2 font-medium text-ink">{alert.cron_name || 'All monitored cron jobs'}</td>
                     <td className="whitespace-nowrap px-3 py-2"><AlertSeverityBadge severity={alert.severity} /></td>
+                    <td className="whitespace-nowrap px-3 py-2">
+                      <div className="flex gap-1.5">
+                        {alert.env ? <EnvironmentBadge env={alert.env} /> : null}
+                        <ServiceGroupBadge serviceGroup={alert.service_group} />
+                      </div>
+                    </td>
                     <td className="min-w-[24rem] px-3 py-2 text-slate-600 dark:text-slate-300">{alert.reason}</td>
                     <td className="whitespace-nowrap px-3 py-2 text-slate-600 dark:text-slate-300">{alert.triggered_at || '-'}</td>
                     <td className="whitespace-nowrap px-3 py-2"><AlertStateBadge state={alert.state} /></td>
@@ -752,7 +845,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
                 ))}
                 {activeAlerts.length === 0 ? (
                   <tr>
-                    <td className="px-3 py-8 text-center text-emerald-700 dark:text-emerald-200" colSpan={5}>No active alerts. Cron monitoring is quiet.</td>
+                    <td className="px-3 py-8 text-center text-emerald-700 dark:text-emerald-200" colSpan={6}>No active alerts. Cron monitoring is quiet.</td>
                   </tr>
                 ) : null}
               </tbody>
@@ -797,6 +890,10 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
                   <p className="min-w-0 break-words text-sm font-semibold text-ink">{job?.cron_name ?? '-'}</p>
                   <span className={`shrink-0 rounded-md px-2 py-1 text-xs font-medium ring-1 ${job.health.className}`}>{job.health.label}</span>
                 </div>
+                <div className="flex flex-wrap gap-2">
+                  {job?.env ? <EnvironmentBadge env={job.env} /> : null}
+                  <ServiceGroupBadge serviceGroup={job?.service_group} />
+                </div>
                 <div className="grid grid-cols-1 gap-2 text-sm min-[420px]:grid-cols-3">
                   <div className="rounded-md bg-white p-2 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
                     <p className="text-xs text-slate-500">Success rate</p>
@@ -823,6 +920,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
                 <tr>
                   <th className="px-3 py-2">Cron</th>
                   <th className="px-3 py-2">Health</th>
+                  <th className="px-3 py-2">Scope</th>
                   <th className="px-3 py-2">Success</th>
                   <th className="px-3 py-2">Warnings</th>
                   <th className="px-3 py-2">Failed</th>
@@ -835,6 +933,12 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
                     <td className="whitespace-nowrap px-3 py-2">
                       <span className={`rounded-md px-2 py-1 text-xs font-medium ring-1 ${job.health.className}`}>{job.health.label}</span>
                     </td>
+                    <td className="whitespace-nowrap px-3 py-2">
+                      <div className="flex gap-1.5">
+                        {job?.env ? <EnvironmentBadge env={job.env} /> : null}
+                        <ServiceGroupBadge serviceGroup={job?.service_group} />
+                      </div>
+                    </td>
                     <td className="whitespace-nowrap px-3 py-2 text-slate-600 dark:text-slate-300">{formatPercent(job?.success_rate ?? 0)}</td>
                     <td className="whitespace-nowrap px-3 py-2 text-slate-600 dark:text-slate-300">{formatNumber(job?.warning_count ?? 0)}</td>
                     <td className="whitespace-nowrap px-3 py-2 text-slate-600 dark:text-slate-300">{formatNumber(job?.failed_count ?? 0)}</td>
@@ -842,7 +946,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
                 ))}
                 {attentionHealthJobs.length === 0 ? (
                   <tr>
-                    <td className="px-3 py-8 text-center text-emerald-700 dark:text-emerald-200" colSpan={5}>All monitored cron jobs are healthy.</td>
+                    <td className="px-3 py-8 text-center text-emerald-700 dark:text-emerald-200" colSpan={6}>All monitored cron jobs are healthy.</td>
                   </tr>
                 ) : null}
               </tbody>
@@ -955,6 +1059,8 @@ function DashboardWithSearchParams() {
   const range = searchParams?.get('range');
   const start = searchParams?.get('start');
   const end = searchParams?.get('end');
+  const env = searchParams?.get('env') || '';
+  const serviceGroup = searchParams?.get('service_group') || '';
   const initialCustomRange = start && end ? { start, end } : null;
   const initialFilter = initialCustomRange
     ? { type: 'custom', value: 'custom' }
@@ -962,7 +1068,7 @@ function DashboardWithSearchParams() {
       ? { type: 'range', value: range }
       : { type: 'window', value: VALID_WINDOWS.has(window) ? window : '30m' };
 
-  return <DashboardContent initialFilter={initialFilter} initialCustomRange={initialCustomRange} />;
+  return <DashboardContent initialFilter={initialFilter} initialCustomRange={initialCustomRange} initialScope={{ env, service_group: serviceGroup }} />;
 }
 
 export default function DashboardPage() {
