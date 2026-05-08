@@ -82,8 +82,8 @@ export async function middleware(request) {
       return NextResponse.redirect(new URL('/', request.url));
     }
 
-    const adminOnlyPaths = ['/alerts', '/users'];
-    const adminOnlyApiPaths = ['/api/alerts', '/api/alert-rules', '/api/users'];
+    const adminOnlyPaths = ['/alerts', '/users', '/audit'];
+    const adminOnlyApiPaths = ['/api/alerts', '/api/alert-rules', '/api/users', '/api/audit-logs'];
     const adminOnly = adminOnlyPaths.some((path) => pathname === path || pathname.startsWith(`${path}/`))
       || adminOnlyApiPaths.some((path) => pathname === path || pathname.startsWith(`${path}/`));
 

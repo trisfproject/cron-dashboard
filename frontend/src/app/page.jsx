@@ -9,7 +9,7 @@ import { MetricCard } from '@/components/MetricCard';
 import { TimelineChart } from '@/components/TimelineChart';
 import { LogsTable } from '@/components/LogsTable';
 import { TimeRangeFilter } from '@/components/TimeRangeFilter';
-import { getAlerts, getCurrentUser, getLogs, getStats } from '@/lib/api';
+import { getAlerts, getAuditLogs, getCurrentUser, getLogs, getStats } from '@/lib/api';
 import { formatDuration, formatNumber, formatPercent } from '@/lib/format';
 
 const emptyStats = {
@@ -297,6 +297,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
   const [stats, setStats] = useState(emptyStats);
   const [logs, setLogs] = useState([]);
   const [alerts, setAlerts] = useState([]);
+  const [auditFeed, setAuditFeed] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
   const [hasMoreLogs, setHasMoreLogs] = useState(false);
   const [logsLoadingMore, setLogsLoadingMore] = useState(false);
@@ -352,12 +353,18 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
           getCurrentUser()
         ]);
         const user = userData?.user || null;
-        const alertsData = user?.role === 'admin'
-          ? await getAlerts({ state: 'active', limit: 5 }).catch((alertError) => {
+        const [alertsData, auditData] = user?.role === 'admin'
+          ? await Promise.all([
+            getAlerts({ state: 'active', limit: 5 }).catch((alertError) => {
             console.error('Failed to fetch active alerts:', alertError);
             return { alerts: [] };
-          })
-          : { alerts: [] };
+            }),
+            getAuditLogs({ limit: 5 }).catch((auditError) => {
+              console.error('Failed to fetch audit feed:', auditError);
+              return { audit_logs: [] };
+            })
+          ])
+          : [{ alerts: [] }, { audit_logs: [] }];
 
         if (process.env.NODE_ENV === 'development') {
           console.log('stats response', statsData);
@@ -374,6 +381,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
         setLogs(nextLogs);
         setHasMoreLogs(nextLogs.length === LOG_PAGE_SIZE);
         setAlerts(Array.isArray(alertsData?.alerts) ? alertsData.alerts : []);
+        setAuditFeed(Array.isArray(auditData?.audit_logs) ? auditData.audit_logs : []);
         setLogsError(null);
       } catch (error) {
         console.error('Failed to fetch dashboard data:', error);
@@ -384,6 +392,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
           setCurrentUser(null);
           setLogs([]);
           setAlerts([]);
+          setAuditFeed([]);
           setHasMoreLogs(false);
         }
       } finally {
@@ -748,6 +757,30 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
                 ) : null}
               </tbody>
             </table>
+          </div>
+        </div>
+        ) : null}
+
+        {currentUser?.role === 'admin' ? (
+        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm xl:col-span-2">
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold text-ink">Operational Activity</h2>
+              <p className="mt-1 text-sm text-slate-500">Recent administrative and incident-management events.</p>
+            </div>
+            <Link href="/audit" className="inline-flex min-h-10 items-center justify-center rounded-md border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900">
+              Audit log
+            </Link>
+          </div>
+          <div className="divide-y divide-slate-100 dark:divide-slate-800">
+            {auditFeed.map((event) => (
+              <div key={event.id} className="grid gap-1 py-3 text-sm sm:grid-cols-[12rem_1fr_auto] sm:items-center">
+                <p className="font-medium text-ink">{event.action}</p>
+                <p className="text-slate-500">{event.user_email || 'System'} / {event.target_label || event.target_type || 'NYX'}</p>
+                <p className="text-xs text-slate-500">{event.created_at}</p>
+              </div>
+            ))}
+            {auditFeed.length === 0 ? <div className="py-8 text-center text-sm text-slate-500">No recent operational activity.</div> : null}
           </div>
         </div>
         ) : null}

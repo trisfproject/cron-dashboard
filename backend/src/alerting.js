@@ -1,4 +1,5 @@
 import { pool } from './db.js';
+import { logAudit } from './auth.js';
 
 const JAKARTA_SQL_TIMEZONE = '+07:00';
 const UTC_SQL_TIMEZONE = '+00:00';
@@ -623,6 +624,13 @@ export async function evaluateAlerts(app) {
           timeframe_minutes: 5
         };
         await maybeNotify(app, { ...resolvedAlert, state: 'resolved' }, rule, null, 'resolved');
+        await logAudit({
+          user: { email: 'system@nyx' },
+          action: 'alert_resolved',
+          targetType: 'alert',
+          targetId: resolvedAlert.id,
+          targetLabel: resolvedAlert.cron_name || resolvedAlert.reason
+        });
       }
     }
   }

@@ -165,13 +165,27 @@ function clearLoginFailures(request, email) {
   attempts.delete(clientKey(request, email));
 }
 
+function accountStatus(row) {
+  if (!row.is_active) {
+    return 'disabled';
+  }
+
+  if (row.locked_until && new Date(row.locked_until).getTime() > Date.now()) {
+    return 'locked';
+  }
+
+  return 'active';
+}
+
 function publicUser(row) {
   return {
     id: Number(row.id),
     name: row.name,
     email: row.email,
     role: row.role,
-    is_active: Boolean(row.is_active)
+    is_active: Boolean(row.is_active),
+    account_status: accountStatus(row),
+    last_login_at: row.last_login_at || null
   };
 }
 
@@ -185,6 +199,9 @@ export async function ensureAuthSchema() {
       role ENUM('user', 'admin') NOT NULL DEFAULT 'user',
       is_active TINYINT(1) NOT NULL DEFAULT 1,
       last_login_at TIMESTAMP NULL,
+      locked_until TIMESTAMP NULL,
+      failed_login_count INT UNSIGNED NOT NULL DEFAULT 0,
+      session_version INT UNSIGNED NOT NULL DEFAULT 1,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
@@ -193,6 +210,28 @@ export async function ensureAuthSchema() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
   await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMP NULL AFTER is_active');
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMP NULL AFTER last_login_at');
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_login_count INT UNSIGNED NOT NULL DEFAULT 0 AFTER locked_until');
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS session_version INT UNSIGNED NOT NULL DEFAULT 1 AFTER failed_login_count');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      user_id BIGINT UNSIGNED NULL,
+      user_email VARCHAR(255) NULL,
+      action VARCHAR(80) NOT NULL,
+      target_type VARCHAR(80) NULL,
+      target_id VARCHAR(255) NULL,
+      target_label VARCHAR(255) NULL,
+      ip_address VARCHAR(255) NULL,
+      status ENUM('success', 'failed') NOT NULL DEFAULT 'success',
+      metadata JSON NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_audit_logs_created_at (created_at),
+      KEY idx_audit_logs_action_created (action, created_at),
+      KEY idx_audit_logs_user_created (user_id, created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
 }
 
 export async function bootstrapAdminUser(config, logger) {
@@ -221,18 +260,18 @@ export async function bootstrapAdminUser(config, logger) {
 
 export async function authenticateUser(email, password) {
   const [rows] = await pool.query(
-    'SELECT id, name, email, password_hash, role, is_active FROM users WHERE email = ? LIMIT 1',
+    "SELECT id, name, email, password_hash, role, is_active, locked_until, session_version, DATE_FORMAT(last_login_at, '%Y-%m-%d %H:%i:%s') AS last_login_at FROM users WHERE email = ? LIMIT 1",
     [String(email || '').toLowerCase()]
   );
   const user = rows[0];
 
-  if (!user || !user.is_active || !verifyPassword(password, user.password_hash)) {
+  if (!user || !user.is_active || (user.locked_until && new Date(user.locked_until).getTime() > Date.now()) || !verifyPassword(password, user.password_hash)) {
     return null;
   }
 
-  await pool.query('UPDATE users SET last_login_at = UTC_TIMESTAMP(), updated_at = CURRENT_TIMESTAMP WHERE id = ?', [user.id]);
+  await pool.query('UPDATE users SET last_login_at = UTC_TIMESTAMP(), failed_login_count = 0, locked_until = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [user.id]);
 
-  return publicUser(user);
+  return { ...publicUser(user), _sessionVersion: Number(user.session_version || 1) };
 }
 
 export function createSessionToken(user, config) {
@@ -242,6 +281,7 @@ export function createSessionToken(user, config) {
     name: user.name,
     email: user.email,
     role: user.role,
+    sv: Number(user._sessionVersion || 1),
     iat: now,
     exp: now + config.sessionTtlSeconds
   }, config.authSecret);
@@ -261,12 +301,12 @@ export async function requireAuth(request, reply) {
   }
 
   const [rows] = await pool.query(
-    'SELECT id, name, email, role, is_active FROM users WHERE id = ? LIMIT 1',
+    "SELECT id, name, email, role, is_active, locked_until, session_version, DATE_FORMAT(last_login_at, '%Y-%m-%d %H:%i:%s') AS last_login_at FROM users WHERE id = ? LIMIT 1",
     [Number(payload.sub)]
   );
   const user = rows[0];
 
-  if (!user || !user.is_active) {
+  if (!user || !user.is_active || Number(payload.sv || 0) !== Number(user.session_version || 1)) {
     reply.code(401).send({ error: 'Authentication required' });
     return;
   }
@@ -275,7 +315,9 @@ export async function requireAuth(request, reply) {
     id: Number(user.id),
     name: user.name,
     email: user.email,
-    role: user.role
+    role: user.role,
+    account_status: accountStatus(user),
+    last_login_at: user.last_login_at || null
   };
 }
 
@@ -295,7 +337,7 @@ export async function requireAdmin(request, reply) {
 
 export async function listUsers() {
   const [rows] = await pool.query(`
-    SELECT id, name, email, role, is_active,
+    SELECT id, name, email, role, is_active, locked_until, failed_login_count, session_version,
       DATE_FORMAT(last_login_at, '%Y-%m-%d %H:%i:%s') AS last_login_at,
       DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
       DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
@@ -309,6 +351,10 @@ export async function listUsers() {
     email: row.email,
     role: row.role,
     is_active: Boolean(row.is_active),
+    account_status: accountStatus(row),
+    locked_until: row.locked_until,
+    failed_login_count: Number(row.failed_login_count || 0),
+    session_version: Number(row.session_version || 1),
     last_login_at: row.last_login_at,
     created_at: row.created_at,
     updated_at: row.updated_at
@@ -336,6 +382,7 @@ export async function createUser(payload) {
 export async function updateUser(id, payload) {
   const fields = [];
   const values = [];
+  let invalidateSessions = false;
 
   if (payload.name !== undefined) {
     fields.push('name = ?');
@@ -350,11 +397,17 @@ export async function updateUser(id, payload) {
   if (payload.role !== undefined) {
     fields.push('role = ?');
     values.push(payload.role === 'admin' ? 'admin' : 'user');
+    invalidateSessions = true;
   }
 
   if (payload.is_active !== undefined) {
     fields.push('is_active = ?');
     values.push(payload.is_active ? 1 : 0);
+    invalidateSessions = true;
+  }
+
+  if (invalidateSessions) {
+    fields.push('session_version = session_version + 1');
   }
 
   if (fields.length === 0) {
@@ -370,9 +423,94 @@ export async function updateUser(id, payload) {
 
 export async function resetUserPassword(id, password) {
   await pool.query(
-    'UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+    'UPDATE users SET password_hash = ?, session_version = session_version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
     [hashPassword(password), Number(id)]
   );
+}
+
+export async function forceLogoutUser(id) {
+  await pool.query(
+    'UPDATE users SET session_version = session_version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+    [Number(id)]
+  );
+}
+
+export async function logAudit({
+  user,
+  action,
+  targetType = null,
+  targetId = null,
+  targetLabel = null,
+  request = null,
+  status = 'success',
+  metadata = null
+}) {
+  await pool.query(`
+    INSERT INTO audit_logs
+      (user_id, user_email, action, target_type, target_id, target_label, ip_address, status, metadata)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `, [
+    user?.id || null,
+    user?.email || null,
+    action,
+    targetType,
+    targetId === undefined || targetId === null ? null : String(targetId),
+    targetLabel,
+    request?.ip || request?.headers?.['x-forwarded-for'] || null,
+    status === 'failed' ? 'failed' : 'success',
+    metadata ? JSON.stringify(metadata) : null
+  ]);
+}
+
+export async function listAuditLogs({ action, userId, start, end, limit = 100 } = {}) {
+  const filters = [];
+  const values = [];
+
+  if (action) {
+    filters.push('action = ?');
+    values.push(action);
+  }
+
+  if (userId) {
+    filters.push('user_id = ?');
+    values.push(Number(userId));
+  }
+
+  if (start) {
+    filters.push('created_at >= ?');
+    values.push(start);
+  }
+
+  if (end) {
+    filters.push('created_at <= ?');
+    values.push(end);
+  }
+
+  values.push(Number(limit || 100));
+  const where = filters.length > 0 ? `WHERE ${filters.join(' AND ')}` : '';
+  const [rows] = await pool.query(`
+    SELECT id, user_id, user_email, action, target_type, target_id, target_label,
+      ip_address, status, metadata,
+      DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at
+    FROM audit_logs
+    ${where}
+    ORDER BY created_at DESC
+    LIMIT ?
+  `, values);
+
+  return rows.map((row) => ({
+    ...row,
+    id: Number(row.id),
+    user_id: row.user_id ? Number(row.user_id) : null,
+    metadata: typeof row.metadata === 'string' ? JSON.parse(row.metadata || '{}') : row.metadata
+  }));
+}
+
+export async function listAuthActivityForUser(userId) {
+  return listAuditLogs({
+    userId,
+    limit: 20
+  });
 }
 
 export async function registerAuthRoutes(app) {
@@ -394,6 +532,15 @@ export async function registerAuthRoutes(app) {
     try {
       assertLoginAllowed(request, email);
     } catch (error) {
+      await logAudit({
+        user: { email },
+        action: 'failed_login',
+        targetType: 'auth',
+        targetLabel: email,
+        request,
+        status: 'failed',
+        metadata: { reason: 'temporary_lockout' }
+      });
       return reply.code(error.statusCode || 429).send({ error: error.message || 'Too many login attempts' });
     }
 
@@ -401,19 +548,51 @@ export async function registerAuthRoutes(app) {
 
     if (!user) {
       recordLoginFailure(request, email);
+      const [rows] = await pool.query('SELECT id, email, failed_login_count FROM users WHERE email = ? LIMIT 1', [email]);
+      const dbUser = rows[0];
+      if (dbUser) {
+        const failedCount = Number(dbUser.failed_login_count || 0) + 1;
+        await pool.query(
+          'UPDATE users SET failed_login_count = ?, locked_until = CASE WHEN ? >= ? THEN DATE_ADD(UTC_TIMESTAMP(), INTERVAL 5 MINUTE) ELSE locked_until END, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+          [failedCount, failedCount, MAX_LOGIN_ATTEMPTS, dbUser.id]
+        );
+      }
+      await logAudit({
+        user: dbUser ? { id: Number(dbUser.id), email: dbUser.email } : { email },
+        action: 'failed_login',
+        targetType: 'auth',
+        targetLabel: email,
+        request,
+        status: 'failed'
+      });
       return reply.code(401).send({ error: 'Invalid email or password' });
     }
 
     clearLoginFailures(request, email);
     const token = createSessionToken(user, app.config);
+    const { _sessionVersion, ...responseUser } = user;
     reply.header('set-cookie', sessionCookie(token, app.config.sessionTtlSeconds, process.env.NODE_ENV === 'production'));
-    return { user };
+    await logAudit({ user: responseUser, action: 'login', targetType: 'auth', targetLabel: user.email, request });
+    return { user: responseUser };
   });
 
-  app.post('/auth/logout', async (_request, reply) => {
+  app.post('/auth/logout', async (request, reply) => {
+    const payload = getSessionPayload(request);
+    if (payload) {
+      await logAudit({
+        user: { id: Number(payload.sub), email: payload.email },
+        action: 'logout',
+        targetType: 'auth',
+        targetLabel: payload.email,
+        request
+      });
+    }
     reply.header('set-cookie', clearSessionCookie(process.env.NODE_ENV === 'production'));
     return { ok: true };
   });
 
   app.get('/auth/me', { preHandler: requireAuth }, async (request) => ({ user: request.user }));
+  app.get('/auth/activity', { preHandler: requireAuth }, async (request) => ({
+    activity: await listAuthActivityForUser(request.user.id)
+  }));
 }

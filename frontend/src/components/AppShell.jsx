@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { Activity, Bell, ListChecks, Users } from 'lucide-react';
+import { Activity, Bell, ClipboardList, ListChecks, Users } from 'lucide-react';
 import { BrandMark } from '@/components/BrandMark';
 import { LogoutButton } from '@/components/LogoutButton';
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -30,6 +30,7 @@ export function AppShell({ children }) {
       .catch(() => {
         if (!cancelled) {
           setUser(null);
+          window.location.assign('/login');
         }
       });
 
@@ -75,11 +76,15 @@ export function AppShell({ children }) {
                     <Users className="h-4 w-4" aria-hidden="true" />
                     Users
                   </Link>
+                  <Link className="flex min-h-10 items-center gap-2 rounded-md px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-900" href="/audit">
+                    <ClipboardList className="h-4 w-4" aria-hidden="true" />
+                    Audit
+                  </Link>
                 </>
               ) : null}
             </nav>
             {user ? (
-              <div className="flex min-h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs shadow-sm dark:border-slate-800 dark:bg-slate-950">
+              <Link href="/account" className="flex min-h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs shadow-sm hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:hover:bg-slate-900">
                 <span className="max-w-[10rem] truncate font-medium text-slate-700 dark:text-slate-200">{user.name || user.email}</span>
                 <span className={`rounded px-1.5 py-0.5 font-semibold uppercase ring-1 ${
                   isAdmin
@@ -89,7 +94,7 @@ export function AppShell({ children }) {
                 >
                   {user.role}
                 </span>
-              </div>
+              </Link>
             ) : null}
             <ThemeToggle />
             <LogoutButton />

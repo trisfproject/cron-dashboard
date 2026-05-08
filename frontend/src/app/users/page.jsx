@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { createUser, deactivateUser, getUsers, reactivateUser, resetUserPassword, updateUser } from '@/lib/api';
+import { createUser, deactivateUser, forceLogoutUser, getUsers, reactivateUser, resetUserPassword, updateUser } from '@/lib/api';
 
 const emptyForm = {
   name: '',
@@ -10,15 +10,16 @@ const emptyForm = {
   role: 'user'
 };
 
-function StatusBadge({ active }) {
+function AccountStatusBadge({ status }) {
+  const styles = {
+    active: 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:ring-emerald-900',
+    disabled: 'bg-slate-100 text-slate-600 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-800',
+    locked: 'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-900'
+  };
+
   return (
-    <span className={`w-fit rounded-md px-2 py-1 text-xs font-semibold ring-1 ${
-      active
-        ? 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:ring-emerald-900'
-        : 'bg-slate-100 text-slate-600 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-800'
-    }`}
-    >
-      {active ? 'Active' : 'Inactive'}
+    <span className={`w-fit rounded-md px-2 py-1 text-xs font-semibold capitalize ring-1 ${styles[status] || styles.disabled}`}>
+      {status}
     </span>
   );
 }
@@ -127,6 +128,13 @@ export default function UsersPage() {
     });
   }
 
+  async function forceLogout(user) {
+    await runAction(async () => {
+      await forceLogoutUser(user.id);
+      await loadUsers();
+    });
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -181,7 +189,7 @@ export default function UsersPage() {
                   <p className="truncate font-semibold text-ink">{user.name}</p>
                   <p className="truncate text-sm text-slate-500">{user.email}</p>
                 </div>
-                <StatusBadge active={user.is_active} />
+                <AccountStatusBadge status={user.account_status || (user.is_active ? 'active' : 'disabled')} />
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <RoleBadge role={user.role} />
@@ -194,6 +202,9 @@ export default function UsersPage() {
                 </select>
                 <button type="button" onClick={() => toggleActive(user)} className="min-h-10 rounded-md border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 dark:border-slate-800 dark:text-slate-200">
                   {user.is_active ? 'Deactivate' : 'Reactivate'}
+                </button>
+                <button type="button" onClick={() => forceLogout(user)} className="min-h-10 rounded-md border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 dark:border-slate-800 dark:text-slate-200">
+                  Force logout
                 </button>
                 <div className="flex gap-2">
                   <input type="password" minLength={8} placeholder="New password" value={passwords[user.id] || ''} onChange={(event) => setPasswords((current) => ({ ...current, [user.id]: event.target.value }))} className="min-w-0 flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-950" />
@@ -232,7 +243,7 @@ export default function UsersPage() {
                       <option value="admin">Admin</option>
                     </select>
                   </td>
-                  <td className="px-4 py-3"><StatusBadge active={user.is_active} /></td>
+                  <td className="px-4 py-3"><AccountStatusBadge status={user.account_status || (user.is_active ? 'active' : 'disabled')} /></td>
                   <td className="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-300">{user.last_login_at || 'Never'}</td>
                   <td className="px-4 py-3">
                     <div className="flex min-w-[16rem] gap-2">
@@ -243,6 +254,9 @@ export default function UsersPage() {
                   <td className="px-4 py-3">
                     <button type="button" onClick={() => toggleActive(user)} className="rounded-md border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 dark:border-slate-800 dark:text-slate-200">
                       {user.is_active ? 'Deactivate' : 'Reactivate'}
+                    </button>
+                    <button type="button" onClick={() => forceLogout(user)} className="ml-2 rounded-md border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 dark:border-slate-800 dark:text-slate-200">
+                      Force logout
                     </button>
                   </td>
                 </tr>

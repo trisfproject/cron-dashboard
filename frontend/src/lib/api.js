@@ -192,3 +192,27 @@ export function reactivateUser(id) {
     body: JSON.stringify({})
   });
 }
+
+export function forceLogoutUser(id) {
+  return request(`/users/${id}/force-logout`, {
+    method: 'POST',
+    body: JSON.stringify({})
+  });
+}
+
+export function getAuditLogs(params = {}) {
+  const query = new URLSearchParams();
+
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== '') {
+      query.set(key, String(value));
+    }
+  }
+
+  const suffix = query.toString() ? `?${query.toString()}` : '';
+  return request(`/audit-logs${suffix}`);
+}
+
+export function getAuthActivity() {
+  return request('/auth/activity');
+}

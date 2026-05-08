@@ -2,7 +2,10 @@ import crypto from 'node:crypto';
 import { pool } from './db.js';
 import {
   createUser,
+  forceLogoutUser,
+  listAuditLogs,
   listUsers,
+  logAudit,
   registerAuthRoutes,
   requireAdmin,
   requireAuth,
@@ -131,7 +134,7 @@ export async function registerRoutes(app) {
       return;
     }
 
-    const adminRoutePrefixes = ['/alerts', '/alert-rules', '/users'];
+    const adminRoutePrefixes = ['/alerts', '/alert-rules', '/users', '/audit-logs'];
     const routePath = request.url.split('?')[0];
 
     if (adminRoutePrefixes.some((prefix) => routePath === prefix || routePath.startsWith(`${prefix}/`))) {
@@ -512,6 +515,13 @@ export async function registerRoutes(app) {
     },
     async (request) => {
       await acknowledgeAlert(Number(request.params.id));
+      await logAudit({
+        user: request.user,
+        action: 'alert_acknowledged',
+        targetType: 'alert',
+        targetId: request.params.id,
+        request
+      });
       return { acknowledged: true };
     }
   );
@@ -544,6 +554,14 @@ export async function registerRoutes(app) {
     },
     async (request, reply) => {
       const rule = await createAlertRule(request.body);
+      await logAudit({
+        user: request.user,
+        action: 'alert_rule_created',
+        targetType: 'alert_rule',
+        targetId: rule.id,
+        targetLabel: rule.name,
+        request
+      });
       return reply.code(201).send({ rule });
     }
   );
@@ -581,8 +599,43 @@ export async function registerRoutes(app) {
     },
     async (request) => {
       const rule = await updateAlertRule(Number(request.params.id), request.body);
+      await logAudit({
+        user: request.user,
+        action: 'alert_rule_updated',
+        targetType: 'alert_rule',
+        targetId: rule.id,
+        targetLabel: rule.name,
+        request
+      });
       return { rule };
     }
+  );
+
+  app.get(
+    '/audit-logs',
+    {
+      schema: {
+        querystring: {
+          type: 'object',
+          properties: {
+            action: { type: 'string' },
+            user_id: { type: 'integer' },
+            start: { type: 'string' },
+            end: { type: 'string' },
+            limit: { type: 'integer', minimum: 1, maximum: 500, default: 100 }
+          }
+        }
+      }
+    },
+    async (request) => ({
+      audit_logs: await listAuditLogs({
+        action: request.query.action,
+        userId: request.query.user_id,
+        start: request.query.start,
+        end: request.query.end,
+        limit: request.query.limit || 100
+      })
+    })
   );
 
   app.get('/users', async () => ({ users: await listUsers() }));
@@ -607,6 +660,15 @@ export async function registerRoutes(app) {
     },
     async (request, reply) => {
       const user = await createUser(request.body);
+      await logAudit({
+        user: request.user,
+        action: 'user_created',
+        targetType: 'user',
+        targetId: user.id,
+        targetLabel: user.email,
+        request,
+        metadata: { role: user.role }
+      });
       return reply.code(201).send({ user });
     }
   );
@@ -642,6 +704,27 @@ export async function registerRoutes(app) {
       }
 
       const user = await updateUser(id, request.body);
+      if (request.body.role !== undefined) {
+        await logAudit({
+          user: request.user,
+          action: 'role_changed',
+          targetType: 'user',
+          targetId: user.id,
+          targetLabel: user.email,
+          request,
+          metadata: { role: user.role }
+        });
+      }
+      if (request.body.is_active !== undefined) {
+        await logAudit({
+          user: request.user,
+          action: request.body.is_active ? 'user_reactivated' : 'user_deactivated',
+          targetType: 'user',
+          targetId: user.id,
+          targetLabel: user.email,
+          request
+        });
+      }
       return { user };
     }
   );
@@ -669,6 +752,13 @@ export async function registerRoutes(app) {
     },
     async (request) => {
       await resetUserPassword(Number(request.params.id), request.body.password);
+      await logAudit({
+        user: request.user,
+        action: 'password_reset',
+        targetType: 'user',
+        targetId: request.params.id,
+        request
+      });
       return { reset: true };
     }
   );
@@ -694,6 +784,14 @@ export async function registerRoutes(app) {
       }
 
       const user = await updateUser(id, { is_active: false });
+      await logAudit({
+        user: request.user,
+        action: 'user_deactivated',
+        targetType: 'user',
+        targetId: user.id,
+        targetLabel: user.email,
+        request
+      });
       return { user };
     }
   );
@@ -713,7 +811,41 @@ export async function registerRoutes(app) {
     },
     async (request) => {
       const user = await updateUser(Number(request.params.id), { is_active: true });
+      await logAudit({
+        user: request.user,
+        action: 'user_reactivated',
+        targetType: 'user',
+        targetId: user.id,
+        targetLabel: user.email,
+        request
+      });
       return { user };
+    }
+  );
+
+  app.post(
+    '/users/:id/force-logout',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          properties: {
+            id: { type: 'integer' }
+          },
+          required: ['id']
+        }
+      }
+    },
+    async (request) => {
+      await forceLogoutUser(Number(request.params.id));
+      await logAudit({
+        user: request.user,
+        action: 'session_forced_logout',
+        targetType: 'user',
+        targetId: request.params.id,
+        request
+      });
+      return { invalidated: true };
     }
   );
 }
