@@ -461,17 +461,44 @@ export async function registerRoutes(app) {
           properties: {
             range: { type: 'string', enum: ['today', '7d', '30d'], default: 'today' },
             env: { type: 'string' },
-            service_group: { type: 'string' }
+            service_group: { type: 'string' },
+            cron_name: { type: 'string' },
+            server: { type: 'string' },
+            status: { type: 'integer', enum: [0, 1, 2] },
+            limit: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
+            offset: { type: 'integer', minimum: 0, maximum: 10000, default: 0 }
           }
         }
       }
     },
     async (request) => {
       const dateFilter = resolveDateFilter({ range: request.query.range || 'today' });
+      const limit = Math.min(Number(request.query.limit || 20), 100);
+      const offset = Number(request.query.offset || 0);
       const filters = [dateFilter.clause];
       const values = [...dateFilter.values];
       addScopeFilters(filters, values, request.query);
+
+      if (request.query.cron_name) {
+        filters.push('cron_name LIKE ?');
+        values.push(`%${request.query.cron_name}%`);
+      }
+
+      if (request.query.server) {
+        filters.push('server LIKE ?');
+        values.push(`%${request.query.server}%`);
+      }
+
+      const finalFilters = [];
+      const finalValues = [];
+
+      if (request.query.status !== undefined) {
+        finalFilters.push('current.last_status = ?');
+        finalValues.push(Number(request.query.status));
+      }
+
       const where = filters.join(' AND ');
+      const finalWhere = finalFilters.length > 0 ? `WHERE ${finalFilters.join(' AND ')}` : '';
       const [rows] = await pool.query(`
         WITH filtered AS (
           SELECT id, cron_name, command, server, env, ${SERVICE_GROUP_FROM_CRON_SQL} AS service_group, status, duration, timestamp, hash, created_at
@@ -514,13 +541,20 @@ export async function registerRoutes(app) {
           AND agg.server = current.server
           AND agg.env <=> current.env
           AND agg.service_group <=> current.service_group
-        ORDER BY current.service_group ASC, current.last_run DESC
-      `, values);
+        ${finalWhere}
+        ORDER BY current.last_run DESC, current.service_group ASC, current.cron_name ASC
+        LIMIT ? OFFSET ?
+      `, [...values, ...finalValues, limit + 1, offset]);
+      const pageRows = rows.slice(0, limit);
 
       return {
-        jobs: rows,
+        jobs: pageRows,
         range: dateFilter.range || 'today',
-        timezone: 'Asia/Jakarta'
+        timezone: 'Asia/Jakarta',
+        limit,
+        offset,
+        next_offset: offset + pageRows.length,
+        has_more: rows.length > limit
       };
     }
   );
