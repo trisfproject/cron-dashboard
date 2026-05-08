@@ -1,0 +1,107 @@
+import { NextResponse } from 'next/server';
+
+const SESSION_COOKIE = 'nyx_session';
+const PUBLIC_PATHS = ['/login'];
+const PUBLIC_API_PATHS = ['/api/auth/login', '/api/auth/logout'];
+
+function base64urlDecode(value) {
+  const normalized = String(value || '').replaceAll('-', '+').replaceAll('_', '/');
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+  return Uint8Array.from(atob(padded), (char) => char.charCodeAt(0));
+}
+
+function base64urlEncode(buffer) {
+  let binary = '';
+  const bytes = new Uint8Array(buffer);
+
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+
+  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+}
+
+async function verifyToken(token) {
+  const secret = process.env.AUTH_SECRET || process.env.API_KEY;
+
+  if (!secret) {
+    return false;
+  }
+
+  const [header, payload, signature] = String(token || '').split('.');
+
+  if (!header || !payload || !signature) {
+    return false;
+  }
+
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const expected = await crypto.subtle.sign(
+    'HMAC',
+    key,
+    new TextEncoder().encode(`${header}.${payload}`)
+  );
+
+  if (base64urlEncode(expected) !== signature) {
+    return false;
+  }
+
+  try {
+    const decoded = JSON.parse(new TextDecoder().decode(base64urlDecode(payload)));
+    return Number(decoded.exp || 0) * 1000 > Date.now();
+  } catch {
+    return false;
+  }
+}
+
+function isPublicPath(pathname) {
+  return PUBLIC_PATHS.includes(pathname)
+    || pathname.startsWith('/_next')
+    || pathname === '/favicon.ico'
+    || pathname.startsWith('/branding/');
+}
+
+export async function middleware(request) {
+  const { pathname, search } = request.nextUrl;
+
+  if (PUBLIC_API_PATHS.includes(pathname)) {
+    return NextResponse.next();
+  }
+
+  const token = request.cookies.get(SESSION_COOKIE)?.value;
+  const authenticated = await verifyToken(token);
+
+  if (authenticated) {
+    if (pathname === '/login') {
+      return NextResponse.redirect(new URL('/', request.url));
+    }
+
+    return NextResponse.next();
+  }
+
+  if (isPublicPath(pathname)) {
+    return NextResponse.next();
+  }
+
+  if (pathname.startsWith('/api/')) {
+    return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+  }
+
+  const loginUrl = new URL('/login', request.url);
+  const nextPath = `${pathname}${search}`;
+
+  if (nextPath !== '/login') {
+    loginUrl.searchParams.set('next', nextPath);
+  }
+
+  return NextResponse.redirect(loginUrl);
+}
+
+export const config = {
+  matcher: ['/((?!_next/static|_next/image).*)']
+};

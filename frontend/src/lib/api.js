@@ -97,6 +97,24 @@ export function getAlerts(params = {}) {
   return request(`/alerts${suffix}`);
 }
 
+export function login(email, password) {
+  return request('/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email, password })
+  });
+}
+
+export function logout() {
+  return request('/auth/logout', {
+    method: 'POST',
+    body: JSON.stringify({})
+  });
+}
+
+export function getCurrentUser() {
+  return request('/auth/me');
+}
+
 export function evaluateAlerts() {
   return request('/alerts/evaluate', {
     method: 'POST',

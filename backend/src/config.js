@@ -13,6 +13,11 @@ for (const key of required) {
 export const config = {
   port: Number(process.env.PORT || 3000),
   apiKey: process.env.API_KEY,
+  authSecret: process.env.AUTH_SECRET || process.env.API_KEY,
+  sessionTtlSeconds: Number(process.env.AUTH_SESSION_TTL_SECONDS || 60 * 60 * 12),
+  bootstrapAdminEmail: process.env.NYX_ADMIN_EMAIL || '',
+  bootstrapAdminPassword: process.env.NYX_ADMIN_PASSWORD || '',
+  bootstrapAdminName: process.env.NYX_ADMIN_NAME || 'NYX Admin',
   logLevel: process.env.LOG_LEVEL || 'info',
   alertEvaluationIntervalMs: Number(process.env.ALERT_EVALUATION_INTERVAL_MS || 60000),
   mysql: {

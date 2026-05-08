@@ -12,18 +12,26 @@ async function proxyRequest(request, params) {
       method: request.method,
       headers: {
         accept: request.headers.get('accept') || 'application/json',
-        'content-type': request.headers.get('content-type') || 'application/json'
+        'content-type': request.headers.get('content-type') || 'application/json',
+        cookie: request.headers.get('cookie') || ''
       },
       body: requestBody,
       cache: 'no-store'
     });
 
     const responseBody = await response.text();
+    const responseHeaders = new Headers({
+      'content-type': response.headers.get('content-type') || 'application/json'
+    });
+    const setCookie = response.headers.get('set-cookie');
+
+    if (setCookie) {
+      responseHeaders.set('set-cookie', setCookie);
+    }
+
     return new Response(responseBody, {
       status: response.status,
-      headers: {
-        'content-type': response.headers.get('content-type') || 'application/json'
-      }
+      headers: responseHeaders
     });
   } catch (error) {
     console.error('frontend api proxy failed', {

@@ -1,6 +1,7 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import { evaluateAlertsSafely } from './alerting.js';
+import { bootstrapAdminUser, ensureAuthSchema } from './auth.js';
 import { config } from './config.js';
 import { pool, waitForDatabase } from './db.js';
 import { registerRoutes } from './routes.js';
@@ -19,6 +20,8 @@ await app.register(cors, {
 
 await registerRoutes(app);
 await waitForDatabase(app.log);
+await ensureAuthSchema();
+await bootstrapAdminUser(config, app.log);
 evaluateAlertsSafely(app);
 
 const alertEvaluationTimer = config.alertEvaluationIntervalMs > 0

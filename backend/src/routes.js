@@ -1,6 +1,10 @@
 import crypto from 'node:crypto';
 import { pool } from './db.js';
 import {
+  registerAuthRoutes,
+  requireAuth
+} from './auth.js';
+import {
   acknowledgeAlert,
   createAlertRule,
   evaluateAlerts,
@@ -100,6 +104,24 @@ function requireApiKey(request, reply, done) {
 
 export async function registerRoutes(app) {
   app.get('/health', async () => ({ ok: true }));
+  await registerAuthRoutes(app);
+
+  app.addHook('preHandler', async (request, reply) => {
+    const publicRoutes = new Set([
+      'GET /health',
+      'POST /ingest',
+      'POST /auth/login',
+      'POST /auth/logout',
+      'GET /auth/me'
+    ]);
+    const routeKey = `${request.method} ${request.routeOptions?.url || request.url.split('?')[0]}`;
+
+    if (publicRoutes.has(routeKey)) {
+      return;
+    }
+
+    await requireAuth(request, reply);
+  });
 
   app.post(
     '/ingest',
