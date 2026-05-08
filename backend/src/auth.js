@@ -7,6 +7,10 @@ const MAX_LOGIN_ATTEMPTS = 5;
 const LOCKOUT_MS = 5 * 60 * 1000;
 const attempts = new Map();
 const PASSWORD_POLICY_MESSAGE = 'Password must be at least 8 characters and include uppercase, lowercase, number, and special character.';
+const PASSWORD_REMINDER_DAYS = 30;
+const PASSWORD_STRONG_WARNING_DAYS = 45;
+const PASSWORD_FORCE_READY_DAYS = 60;
+const PASSWORD_EXPIRY_DAYS = 60;
 
 function base64url(input) {
   return Buffer.from(input)
@@ -191,6 +195,49 @@ function accountStatus(row) {
   return 'active';
 }
 
+function parseDateValue(value) {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = typeof value === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(value)
+    ? `${value.replace(' ', 'T')}Z`
+    : value;
+  const date = new Date(normalized);
+
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function passwordSecurity(row) {
+  const changedAt = row.password_changed_at || row.created_at || null;
+  const changedDate = parseDateValue(changedAt);
+  const expiresAt = row.password_expires_at || null;
+  const expiresDate = parseDateValue(expiresAt);
+  const ageDays = changedDate ? Math.max(0, Math.floor((Date.now() - changedDate.getTime()) / 86400000)) : null;
+  const daysUntilExpiry = expiresDate ? Math.ceil((expiresDate.getTime() - Date.now()) / 86400000) : null;
+  const forceChangeRequired = ageDays !== null && ageDays >= PASSWORD_FORCE_READY_DAYS;
+  const reminderStage = ageDays === null || ageDays < PASSWORD_REMINDER_DAYS
+    ? 'fresh'
+    : ageDays >= PASSWORD_FORCE_READY_DAYS
+      ? 'force_ready'
+      : ageDays >= PASSWORD_STRONG_WARNING_DAYS
+        ? 'strong_warning'
+        : 'warning';
+
+  return {
+    password_changed_at: changedAt,
+    password_expires_at: expiresAt,
+    password_age_days: ageDays,
+    password_days_until_expiry: daysUntilExpiry,
+    password_reminder_threshold_days: PASSWORD_REMINDER_DAYS,
+    password_strong_warning_threshold_days: PASSWORD_STRONG_WARNING_DAYS,
+    password_force_ready_threshold_days: PASSWORD_FORCE_READY_DAYS,
+    password_reminder_required: ageDays !== null && ageDays >= PASSWORD_REMINDER_DAYS,
+    password_force_change_required: forceChangeRequired,
+    password_reminder_stage: reminderStage
+  };
+}
+
 function publicUser(row) {
   return {
     id: Number(row.id),
@@ -199,7 +246,8 @@ function publicUser(row) {
     role: row.role,
     is_active: Boolean(row.is_active),
     account_status: accountStatus(row),
-    last_login_at: row.last_login_at || null
+    last_login_at: row.last_login_at || null,
+    password_security: passwordSecurity(row)
   };
 }
 
@@ -249,6 +297,8 @@ export async function ensureAuthSchema() {
       locked_until TIMESTAMP NULL,
       failed_login_count INT UNSIGNED NOT NULL DEFAULT 0,
       session_version INT UNSIGNED NOT NULL DEFAULT 1,
+      password_changed_at TIMESTAMP NULL,
+      password_expires_at TIMESTAMP NULL,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
@@ -260,6 +310,14 @@ export async function ensureAuthSchema() {
   await ensureColumn('users', 'locked_until', 'ALTER TABLE users ADD COLUMN locked_until TIMESTAMP NULL');
   await ensureColumn('users', 'failed_login_count', 'ALTER TABLE users ADD COLUMN failed_login_count INT UNSIGNED NOT NULL DEFAULT 0');
   await ensureColumn('users', 'session_version', 'ALTER TABLE users ADD COLUMN session_version INT UNSIGNED NOT NULL DEFAULT 1');
+  await ensureColumn('users', 'password_changed_at', 'ALTER TABLE users ADD COLUMN password_changed_at TIMESTAMP NULL');
+  await ensureColumn('users', 'password_expires_at', 'ALTER TABLE users ADD COLUMN password_expires_at TIMESTAMP NULL');
+  await pool.query(`
+    UPDATE users
+    SET password_changed_at = COALESCE(password_changed_at, created_at, UTC_TIMESTAMP()),
+      password_expires_at = COALESCE(password_expires_at, DATE_ADD(COALESCE(password_changed_at, created_at, UTC_TIMESTAMP()), INTERVAL ${PASSWORD_EXPIRY_DAYS} DAY))
+    WHERE password_changed_at IS NULL OR password_expires_at IS NULL
+  `);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS audit_logs (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -294,7 +352,8 @@ export async function bootstrapAdminUser(config, logger) {
   }
 
   await pool.query(
-    'INSERT INTO users (name, email, password_hash, role, is_active) VALUES (?, ?, ?, ?, 1)',
+    `INSERT INTO users (name, email, password_hash, role, is_active, password_changed_at, password_expires_at)
+     VALUES (?, ?, ?, ?, 1, UTC_TIMESTAMP(), DATE_ADD(UTC_TIMESTAMP(), INTERVAL ${PASSWORD_EXPIRY_DAYS} DAY))`,
     [
       config.bootstrapAdminName,
       config.bootstrapAdminEmail.toLowerCase(),
@@ -307,7 +366,7 @@ export async function bootstrapAdminUser(config, logger) {
 
 export async function authenticateUser(email, password) {
   const [rows] = await pool.query(
-    "SELECT id, name, email, password_hash, role, is_active, locked_until, session_version, DATE_FORMAT(last_login_at, '%Y-%m-%d %H:%i:%s') AS last_login_at FROM users WHERE email = ? LIMIT 1",
+    "SELECT id, name, email, password_hash, role, is_active, locked_until, session_version, DATE_FORMAT(last_login_at, '%Y-%m-%d %H:%i:%s') AS last_login_at, DATE_FORMAT(password_changed_at, '%Y-%m-%d %H:%i:%s') AS password_changed_at, DATE_FORMAT(password_expires_at, '%Y-%m-%d %H:%i:%s') AS password_expires_at FROM users WHERE email = ? LIMIT 1",
     [String(email || '').toLowerCase()]
   );
   const user = rows[0];
@@ -348,7 +407,7 @@ export async function requireAuth(request, reply) {
   }
 
   const [rows] = await pool.query(
-    "SELECT id, name, email, role, is_active, locked_until, session_version, DATE_FORMAT(last_login_at, '%Y-%m-%d %H:%i:%s') AS last_login_at FROM users WHERE id = ? LIMIT 1",
+    "SELECT id, name, email, role, is_active, locked_until, session_version, DATE_FORMAT(last_login_at, '%Y-%m-%d %H:%i:%s') AS last_login_at, DATE_FORMAT(password_changed_at, '%Y-%m-%d %H:%i:%s') AS password_changed_at, DATE_FORMAT(password_expires_at, '%Y-%m-%d %H:%i:%s') AS password_expires_at FROM users WHERE id = ? LIMIT 1",
     [Number(payload.sub)]
   );
   const user = rows[0];
@@ -364,7 +423,8 @@ export async function requireAuth(request, reply) {
     email: user.email,
     role: user.role,
     account_status: accountStatus(user),
-    last_login_at: user.last_login_at || null
+    last_login_at: user.last_login_at || null,
+    password_security: passwordSecurity(user)
   };
 }
 
@@ -388,6 +448,8 @@ export async function listUsers(includeArchived = false) {
   const [rows] = await pool.query(`
     SELECT id, name, email, role, is_active, locked_until, failed_login_count, session_version,
       DATE_FORMAT(last_login_at, '%Y-%m-%d %H:%i:%s') AS last_login_at,
+      DATE_FORMAT(password_changed_at, '%Y-%m-%d %H:%i:%s') AS password_changed_at,
+      DATE_FORMAT(password_expires_at, '%Y-%m-%d %H:%i:%s') AS password_expires_at,
       DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
       DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at,
       DATE_FORMAT(archived_at, '%Y-%m-%d %H:%i:%s') AS archived_at
@@ -406,6 +468,7 @@ export async function listUsers(includeArchived = false) {
     locked_until: row.locked_until,
     failed_login_count: Number(row.failed_login_count || 0),
     session_version: Number(row.session_version || 1),
+    password_security: passwordSecurity(row),
     last_login_at: row.last_login_at,
     created_at: row.created_at,
     updated_at: row.updated_at,
@@ -414,10 +477,19 @@ export async function listUsers(includeArchived = false) {
 }
 
 export async function createUser(payload) {
+  const policyErrors = passwordPolicyErrors(payload.password);
+  if (policyErrors.length > 0) {
+    const error = new Error(PASSWORD_POLICY_MESSAGE);
+    error.statusCode = 400;
+    error.details = policyErrors;
+    throw error;
+  }
+
   const role = payload.role === 'admin' ? 'admin' : 'user';
   const isActive = payload.is_active === false ? 0 : 1;
   const [result] = await pool.query(
-    'INSERT INTO users (name, email, password_hash, role, is_active) VALUES (?, ?, ?, ?, ?)',
+    `INSERT INTO users (name, email, password_hash, role, is_active, password_changed_at, password_expires_at)
+     VALUES (?, ?, ?, ?, ?, UTC_TIMESTAMP(), DATE_ADD(UTC_TIMESTAMP(), INTERVAL ${PASSWORD_EXPIRY_DAYS} DAY))`,
     [
       String(payload.name || '').trim(),
       String(payload.email || '').toLowerCase().trim(),
@@ -474,15 +546,29 @@ export async function updateUser(id, payload) {
 }
 
 export async function resetUserPassword(id, password) {
+  const policyErrors = passwordPolicyErrors(password);
+  if (policyErrors.length > 0) {
+    const error = new Error(PASSWORD_POLICY_MESSAGE);
+    error.statusCode = 400;
+    error.details = policyErrors;
+    throw error;
+  }
+
   await pool.query(
-    'UPDATE users SET password_hash = ?, session_version = session_version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+    `UPDATE users
+     SET password_hash = ?,
+       session_version = session_version + 1,
+       password_changed_at = UTC_TIMESTAMP(),
+       password_expires_at = DATE_ADD(UTC_TIMESTAMP(), INTERVAL ${PASSWORD_EXPIRY_DAYS} DAY),
+       updated_at = CURRENT_TIMESTAMP
+     WHERE id = ?`,
     [hashPassword(password), Number(id)]
   );
 }
 
 export async function changeOwnPassword(userId, currentPassword, newPassword) {
   const [rows] = await pool.query(
-    "SELECT id, name, email, password_hash, role, is_active, locked_until, session_version, DATE_FORMAT(last_login_at, '%Y-%m-%d %H:%i:%s') AS last_login_at FROM users WHERE id = ? LIMIT 1",
+    "SELECT id, name, email, password_hash, role, is_active, locked_until, session_version, DATE_FORMAT(last_login_at, '%Y-%m-%d %H:%i:%s') AS last_login_at, DATE_FORMAT(password_changed_at, '%Y-%m-%d %H:%i:%s') AS password_changed_at, DATE_FORMAT(password_expires_at, '%Y-%m-%d %H:%i:%s') AS password_expires_at FROM users WHERE id = ? LIMIT 1",
     [Number(userId)]
   );
   const user = rows[0];
@@ -514,9 +600,17 @@ export async function changeOwnPassword(userId, currentPassword, newPassword) {
   }
 
   const nextSessionVersion = Number(user.session_version || 1) + 1;
+  const changedAt = new Date();
+  const expiresAt = new Date(changedAt.getTime() + PASSWORD_EXPIRY_DAYS * 86400000);
 
   await pool.query(
-    'UPDATE users SET password_hash = ?, session_version = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+    `UPDATE users
+     SET password_hash = ?,
+       session_version = ?,
+       password_changed_at = UTC_TIMESTAMP(),
+       password_expires_at = DATE_ADD(UTC_TIMESTAMP(), INTERVAL ${PASSWORD_EXPIRY_DAYS} DAY),
+       updated_at = CURRENT_TIMESTAMP
+     WHERE id = ?`,
     [hashPassword(newPassword), nextSessionVersion, Number(user.id)]
   );
 
@@ -524,7 +618,9 @@ export async function changeOwnPassword(userId, currentPassword, newPassword) {
     ...publicUser({
       ...user,
       session_version: nextSessionVersion,
-      last_login_at: user.last_login_at || null
+      last_login_at: user.last_login_at || null,
+      password_changed_at: changedAt.toISOString(),
+      password_expires_at: expiresAt.toISOString()
     }),
     _sessionVersion: nextSessionVersion
   };
@@ -735,6 +831,41 @@ export async function registerAuthRoutes(app) {
   app.get('/auth/activity', { preHandler: requireAuth }, async (request) => ({
     activity: await listAuthActivityForUser(request.user.id)
   }));
+  app.post('/auth/password-reminder-shown', {
+    preHandler: requireAuth,
+    schema: {
+      body: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          stage: { type: 'string', enum: ['warning', 'strong_warning', 'force_ready'] },
+          age_days: { type: 'integer', minimum: 0, maximum: 10000 }
+        }
+      }
+    }
+  }, async (request) => {
+    const security = request.user.password_security || {};
+    const stage = request.body?.stage || security.password_reminder_stage;
+    const ageDays = request.body?.age_days ?? security.password_age_days;
+
+    if (security.password_reminder_required) {
+      await logAudit({
+        user: request.user,
+        action: 'password_expired_warning_shown',
+        targetType: 'user',
+        targetId: request.user.id,
+        targetLabel: request.user.email,
+        request,
+        metadata: {
+          stage,
+          age_days: ageDays,
+          force_change_required: Boolean(security.password_force_change_required)
+        }
+      });
+    }
+
+    return { ok: true };
+  });
   app.post('/auth/change-password', {
     preHandler: requireAuth,
     schema: {

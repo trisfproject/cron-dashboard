@@ -284,3 +284,10 @@ export function changePassword(payload) {
     body: JSON.stringify(payload)
   });
 }
+
+export function recordPasswordReminderShown(payload = {}) {
+  return request('/auth/password-reminder-shown', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}

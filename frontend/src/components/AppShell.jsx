@@ -3,11 +3,11 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { Activity, Bell, ClipboardList, ListChecks, Menu, UserCircle, Users, X } from 'lucide-react';
+import { Activity, AlertTriangle, Bell, ClipboardList, ListChecks, Menu, UserCircle, Users, X } from 'lucide-react';
 import { BrandMark } from '@/components/BrandMark';
 import { LogoutButton } from '@/components/LogoutButton';
 import { ThemeToggle } from '@/components/ThemeToggle';
-import { getCurrentUser } from '@/lib/api';
+import { getCurrentUser, recordPasswordReminderShown } from '@/lib/api';
 
 const NAV_ITEMS = [
   { href: '/', label: 'Dashboard', icon: Activity, adminOnly: false },
@@ -25,11 +25,26 @@ function isActivePath(pathname, href) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
+function passwordReminderMessage(security) {
+  const age = Number(security?.password_age_days || 0);
+
+  if (security?.password_reminder_stage === 'force_ready') {
+    return `Your password is ${age} days old. Password change enforcement is not active yet, but you should update it now to maintain account security.`;
+  }
+
+  if (security?.password_reminder_stage === 'strong_warning') {
+    return `Your password is ${age} days old. Please update your password soon to maintain account security.`;
+  }
+
+  return 'Your password is over 30 days old. Please update your password to maintain account security.';
+}
+
 export function AppShell({ children }) {
   const pathname = usePathname();
   const authScreen = pathname === '/login';
   const [user, setUser] = useState(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [dismissedPasswordReminder, setDismissedPasswordReminder] = useState(false);
 
   useEffect(() => {
     if (authScreen) {
@@ -56,12 +71,66 @@ export function AppShell({ children }) {
     };
   }, [authScreen]);
 
+  useEffect(() => {
+    function handleUserUpdated(event) {
+      if (event.detail) {
+        setUser(event.detail);
+      }
+    }
+
+    window.addEventListener('nyx:user-updated', handleUserUpdated);
+
+    return () => {
+      window.removeEventListener('nyx:user-updated', handleUserUpdated);
+    };
+  }, []);
+
   const isAdmin = user?.role === 'admin';
   const visibleNavItems = NAV_ITEMS.filter((item) => !item.adminOnly || isAdmin);
+  const passwordSecurity = user?.password_security;
+  const passwordReminderRequired = Boolean(passwordSecurity?.password_reminder_required);
+  const passwordReminderKey = user && passwordReminderRequired
+    ? `nyx-password-reminder:${user.id}:${passwordSecurity.password_reminder_stage}:${passwordSecurity.password_age_days}`
+    : '';
+  const showPasswordReminder = passwordReminderRequired && !dismissedPasswordReminder;
 
   useEffect(() => {
     setDrawerOpen(false);
   }, [pathname]);
+
+  useEffect(() => {
+    if (!passwordReminderKey) {
+      setDismissedPasswordReminder(false);
+      return;
+    }
+
+    setDismissedPasswordReminder(sessionStorage.getItem(passwordReminderKey) === 'dismissed');
+  }, [passwordReminderKey]);
+
+  useEffect(() => {
+    if (!showPasswordReminder || !passwordSecurity) {
+      return;
+    }
+
+    const auditKey = `${passwordReminderKey}:audited`;
+    if (sessionStorage.getItem(auditKey) === '1') {
+      return;
+    }
+
+    sessionStorage.setItem(auditKey, '1');
+    recordPasswordReminderShown({
+      stage: passwordSecurity.password_reminder_stage,
+      age_days: passwordSecurity.password_age_days
+    }).catch(() => {});
+  }, [passwordReminderKey, passwordSecurity, showPasswordReminder]);
+
+  function dismissPasswordReminder() {
+    if (passwordReminderKey) {
+      sessionStorage.setItem(passwordReminderKey, 'dismissed');
+    }
+
+    setDismissedPasswordReminder(true);
+  }
 
   useEffect(() => {
     if (!drawerOpen) {
@@ -152,6 +221,28 @@ export function AppShell({ children }) {
           </button>
         </div>
       </header>
+      {showPasswordReminder ? (
+        <div className="border-b border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-100 sm:px-6 lg:px-8">
+          <div className="mx-auto flex max-w-7xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 gap-3">
+              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-300" aria-hidden="true" />
+              <p className="min-w-0 leading-6">
+                {passwordReminderMessage(passwordSecurity)}
+                <Link href="/account" className="ml-2 font-semibold underline decoration-amber-500/60 underline-offset-2 hover:text-amber-700 dark:hover:text-amber-50">
+                  Change password
+                </Link>
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={dismissPasswordReminder}
+              className="flex min-h-9 shrink-0 items-center justify-center rounded-md px-3 text-sm font-semibold text-amber-800 transition hover:bg-amber-100 dark:text-amber-100 dark:hover:bg-amber-900/50"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      ) : null}
       <div className={`fixed inset-0 z-50 lg:hidden ${drawerOpen ? '' : 'pointer-events-none'}`} aria-hidden={!drawerOpen}>
         <div
           className={`absolute inset-0 bg-slate-950/45 backdrop-blur-sm transition-opacity duration-200 ${drawerOpen ? 'opacity-100' : 'opacity-0'}`}

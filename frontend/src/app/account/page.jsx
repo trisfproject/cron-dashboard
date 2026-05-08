@@ -49,6 +49,23 @@ function PasswordField({ id, label, value, onChange, visible, onToggle, autoComp
   );
 }
 
+function passwordAgeLabel(security) {
+  if (!security || security.password_age_days === null || security.password_age_days === undefined) {
+    return 'Not tracked';
+  }
+
+  return `${security.password_age_days} days`;
+}
+
+function passwordStageLabel(stage) {
+  return {
+    fresh: 'Healthy',
+    warning: 'Rotation recommended',
+    strong_warning: 'Rotation overdue',
+    force_ready: 'Force-ready'
+  }[stage] || 'Healthy';
+}
+
 export default function AccountPage() {
   const [user, setUser] = useState(null);
   const [activity, setActivity] = useState([]);
@@ -126,9 +143,13 @@ export default function AccountPage() {
     setPasswordLoading(true);
 
     try {
-      await changePassword(passwordForm);
+      const response = await changePassword(passwordForm);
       setPasswordForm(initialPasswordForm);
       setVisibleFields({});
+      if (response?.user) {
+        setUser(response.user);
+        window.dispatchEvent(new CustomEvent('nyx:user-updated', { detail: response.user }));
+      }
       setPasswordSuccess('Password changed. Other active sessions have been invalidated.');
       const activityData = await getAuthActivity();
       setActivity(Array.isArray(activityData?.activity) ? activityData.activity : []);
@@ -150,7 +171,7 @@ export default function AccountPage() {
       {loading ? <div className="rounded-lg border border-slate-200 bg-white p-8 text-center text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-950">Loading session...</div> : null}
 
       {user ? (
-        <section className="grid gap-4 md:grid-cols-4">
+        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
           <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950">
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Current user</p>
             <p className="mt-2 font-semibold text-ink">{user.name}</p>
@@ -167,6 +188,20 @@ export default function AccountPage() {
           <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950">
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Last login</p>
             <p className="mt-2 font-semibold text-ink">{user.last_login_at || 'Current session'}</p>
+          </div>
+          <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Password age</p>
+            <p className="mt-2 font-semibold text-ink">{passwordAgeLabel(user.password_security)}</p>
+            <p className={`mt-1 text-xs font-medium ${
+              user.password_security?.password_reminder_stage === 'force_ready'
+                ? 'text-rose-600 dark:text-rose-300'
+                : user.password_security?.password_reminder_required
+                  ? 'text-amber-600 dark:text-amber-300'
+                  : 'text-emerald-700 dark:text-emerald-300'
+            }`}
+            >
+              {passwordStageLabel(user.password_security?.password_reminder_stage)}
+            </p>
           </div>
         </section>
       ) : null}
@@ -250,6 +285,15 @@ export default function AccountPage() {
           <p className="mt-4 text-sm leading-6 text-slate-500 dark:text-slate-400">
             Changing your password updates your security stamp. Existing sessions on other devices will be rejected on their next request.
           </p>
+          {user?.password_security ? (
+            <div className="mt-4 rounded-md bg-slate-50 p-3 text-sm text-slate-600 dark:bg-slate-900/60 dark:text-slate-300">
+              <p className="font-medium text-ink">Current password age</p>
+              <p className="mt-1">{passwordAgeLabel(user.password_security)} since last change.</p>
+              {user.password_security.password_expires_at ? (
+                <p className="mt-1">Tracked expiry target: {user.password_security.password_expires_at}</p>
+              ) : null}
+            </div>
+          ) : null}
         </aside>
       </section>
 
