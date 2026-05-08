@@ -1001,11 +1001,13 @@ export async function updateAlertRule(id, payload) {
   return { id, ...rule, enabled: payload.enabled !== false };
 }
 
-export async function listAlerts({ state = 'active', env, service_group, limit = 50 } = {}) {
+export async function listAlerts({ state = 'active', env, service_group, limit = 50, offset = 0 } = {}) {
   await ensureAlertSchema();
 
   const values = [];
   const filters = [];
+  const safeLimit = Math.min(Math.max(Number(limit || 50), 1), 501);
+  const safeOffset = Math.max(Number(offset || 0), 0);
 
   if (state && state !== 'all') {
     filters.push('alert_events.state = ?');
@@ -1022,7 +1024,7 @@ export async function listAlerts({ state = 'active', env, service_group, limit =
     values.push(service_group);
   }
 
-  values.push(Number(limit || 50));
+  values.push(safeLimit, safeOffset);
 
   const where = filters.length > 0 ? `WHERE ${filters.join(' AND ')}` : '';
   const [rows] = await alertQuery({ operation: 'list_alert_events', table: 'alert_events' }, `
@@ -1041,8 +1043,8 @@ export async function listAlerts({ state = 'active', env, service_group, limit =
     FROM alert_events
     INNER JOIN alert_rules ON alert_rules.id = alert_events.rule_id
     ${where}
-    ORDER BY alert_events.triggered_at DESC
-    LIMIT ?
+    ORDER BY alert_events.triggered_at DESC, alert_events.id DESC
+    LIMIT ? OFFSET ?
   `, values);
 
   return rows;

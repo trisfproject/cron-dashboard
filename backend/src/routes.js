@@ -652,20 +652,31 @@ export async function registerRoutes(app) {
             state: { type: 'string', enum: ['active', 'acknowledged', 'resolved', 'all'], default: 'active' },
             env: { type: 'string' },
             service_group: { type: 'string' },
-            limit: { type: 'integer', minimum: 1, maximum: 500, default: 50 }
+            limit: { type: 'integer', minimum: 1, maximum: 500, default: 20 },
+            offset: { type: 'integer', minimum: 0, maximum: 100000, default: 0 }
           }
         }
       }
     },
     async (request) => {
       try {
+        const limit = Math.min(Number(request.query.limit || 20), 500);
+        const offset = Number(request.query.offset || 0);
+        const rows = await listAlerts({
+          state: request.query.state || 'active',
+          env: request.query.env,
+          service_group: request.query.service_group,
+          limit: limit + 1,
+          offset
+        });
+        const pageRows = rows.slice(0, limit);
+
         return {
-          alerts: await listAlerts({
-            state: request.query.state || 'active',
-            env: request.query.env,
-            service_group: request.query.service_group,
-            limit: Number(request.query.limit || 50)
-          })
+          alerts: pageRows,
+          limit,
+          offset,
+          next_offset: offset + pageRows.length,
+          has_more: rows.length > limit
         };
       } catch (error) {
         logEndpointError(request, error, 'Alert list endpoint failed');
