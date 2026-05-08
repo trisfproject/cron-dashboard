@@ -29,6 +29,8 @@ const LOG_PAGE_SIZE = 10;
 const VALID_WINDOWS = new Set(['5m', '15m', '30m', '1h', '4h']);
 const VALID_RANGES = new Set(['today', '7d', '30d']);
 const JAKARTA_OFFSET_MS = 7 * 60 * 60 * 1000;
+const SLA_TARGET_PERCENT = 99.5;
+const SLA_DEGRADED_FLOOR_PERCENT = 90;
 
 function parseJakartaDateTime(value) {
   if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value || '')) {
@@ -195,6 +197,74 @@ function getSystemHealthContext(summary, healthLabel) {
   return 'No active health degradation';
 }
 
+function getSlaStatus(summary) {
+  const totalRuns = Number(summary?.total_runs || 0);
+  const successRate = Number(summary?.success_rate || 0);
+  const warningRate = Number(summary?.warning_rate || 0);
+  const failedCount = Number(summary?.failed_count || 0);
+
+  if (!totalRuns) {
+    return {
+      label: 'NO DATA',
+      className: 'bg-slate-100 text-slate-600 ring-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-700'
+    };
+  }
+
+  if (failedCount > 0 || successRate < SLA_DEGRADED_FLOOR_PERCENT) {
+    return {
+      label: 'BREACHED',
+      className: 'bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-950/50 dark:text-rose-200 dark:ring-rose-900'
+    };
+  }
+
+  if (successRate < SLA_TARGET_PERCENT || warningRate >= 10) {
+    return {
+      label: 'DEGRADED',
+      className: 'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-950/50 dark:text-amber-200 dark:ring-amber-900'
+    };
+  }
+
+  return {
+    label: 'HEALTHY',
+    className: 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-200 dark:ring-emerald-900'
+  };
+}
+
+function getMttrValue(summary) {
+  const explicitMttr = Number(summary?.mttr ?? summary?.avg_recovery_ms ?? summary?.average_recovery_ms);
+
+  if (Number.isFinite(explicitMttr) && explicitMttr > 0) {
+    return formatDuration(explicitMttr);
+  }
+
+  return 'No data';
+}
+
+function ReliabilityCard({ icon: Icon, label, value, subtext, badgeClassName }) {
+  return (
+    <article className="min-h-[6.25rem] rounded-lg border border-slate-200 bg-white p-3 shadow-sm sm:min-h-[7rem] sm:p-4">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-[0.7rem] font-medium uppercase leading-tight tracking-wide text-slate-500 sm:text-xs">{label}</p>
+          {badgeClassName ? (
+            <p className={`mt-1 inline-flex items-center rounded-md px-2 py-0.5 text-sm font-semibold leading-none tracking-normal ring-1 sm:mt-2 ${badgeClassName}`}>
+              {value}
+            </p>
+          ) : (
+            <p className="mt-1 break-words text-xl font-semibold leading-tight tracking-normal text-ink sm:mt-2 sm:text-2xl">{value}</p>
+          )}
+        </div>
+        {Icon ? (
+          <div className="shrink-0 rounded-md bg-slate-100 p-1.5 text-slate-600 sm:p-2">
+            <Icon className="h-4 w-4" aria-hidden="true" />
+          </div>
+        ) : null}
+      </div>
+      <p className="mt-2 text-xs leading-snug text-slate-500 sm:mt-3">{subtext}</p>
+    </article>
+  );
+}
+
 function getCronHealthSeverity(job) {
   const failed = Number(job?.failed_count || 0);
   const warnings = Number(job?.warning_count || 0);
@@ -295,6 +365,10 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
   const [filter, setFilter] = useState(initialFilter);
   const [customRange, setCustomRange] = useState(isValidCustomRange(initialCustomRange) ? initialCustomRange : null);
   const [stats, setStats] = useState(emptyStats);
+  const [reliabilityStats, setReliabilityStats] = useState({
+    thirtyDay: emptyStats,
+    sevenDay: emptyStats
+  });
   const [logs, setLogs] = useState([]);
   const [alerts, setAlerts] = useState([]);
   const [hasMoreLogs, setHasMoreLogs] = useState(false);
@@ -344,13 +418,23 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
           ? { start: customRange.start, end: customRange.end }
           : null;
         const params = customParams || { [filter.type]: filter.value };
+        const isThirtyDayFilter = !customParams && filter.type === 'range' && filter.value === '30d';
+        const isSevenDayFilter = !customParams && filter.type === 'range' && filter.value === '7d';
 
-        const [statsData, logsData, alertsData] = await Promise.all([
+        const [statsData, logsData, alertsData, thirtyDayStatsData, sevenDayStatsData] = await Promise.all([
           getStats(params),
           getLogs({ ...params, limit: LOG_PAGE_SIZE, offset: 0 }),
           getAlerts({ state: 'active', limit: 5 }).catch((alertError) => {
             console.error('Failed to fetch active alerts:', alertError);
             return { alerts: [] };
+          }),
+          isThirtyDayFilter ? Promise.resolve(null) : getStats({ range: '30d' }).catch((statsError) => {
+            console.error('Failed to fetch 30D reliability stats:', statsError);
+            return null;
+          }),
+          isSevenDayFilter ? Promise.resolve(null) : getStats({ range: '7d' }).catch((statsError) => {
+            console.error('Failed to fetch 7D incident stats:', statsError);
+            return null;
           })
         ]);
 
@@ -363,7 +447,13 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
           return;
         }
 
-        setStats(normalizeStatsResponse(statsData, filter.value));
+        const normalizedStats = normalizeStatsResponse(statsData, filter.value);
+
+        setStats(normalizedStats);
+        setReliabilityStats({
+          thirtyDay: isThirtyDayFilter ? normalizedStats : (thirtyDayStatsData ? normalizeStatsResponse(thirtyDayStatsData, '30d') : emptyStats),
+          sevenDay: isSevenDayFilter ? normalizedStats : (sevenDayStatsData ? normalizeStatsResponse(sevenDayStatsData, '7d') : emptyStats)
+        });
         const nextLogs = normalizeLogsResponse(logsData);
         setLogs(nextLogs);
         setHasMoreLogs(nextLogs.length === LOG_PAGE_SIZE);
@@ -375,6 +465,10 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
         if (!cancelled) {
           setError(error?.message || 'Failed to load dashboard');
           setStats(emptyStats);
+          setReliabilityStats({
+            thirtyDay: emptyStats,
+            sevenDay: emptyStats
+          });
           setLogs([]);
           setAlerts([]);
           setHasMoreLogs(false);
@@ -532,6 +626,14 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
     Degraded: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-200',
     Critical: 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-200'
   }[health.label] || 'bg-slate-100 text-slate-700';
+  const thirtyDaySummary = reliabilityStats.thirtyDay?.summary ?? {};
+  const sevenDaySummary = reliabilityStats.sevenDay?.summary ?? {};
+  const thirtyDayRuns = Number(thirtyDaySummary.total_runs || 0);
+  const sevenDayRuns = Number(sevenDaySummary.total_runs || 0);
+  const slaStatus = getSlaStatus(thirtyDaySummary);
+  const reliabilityValue = thirtyDayRuns ? formatPercent(thirtyDaySummary.success_rate ?? 0) : 'No data';
+  const incidentValue = sevenDayRuns ? formatNumber(sevenDaySummary.failed_count ?? 0) : 'No data';
+  const mttrValue = getMttrValue(sevenDaySummary);
 
   return (
     <div className="space-y-6 sm:space-y-8">
@@ -611,6 +713,40 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
             </div>
           </div>
           <p className="mt-2 text-xs leading-snug text-slate-500 sm:mt-3 sm:text-sm">{healthContext}</p>
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500 sm:text-base sm:normal-case sm:tracking-normal sm:text-ink">SLA &amp; Reliability</h2>
+          <p className="mt-1 text-xs text-slate-500 sm:text-sm">Operational reporting across reliability targets, incidents, and recovery.</p>
+        </div>
+        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-4 xl:grid-cols-4">
+          <ReliabilityCard
+            icon={TrendingUp}
+            label="30D Reliability"
+            value={reliabilityValue}
+            subtext={thirtyDayRuns ? 'Overall cron execution reliability' : 'No 30D execution history available'}
+          />
+          <ReliabilityCard
+            icon={CheckCircle2}
+            label="SLA Status"
+            value={slaStatus.label}
+            subtext="Based on configured reliability targets"
+            badgeClassName={slaStatus.className}
+          />
+          <ReliabilityCard
+            icon={AlertTriangle}
+            label="Incidents (7D)"
+            value={incidentValue}
+            subtext={sevenDayRuns ? 'Critical operational events' : 'No 7D incident history available'}
+          />
+          <ReliabilityCard
+            icon={Clock3}
+            label="Avg Recovery (MTTR)"
+            value={mttrValue}
+            subtext={mttrValue === 'No data' ? 'Recovery data not yet available' : 'Mean time to recovery'}
+          />
         </div>
       </section>
 
