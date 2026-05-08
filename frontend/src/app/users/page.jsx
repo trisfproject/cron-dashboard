@@ -1,7 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { createUser, deactivateUser, forceLogoutUser, getUsers, reactivateUser, resetUserPassword, updateUser } from '@/lib/api';
+import ActionDropdown from '@/components/ActionDropdown';
+import ConfirmationDialog from '@/components/ConfirmationDialog';
+import EditUserModal from '@/components/EditUserModal';
+import ResetPasswordModal from '@/components/ResetPasswordModal';
+import { archiveUser, canDeleteUser, createUser, deactivateUser, deleteUser, forceLogoutUser, getUsers, reactivateUser, resetUserPassword, updateUser } from '@/lib/api';
 
 const emptyForm = {
   name: '',
@@ -10,15 +14,23 @@ const emptyForm = {
   role: 'user'
 };
 
-function AccountStatusBadge({ status }) {
-  const styles = {
-    active: 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:ring-emerald-900',
-    disabled: 'bg-slate-100 text-slate-600 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-800',
-    locked: 'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-900'
-  };
+function AccountStatusBadge({ user }) {
+  const isArchived = user.archived_at;
+  const isActive = user.is_active;
+
+  let status = 'active';
+  let styles = 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:ring-emerald-900';
+
+  if (isArchived) {
+    status = 'archived';
+    styles = 'bg-slate-100 text-slate-600 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-800';
+  } else if (!isActive) {
+    status = 'disabled';
+    styles = 'bg-slate-100 text-slate-600 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-800';
+  }
 
   return (
-    <span className={`w-fit rounded-md px-2 py-1 text-xs font-semibold capitalize ring-1 ${styles[status] || styles.disabled}`}>
+    <span className={`w-fit rounded-md px-2 py-1 text-xs font-semibold capitalize ring-1 ${styles}`}>
       {status}
     </span>
   );
@@ -42,10 +54,21 @@ function RoleBadge({ role }) {
 export default function UsersPage() {
   const [users, setUsers] = useState([]);
   const [form, setForm] = useState(emptyForm);
-  const [passwords, setPasswords] = useState({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [currentUser, setCurrentUser] = useState(null);
+
+  // Modal states
+  const [editingUser, setEditingUser] = useState(null);
+  const [resetPasswordUser, setResetPasswordUser] = useState(null);
+  const [confirmDialog, setConfirmDialog] = useState({
+    open: false,
+    action: null,
+    user: null,
+    title: '',
+    description: ''
+  });
 
   async function loadUsers() {
     setLoading(true);
@@ -61,22 +84,25 @@ export default function UsersPage() {
     }
   }
 
+  async function loadCurrentUser() {
+    try {
+      const response = await fetch('/api/auth/me');
+      if (response.ok) {
+        const data = await response.json();
+        setCurrentUser(data.user);
+      }
+    } catch {
+      // Silent fail
+    }
+  }
+
   useEffect(() => {
     loadUsers();
+    loadCurrentUser();
   }, []);
 
   function updateForm(key, value) {
     setForm((current) => ({ ...current, [key]: value }));
-  }
-
-  async function runAction(action) {
-    setError('');
-
-    try {
-      await action();
-    } catch (actionError) {
-      setError(actionError?.message || 'User management action failed');
-    }
   }
 
   async function submitUser(event) {
@@ -95,44 +121,152 @@ export default function UsersPage() {
     }
   }
 
-  async function changeRole(user, role) {
-    await runAction(async () => {
-      await updateUser(user.id, { role });
+  async function handleEditUser(updatedData) {
+    setSaving(true);
+    setError('');
+
+    try {
+      await updateUser(editingUser.id, updatedData);
+      setEditingUser(null);
       await loadUsers();
-    });
-  }
-
-  async function toggleActive(user) {
-    await runAction(async () => {
-      if (user.is_active) {
-        await deactivateUser(user.id);
-      } else {
-        await reactivateUser(user.id);
-      }
-
-      await loadUsers();
-    });
-  }
-
-  async function submitPasswordReset(user) {
-    const password = passwords[user.id] || '';
-
-    if (password.length < 8) {
-      setError('Reset password must be at least 8 characters.');
-      return;
+    } catch (updateError) {
+      setError(updateError?.message || 'Failed to update user');
+    } finally {
+      setSaving(false);
     }
+  }
 
-    await runAction(async () => {
-      await resetUserPassword(user.id, password);
-      setPasswords((current) => ({ ...current, [user.id]: '' }));
+  async function handleResetPassword(password) {
+    setSaving(true);
+    setError('');
+
+    try {
+      await resetUserPassword(resetPasswordUser.id, password);
+      setResetPasswordUser(null);
+      await loadUsers();
+    } catch (resetError) {
+      setError(resetError?.message || 'Failed to reset password');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleForceLogout(user) {
+    setConfirmDialog({
+      open: true,
+      action: async () => {
+        setSaving(true);
+        try {
+          await forceLogoutUser(user.id);
+          await loadUsers();
+          setConfirmDialog({ ...confirmDialog, open: false });
+        } catch (err) {
+          setError(err?.message || 'Failed to force logout');
+        } finally {
+          setSaving(false);
+        }
+      },
+      user,
+      title: 'Force logout',
+      description: `Invalidate all active sessions for ${user.email}?`
     });
   }
 
-  async function forceLogout(user) {
-    await runAction(async () => {
-      await forceLogoutUser(user.id);
-      await loadUsers();
+  async function handleToggleStatus(user) {
+    const action = user.is_active ? 'deactivate' : 'reactivate';
+    setConfirmDialog({
+      open: true,
+      action: async () => {
+        setSaving(true);
+        try {
+          if (user.is_active) {
+            await deactivateUser(user.id);
+          } else {
+            await reactivateUser(user.id);
+          }
+          await loadUsers();
+          setConfirmDialog({ ...confirmDialog, open: false });
+        } catch (err) {
+          setError(err?.message || 'Failed to update user status');
+        } finally {
+          setSaving(false);
+        }
+      },
+      user,
+      title: `${action.charAt(0).toUpperCase() + action.slice(1)} user`,
+      description: `${action.charAt(0).toUpperCase() + action.slice(1)} ${user.email}?`,
+      isDangerous: true
     });
+  }
+
+  async function handleArchive(user) {
+    setConfirmDialog({
+      open: true,
+      action: async () => {
+        setSaving(true);
+        try {
+          await archiveUser(user.id);
+          await loadUsers();
+          setConfirmDialog({ ...confirmDialog, open: false });
+        } catch (err) {
+          setError(err?.message || 'Failed to archive user');
+        } finally {
+          setSaving(false);
+        }
+      },
+      user,
+      title: 'Archive user',
+      description: `Archive ${user.email}? They will be unable to log in.`,
+      isDangerous: true
+    });
+  }
+
+  async function handleDelete(user) {
+    const deletionInfo = await canDeleteUser(user.id).catch(() => ({ canDelete: false }));
+    
+    if (deletionInfo.canDelete) {
+      setConfirmDialog({
+        open: true,
+        action: async () => {
+          setSaving(true);
+          try {
+            await deleteUser(user.id, true);
+            await loadUsers();
+            setConfirmDialog({ ...confirmDialog, open: false });
+          } catch (err) {
+            setError(err?.message || 'Failed to delete user');
+          } finally {
+            setSaving(false);
+          }
+        },
+        user,
+        title: 'Permanently delete user',
+        description: `Permanently delete ${user.email}? This action cannot be undone.`,
+        confirmText: 'Delete permanently',
+        isDangerous: true
+      });
+    } else {
+      setConfirmDialog({
+        open: true,
+        action: async () => {
+          setSaving(true);
+          try {
+            await deleteUser(user.id, false);
+            await loadUsers();
+            setConfirmDialog({ ...confirmDialog, open: false });
+          } catch (err) {
+            setError(err?.message || 'Failed to delete user');
+          } finally {
+            setSaving(false);
+          }
+        },
+        user,
+        title: 'Archive user',
+        description: `${deletionInfo.reason}. The user will be archived instead.`,
+        confirmText: 'Archive user',
+        isDangerous: true
+      });
+    }
   }
 
   return (
@@ -189,27 +323,23 @@ export default function UsersPage() {
                   <p className="truncate font-semibold text-ink">{user.name}</p>
                   <p className="truncate text-sm text-slate-500">{user.email}</p>
                 </div>
-                <AccountStatusBadge status={user.account_status || (user.is_active ? 'active' : 'disabled')} />
+                <AccountStatusBadge user={user} />
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <RoleBadge role={user.role} />
                 <span className="text-xs text-slate-500">Last login: {user.last_login_at || 'Never'}</span>
               </div>
-              <div className="grid gap-2">
-                <select value={user.role} onChange={(event) => changeRole(user, event.target.value)} className="min-h-10 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-950">
-                  <option value="user">User</option>
-                  <option value="admin">Admin</option>
-                </select>
-                <button type="button" onClick={() => toggleActive(user)} className="min-h-10 rounded-md border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 dark:border-slate-800 dark:text-slate-200">
-                  {user.is_active ? 'Deactivate' : 'Reactivate'}
-                </button>
-                <button type="button" onClick={() => forceLogout(user)} className="min-h-10 rounded-md border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 dark:border-slate-800 dark:text-slate-200">
-                  Force logout
-                </button>
-                <div className="flex gap-2">
-                  <input type="password" minLength={8} placeholder="New password" value={passwords[user.id] || ''} onChange={(event) => setPasswords((current) => ({ ...current, [user.id]: event.target.value }))} className="min-w-0 flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-950" />
-                  <button type="button" onClick={() => submitPasswordReset(user)} className="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white dark:bg-blue-600">Reset</button>
-                </div>
+              <div>
+                <ActionDropdown
+                  user={user}
+                  isCurrentUser={currentUser?.id === user.id}
+                  onEdit={setEditingUser}
+                  onResetPassword={setResetPasswordUser}
+                  onForceLogout={handleForceLogout}
+                  onToggleStatus={handleToggleStatus}
+                  onArchive={handleArchive}
+                  onDelete={handleDelete}
+                />
               </div>
             </article>
           ))}
@@ -226,50 +356,72 @@ export default function UsersPage() {
                 <th className="px-4 py-3">Role</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3">Last login</th>
-                <th className="px-4 py-3">Reset password</th>
                 <th className="px-4 py-3">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {users.map((user) => (
-                <tr key={user.id} className="align-top">
+                <tr key={user.id} className="align-middle">
                   <td className="px-4 py-3">
                     <p className="font-medium text-ink">{user.name}</p>
                     <p className="text-xs text-slate-500">{user.email}</p>
                   </td>
                   <td className="px-4 py-3">
-                    <select value={user.role} onChange={(event) => changeRole(user, event.target.value)} className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-800 dark:bg-slate-950">
-                      <option value="user">User</option>
-                      <option value="admin">Admin</option>
-                    </select>
+                    <RoleBadge role={user.role} />
                   </td>
-                  <td className="px-4 py-3"><AccountStatusBadge status={user.account_status || (user.is_active ? 'active' : 'disabled')} /></td>
+                  <td className="px-4 py-3">
+                    <AccountStatusBadge user={user} />
+                  </td>
                   <td className="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-300">{user.last_login_at || 'Never'}</td>
                   <td className="px-4 py-3">
-                    <div className="flex min-w-[16rem] gap-2">
-                      <input type="password" minLength={8} placeholder="New password" value={passwords[user.id] || ''} onChange={(event) => setPasswords((current) => ({ ...current, [user.id]: event.target.value }))} className="min-w-0 flex-1 rounded-md border border-slate-300 px-2 py-1.5 text-sm dark:border-slate-800 dark:bg-slate-950" />
-                      <button type="button" onClick={() => submitPasswordReset(user)} className="rounded-md border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 dark:border-slate-800 dark:text-slate-200">Reset</button>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <button type="button" onClick={() => toggleActive(user)} className="rounded-md border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 dark:border-slate-800 dark:text-slate-200">
-                      {user.is_active ? 'Deactivate' : 'Reactivate'}
-                    </button>
-                    <button type="button" onClick={() => forceLogout(user)} className="ml-2 rounded-md border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 dark:border-slate-800 dark:text-slate-200">
-                      Force logout
-                    </button>
+                    <ActionDropdown
+                      user={user}
+                      isCurrentUser={currentUser?.id === user.id}
+                      onEdit={setEditingUser}
+                      onResetPassword={setResetPasswordUser}
+                      onForceLogout={handleForceLogout}
+                      onToggleStatus={handleToggleStatus}
+                      onArchive={handleArchive}
+                      onDelete={handleDelete}
+                    />
                   </td>
                 </tr>
               ))}
               {users.length === 0 && !loading ? (
                 <tr>
-                  <td className="px-4 py-8 text-center text-slate-500" colSpan={6}>No users found.</td>
+                  <td className="px-4 py-8 text-center text-slate-500" colSpan={5}>No users found.</td>
                 </tr>
               ) : null}
             </tbody>
           </table>
         </div>
       </section>
+
+      <EditUserModal
+        user={editingUser}
+        onSave={handleEditUser}
+        onCancel={() => setEditingUser(null)}
+        isLoading={saving}
+      />
+
+      <ResetPasswordModal
+        user={resetPasswordUser}
+        onSave={handleResetPassword}
+        onCancel={() => setResetPasswordUser(null)}
+        isLoading={saving}
+      />
+
+      <ConfirmationDialog
+        open={confirmDialog.open}
+        title={confirmDialog.title}
+        description={confirmDialog.description}
+        confirmText={confirmDialog.confirmText || 'Confirm'}
+        onConfirm={confirmDialog.action}
+        onCancel={() => setConfirmDialog({ ...confirmDialog, open: false })}
+        isLoading={saving}
+        isDangerous={confirmDialog.isDangerous}
+      />
     </div>
   );
 }
+

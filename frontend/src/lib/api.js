@@ -204,6 +204,24 @@ export function forceLogoutUser(id) {
   });
 }
 
+export function archiveUser(id) {
+  return request(`/users/${id}/archive`, {
+    method: 'POST',
+    body: JSON.stringify({})
+  });
+}
+
+export function deleteUser(id, permanent = false) {
+  return request(`/users/${id}/delete`, {
+    method: 'POST',
+    body: JSON.stringify({ permanent })
+  });
+}
+
+export function canDeleteUser(id) {
+  return request(`/users/${id}/can-delete`);
+}
+
 export function getAuditLogs(params = {}) {
   const query = new URLSearchParams();
 

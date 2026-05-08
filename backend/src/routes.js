@@ -1,11 +1,14 @@
 import crypto from 'node:crypto';
 import { pool } from './db.js';
 import {
+  archiveUser,
+  canPermanentlyDeleteUser,
   createUser,
   forceLogoutUser,
   listAuditLogs,
   listUsers,
   logAudit,
+  permanentDeleteUser,
   registerAuthRoutes,
   requireAdmin,
   requireAuth,
@@ -960,6 +963,142 @@ export async function registerRoutes(app) {
         request
       });
       return { invalidated: true };
+    }
+  );
+
+  app.post(
+    '/users/:id/archive',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          properties: {
+            id: { type: 'integer' }
+          },
+          required: ['id']
+        }
+      }
+    },
+    async (request, reply) => {
+      const id = Number(request.params.id);
+
+      if (id === Number(request.user.id)) {
+        return reply.code(400).send({ error: 'You cannot archive your own account' });
+      }
+
+      const users = await listUsers(true);
+      const adminCount = users.filter((u) => u.role === 'admin' && u.is_active && !u.archived_at).length;
+      const isLastAdmin = adminCount === 1 && users.find((u) => u.id === id)?.role === 'admin' && users.find((u) => u.id === id)?.is_active;
+
+      if (isLastAdmin) {
+        return reply.code(400).send({ error: 'Cannot archive the last active admin user' });
+      }
+
+      await archiveUser(id);
+      await forceLogoutUser(id);
+      
+      const updatedUsers = await listUsers();
+      const user = updatedUsers.find((u) => u.id === id) || { id };
+
+      await logAudit({
+        user: request.user,
+        action: 'user_archived',
+        targetType: 'user',
+        targetId: id,
+        targetLabel: user.email,
+        request
+      });
+
+      return { archived: true, user };
+    }
+  );
+
+  app.post(
+    '/users/:id/delete',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          properties: {
+            id: { type: 'integer' }
+          },
+          required: ['id']
+        },
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            permanent: { type: 'boolean' }
+          }
+        }
+      }
+    },
+    async (request, reply) => {
+      const id = Number(request.params.id);
+      const permanent = request.body?.permanent === true;
+
+      if (id === Number(request.user.id)) {
+        return reply.code(400).send({ error: 'You cannot delete your own account' });
+      }
+
+      if (permanent) {
+        const canDelete = await canPermanentlyDeleteUser(id);
+        if (!canDelete.canDelete) {
+          return reply.code(400).send({ error: `Cannot permanently delete: ${canDelete.reason}` });
+        }
+
+        await permanentDeleteUser(id);
+        await logAudit({
+          user: request.user,
+          action: 'user_permanently_deleted',
+          targetType: 'user',
+          targetId: id,
+          request
+        });
+
+        return { deleted: true };
+      }
+
+      const users = await listUsers(true);
+      const adminCount = users.filter((u) => u.role === 'admin' && u.is_active && !u.archived_at).length;
+      const isLastAdmin = adminCount === 1 && users.find((u) => u.id === id)?.role === 'admin' && users.find((u) => u.id === id)?.is_active;
+
+      if (isLastAdmin) {
+        return reply.code(400).send({ error: 'Cannot delete the last active admin user' });
+      }
+
+      await archiveUser(id);
+      await forceLogoutUser(id);
+
+      await logAudit({
+        user: request.user,
+        action: 'user_archived',
+        targetType: 'user',
+        targetId: id,
+        request
+      });
+
+      return { deleted: true };
+    }
+  );
+
+  app.get(
+    '/users/:id/can-delete',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          properties: {
+            id: { type: 'integer' }
+          },
+          required: ['id']
+        }
+      }
+    },
+    async (request) => {
+      const id = Number(request.params.id);
+      const canDelete = await canPermanentlyDeleteUser(id);
+      return canDelete;
     }
   );
 }

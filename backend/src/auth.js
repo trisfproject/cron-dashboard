@@ -368,13 +368,17 @@ export async function requireAdmin(request, reply) {
   }
 }
 
-export async function listUsers() {
+export async function listUsers(includeArchived = false) {
+  const archiveFilter = includeArchived ? '' : 'WHERE archived_at IS NULL';
+  
   const [rows] = await pool.query(`
     SELECT id, name, email, role, is_active, locked_until, failed_login_count, session_version,
       DATE_FORMAT(last_login_at, '%Y-%m-%d %H:%i:%s') AS last_login_at,
       DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
-      DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+      DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at,
+      DATE_FORMAT(archived_at, '%Y-%m-%d %H:%i:%s') AS archived_at
     FROM users
+    ${archiveFilter}
     ORDER BY is_active DESC, role ASC, name ASC
   `);
 
@@ -390,7 +394,8 @@ export async function listUsers() {
     session_version: Number(row.session_version || 1),
     last_login_at: row.last_login_at,
     created_at: row.created_at,
-    updated_at: row.updated_at
+    updated_at: row.updated_at,
+    archived_at: row.archived_at
   }));
 }
 
@@ -466,6 +471,44 @@ export async function forceLogoutUser(id) {
     'UPDATE users SET session_version = session_version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
     [Number(id)]
   );
+}
+
+export async function archiveUser(id) {
+  await pool.query(
+    'UPDATE users SET archived_at = CURRENT_TIMESTAMP, session_version = session_version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+    [Number(id)]
+  );
+}
+
+export async function permanentDeleteUser(id) {
+  await pool.query(
+    'DELETE FROM users WHERE id = ?',
+    [Number(id)]
+  );
+}
+
+export async function canPermanentlyDeleteUser(id) {
+  const [rows] = await pool.query(`
+    SELECT COUNT(*) as audit_count FROM audit_logs WHERE target_id = ? AND target_type = 'user'
+  `, [Number(id)]);
+
+  const auditCount = Number(rows[0]?.audit_count || 0);
+  
+  const [userRows] = await pool.query(`
+    SELECT last_login_at FROM users WHERE id = ?
+  `, [Number(id)]);
+
+  const user = userRows[0];
+  const hasNeverLoggedIn = !user?.last_login_at;
+
+  return {
+    canDelete: hasNeverLoggedIn && auditCount === 0,
+    reason: auditCount > 0
+      ? 'User has audit history'
+      : hasNeverLoggedIn
+      ? 'Can delete'
+      : 'User has login history'
+  };
 }
 
 export async function logAudit({
