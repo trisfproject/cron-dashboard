@@ -19,6 +19,10 @@ function compareServiceGroups(left, right) {
   return left.localeCompare(right);
 }
 
+const filterControlClass = 'h-11 w-full min-w-0 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100 dark:focus:border-blue-400 dark:focus:ring-blue-950';
+const filterInputClass = `${filterControlClass} py-2`;
+const filterSelectClass = `${filterControlClass} py-2`;
+
 export default async function CronListPage({ searchParams }) {
   const resolvedSearchParams = await searchParams;
   const requestHeaders = await headers();
@@ -115,21 +119,21 @@ export default async function CronListPage({ searchParams }) {
         </div>
       ) : null}
 
-      <form className="grid gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm md:grid-cols-2 xl:grid-cols-[1fr_1fr_150px_170px_180px_180px_auto]" action="/cron">
+      <form className="grid w-full min-w-0 grid-cols-1 gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950 sm:grid-cols-2 xl:grid-cols-[repeat(14,minmax(0,1fr))]" action="/cron">
         <input
-          className="rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+          className={`${filterInputClass} xl:col-span-3`}
           name="cron_name"
           placeholder="Filter by cron name"
           defaultValue={nameFilter}
         />
         <input
-          className="rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+          className={`${filterInputClass} xl:col-span-2`}
           name="server"
           placeholder="Filter by server"
           defaultValue={serverFilter}
         />
         <select
-          className="rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+          className={`${filterSelectClass} xl:col-span-2`}
           name="range"
           defaultValue={rangeFilter}
         >
@@ -138,7 +142,7 @@ export default async function CronListPage({ searchParams }) {
           <option value="30d">30D</option>
         </select>
         <select
-          className="rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-slate-800 dark:bg-slate-950"
+          className={`${filterSelectClass} xl:col-span-2`}
           name="env"
           defaultValue={envFilter}
         >
@@ -146,7 +150,7 @@ export default async function CronListPage({ searchParams }) {
           {scopeOptions.environments.map((option) => <option key={option.value} value={option.value}>{option.value}</option>)}
         </select>
         <select
-          className="rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-slate-800 dark:bg-slate-950"
+          className={`${filterSelectClass} xl:col-span-2`}
           name="service_group"
           defaultValue={serviceGroupFilter}
         >
@@ -154,7 +158,7 @@ export default async function CronListPage({ searchParams }) {
           {scopeOptions.service_groups.map((option) => <option key={option.value} value={option.value}>{option.value}</option>)}
         </select>
         <select
-          className="rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+          className={`${filterSelectClass} xl:col-span-2`}
           name="status"
           defaultValue={statusFilter}
         >
@@ -163,53 +167,53 @@ export default async function CronListPage({ searchParams }) {
           <option value="1">Failed</option>
           <option value="2">Warning</option>
         </select>
-        <button className="rounded-md bg-ink px-4 py-2 text-sm font-medium text-white hover:bg-slate-700" type="submit">
+        <button className="h-11 w-full rounded-md bg-ink px-4 text-sm font-semibold text-white transition hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:bg-blue-600 dark:hover:bg-blue-500 dark:focus:ring-offset-slate-950 sm:col-span-2 xl:col-span-1" type="submit">
           Apply
         </button>
       </form>
 
-      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-200 px-4 py-3 text-sm text-slate-500">
+      <div className="w-full min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
+        <div className="border-b border-slate-200 px-4 py-3 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
           Last status, last run freshness, runs, success rate, and average duration are calculated only from {rangeLabel} using the Asia/Jakarta day boundary.
         </div>
-        <div className="divide-y divide-slate-100 md:hidden">
+        <div className="divide-y divide-slate-100 dark:divide-slate-800 lg:hidden">
           {serviceGroups.map((group) => (
             <div key={`${group}-mobile-group`}>
-              <div className="bg-slate-50 px-4 py-2 text-xs font-semibold uppercase tracking-normal text-slate-500 dark:bg-slate-950">
+              <div className="bg-slate-50 px-4 py-2 text-xs font-semibold uppercase tracking-normal text-slate-500 dark:bg-slate-900/60 dark:text-slate-400">
                 <span>{group}</span>
                 <span className="ml-2 font-medium normal-case text-slate-400">{formatNumber(groupedJobs[group].length)} jobs</span>
               </div>
               {groupedJobs[group].map((job, index) => (
-                <article key={`${job?.cron_name ?? 'cron'}-${job?.server ?? 'server'}-mobile-${index}`} className="space-y-3 p-4">
+                <article key={`${job?.cron_name ?? 'cron'}-${job?.server ?? 'server'}-mobile-${index}`} className="space-y-4 p-4">
                   <div className="flex items-start justify-between gap-3">
-                    <Link className="min-w-0 break-words font-medium text-ink hover:text-blue-700" href={cronHref(job)}>
+                    <Link className="min-w-0 break-words font-medium text-ink hover:text-blue-700 dark:text-slate-100 dark:hover:text-blue-300" href={cronHref(job)}>
                       {job?.cron_name ?? '-'}
                     </Link>
                     <StatusBadge status={job?.last_status} />
                   </div>
-                  <div className="grid grid-cols-2 gap-3 text-sm">
-                    <div>
+                  <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+                    <div className="min-w-0">
                       <p className="text-xs text-slate-500">Server</p>
-                      <p className="mt-1 truncate text-slate-700">{job?.server ?? '-'}</p>
+                      <p className="mt-1 truncate text-slate-700 dark:text-slate-300">{job?.server ?? '-'}</p>
                     </div>
-                    <div>
+                    <div className="min-w-0">
                       <p className="text-xs text-slate-500">Env</p>
-                      <p className="mt-1 truncate text-slate-700">{job?.env ? <EnvironmentBadge env={job.env} /> : '-'}</p>
+                      <p className="mt-1 truncate text-slate-700 dark:text-slate-300">{job?.env ? <EnvironmentBadge env={job.env} /> : '-'}</p>
                     </div>
-                    <div>
+                    <div className="min-w-0">
                       <p className="text-xs text-slate-500">Service</p>
-                      <p className="mt-1 truncate text-slate-700"><ServiceGroupBadge serviceGroup={job?.service_group} />{!job?.service_group ? '-' : null}</p>
+                      <p className="mt-1 truncate text-slate-700 dark:text-slate-300"><ServiceGroupBadge serviceGroup={job?.service_group} />{!job?.service_group ? '-' : null}</p>
                     </div>
-                    <div>
+                    <div className="min-w-0">
                       <p className="text-xs text-slate-500">Runs</p>
-                      <p className="mt-1 font-medium text-slate-700">{formatNumber(job?.total_runs ?? 0)}</p>
+                      <p className="mt-1 font-medium text-slate-700 dark:text-slate-300">{formatNumber(job?.total_runs ?? 0)}</p>
                     </div>
-                    <div>
+                    <div className="min-w-0">
                       <p className="text-xs text-slate-500">Success</p>
-                      <p className="mt-1 font-medium text-slate-700">{formatPercent(job?.success_rate ?? 0)}</p>
+                      <p className="mt-1 font-medium text-slate-700 dark:text-slate-300">{formatPercent(job?.success_rate ?? 0)}</p>
                     </div>
                   </div>
-                  <div className="flex flex-col gap-1 border-t border-slate-100 pt-3 text-sm text-slate-600">
+                  <div className="grid grid-cols-1 gap-2 border-t border-slate-100 pt-3 text-sm text-slate-600 dark:border-slate-800 dark:text-slate-400 sm:grid-cols-2">
                     <span>Avg duration: {formatDuration(job?.avg_duration ?? 0)}</span>
                     <span>Last run: {formatDate(job?.last_run)}</span>
                   </div>
@@ -222,9 +226,9 @@ export default async function CronListPage({ searchParams }) {
           ) : null}
         </div>
 
-        <div className="hidden overflow-x-auto md:block">
-          <table className="min-w-full divide-y divide-slate-200 text-sm">
-            <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
+        <div className="hidden overflow-x-auto lg:block">
+          <table className="min-w-[68rem] divide-y divide-slate-200 text-sm dark:divide-slate-800 xl:min-w-full">
+            <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500 dark:bg-slate-900/60 dark:text-slate-400">
               <tr>
                 <th className="px-4 py-3">Service</th>
                 <th className="px-4 py-3">Cron</th>
@@ -237,30 +241,30 @@ export default async function CronListPage({ searchParams }) {
                 <th className="px-4 py-3">Runs</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {serviceGroups.map((group) => (
                 <Fragment key={`${group}-desktop-group`}>
-                  <tr key={`${group}-header`} className="bg-slate-50/70 dark:bg-slate-950">
-                    <td className="px-4 py-2 text-xs font-semibold uppercase tracking-normal text-slate-500" colSpan={9}>
+                  <tr key={`${group}-header`} className="bg-slate-50/70 dark:bg-slate-900/50">
+                    <td className="px-4 py-2 text-xs font-semibold uppercase tracking-normal text-slate-500 dark:text-slate-400" colSpan={9}>
                       <span>{group}</span>
                       <span className="ml-2 font-medium normal-case text-slate-400">{formatNumber(groupedJobs[group].length)} jobs</span>
                     </td>
                   </tr>
                   {groupedJobs[group].map((job, index) => (
-                    <tr key={`${job?.cron_name ?? 'cron'}-${job?.server ?? 'server'}-${index}`}>
-                      <td className="whitespace-nowrap px-4 py-3 text-slate-600"><ServiceGroupBadge serviceGroup={job?.service_group} />{!job?.service_group ? '-' : null}</td>
-                      <td className="whitespace-nowrap px-4 py-3 font-medium text-ink">
-                        <Link className="hover:text-blue-700" href={cronHref(job)}>
+                    <tr key={`${job?.cron_name ?? 'cron'}-${job?.server ?? 'server'}-${index}`} className="dark:border-slate-800">
+                      <td className="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-300"><ServiceGroupBadge serviceGroup={job?.service_group} />{!job?.service_group ? '-' : null}</td>
+                      <td className="max-w-[22rem] px-4 py-3 font-medium text-ink dark:text-slate-100">
+                        <Link className="block truncate hover:text-blue-700 dark:hover:text-blue-300" href={cronHref(job)}>
                           {job?.cron_name ?? '-'}
                         </Link>
                       </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-slate-600">{job?.server ?? '-'}</td>
-                      <td className="whitespace-nowrap px-4 py-3 text-slate-600">{job?.env ? <EnvironmentBadge env={job.env} /> : '-'}</td>
+                      <td className="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-300">{job?.server ?? '-'}</td>
+                      <td className="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-300">{job?.env ? <EnvironmentBadge env={job.env} /> : '-'}</td>
                       <td className="whitespace-nowrap px-4 py-3"><StatusBadge status={job?.last_status} /></td>
-                      <td className="whitespace-nowrap px-4 py-3 text-slate-600">{formatDate(job?.last_run)}</td>
-                      <td className="whitespace-nowrap px-4 py-3 text-slate-600">{formatDuration(job?.avg_duration ?? 0)}</td>
-                      <td className="whitespace-nowrap px-4 py-3 text-slate-600">{formatPercent(job?.success_rate ?? 0)}</td>
-                      <td className="whitespace-nowrap px-4 py-3 text-slate-600">{formatNumber(job?.total_runs ?? 0)}</td>
+                      <td className="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-300">{formatDate(job?.last_run)}</td>
+                      <td className="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-300">{formatDuration(job?.avg_duration ?? 0)}</td>
+                      <td className="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-300">{formatPercent(job?.success_rate ?? 0)}</td>
+                      <td className="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-300">{formatNumber(job?.total_runs ?? 0)}</td>
                     </tr>
                   ))}
                 </Fragment>
