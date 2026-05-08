@@ -87,6 +87,24 @@ function compactSql(sql) {
   return String(sql || '').replace(/\s+/g, ' ').trim();
 }
 
+function endpointLabel(request) {
+  return `${request.method} ${request.routeOptions?.url || request.url.split('?')[0]}`;
+}
+
+function logEndpointError(request, error, message) {
+  request.log.error({
+    err: error,
+    error: error.message,
+    code: error.code,
+    errno: error.errno,
+    sql_state: error.sqlState,
+    stack: error.stack,
+    endpoint: endpointLabel(request),
+    table: error.alertQueryContext?.table,
+    query_context: error.alertQueryContext
+  }, message);
+}
+
 function normalizeTimestamp(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
@@ -272,7 +290,10 @@ export async function registerRoutes(app) {
         );
 
         request.log.info({ cron_name: payload.cron_name, hash }, 'Cron log ingested');
-        evaluateAlertsSafely(request.server);
+        evaluateAlertsSafely(request.server, {
+          endpoint: endpointLabel(request),
+          phase: 'post_ingest_alert_evaluation'
+        });
         return reply.code(201).send({ id: result.insertId, hash, duplicate: false });
       } catch (error) {
         if (error.code === 'ER_DUP_ENTRY') {
@@ -616,25 +637,40 @@ export async function registerRoutes(app) {
       }
     },
     async (request) => {
-      return {
-        alerts: await listAlerts({
-          state: request.query.state || 'active',
-          env: request.query.env,
-          service_group: request.query.service_group,
-          limit: Number(request.query.limit || 50)
-        })
-      };
+      try {
+        return {
+          alerts: await listAlerts({
+            state: request.query.state || 'active',
+            env: request.query.env,
+            service_group: request.query.service_group,
+            limit: Number(request.query.limit || 50)
+          })
+        };
+      } catch (error) {
+        logEndpointError(request, error, 'Alert list endpoint failed');
+        throw error;
+      }
     }
   );
 
   app.post('/alerts/evaluate', async (request) => {
-    const alerts = await evaluateAlerts(request.server);
-    return { evaluated: true, active_triggers: alerts.length };
+    try {
+      const alerts = await evaluateAlerts(request.server);
+      return { evaluated: true, active_triggers: alerts.length };
+    } catch (error) {
+      logEndpointError(request, error, 'Manual alert evaluation endpoint failed');
+      throw error;
+    }
   });
 
   app.post('/alerts/test-telegram', async (request, reply) => {
-    const result = await sendTestTelegramNotification(request.server);
-    return reply.code(200).send(result);
+    try {
+      const result = await sendTestTelegramNotification(request.server);
+      return reply.code(200).send(result);
+    } catch (error) {
+      logEndpointError(request, error, 'Telegram test endpoint failed');
+      throw error;
+    }
   });
 
   app.post(
@@ -651,19 +687,31 @@ export async function registerRoutes(app) {
       }
     },
     async (request) => {
-      await acknowledgeAlert(Number(request.params.id));
-      await logAudit({
-        user: request.user,
-        action: 'alert_acknowledged',
-        targetType: 'alert',
-        targetId: request.params.id,
-        request
-      });
-      return { acknowledged: true };
+      try {
+        await acknowledgeAlert(Number(request.params.id));
+        await logAudit({
+          user: request.user,
+          action: 'alert_acknowledged',
+          targetType: 'alert',
+          targetId: request.params.id,
+          request
+        });
+        return { acknowledged: true };
+      } catch (error) {
+        logEndpointError(request, error, 'Alert acknowledge endpoint failed');
+        throw error;
+      }
     }
   );
 
-  app.get('/alert-rules', async () => ({ rules: await getAlertRules() }));
+  app.get('/alert-rules', async (request) => {
+    try {
+      return { rules: await getAlertRules() };
+    } catch (error) {
+      logEndpointError(request, error, 'Alert rules list endpoint failed');
+      throw error;
+    }
+  });
 
   app.post(
     '/alert-rules',
@@ -692,16 +740,21 @@ export async function registerRoutes(app) {
       }
     },
     async (request, reply) => {
-      const rule = await createAlertRule(request.body);
-      await logAudit({
-        user: request.user,
-        action: 'alert_rule_created',
-        targetType: 'alert_rule',
-        targetId: rule.id,
-        targetLabel: rule.name,
-        request
-      });
-      return reply.code(201).send({ rule });
+      try {
+        const rule = await createAlertRule(request.body);
+        await logAudit({
+          user: request.user,
+          action: 'alert_rule_created',
+          targetType: 'alert_rule',
+          targetId: rule.id,
+          targetLabel: rule.name,
+          request
+        });
+        return reply.code(201).send({ rule });
+      } catch (error) {
+        logEndpointError(request, error, 'Alert rule create endpoint failed');
+        throw error;
+      }
     }
   );
 
@@ -739,16 +792,21 @@ export async function registerRoutes(app) {
       }
     },
     async (request) => {
-      const rule = await updateAlertRule(Number(request.params.id), request.body);
-      await logAudit({
-        user: request.user,
-        action: 'alert_rule_updated',
-        targetType: 'alert_rule',
-        targetId: rule.id,
-        targetLabel: rule.name,
-        request
-      });
-      return { rule };
+      try {
+        const rule = await updateAlertRule(Number(request.params.id), request.body);
+        await logAudit({
+          user: request.user,
+          action: 'alert_rule_updated',
+          targetType: 'alert_rule',
+          targetId: rule.id,
+          targetLabel: rule.name,
+          request
+        });
+        return { rule };
+      } catch (error) {
+        logEndpointError(request, error, 'Alert rule update endpoint failed');
+        throw error;
+      }
     }
   );
 

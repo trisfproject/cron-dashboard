@@ -16,6 +16,7 @@ const RULE_TYPES = new Set([
 ]);
 
 const lastEvaluationFailureLogAt = new Map();
+let alertSchemaReadyPromise;
 
 function compactSql(sql) {
   return String(sql || '').replace(/\s+/g, ' ').trim();
@@ -35,12 +36,121 @@ function attachAlertQueryContext(error, context, sql, values) {
   return error;
 }
 
+function schemaQueryContext(operation, table) {
+  return { operation, table };
+}
+
 async function alertQuery(context, sql, values = []) {
   try {
     return await pool.query(sql, values);
   } catch (error) {
     throw attachAlertQueryContext(error, context, sql, values);
   }
+}
+
+async function tableColumnSet(tableName) {
+  const [rows] = await alertQuery(
+    schemaQueryContext('inspect_alert_schema_columns', 'INFORMATION_SCHEMA.COLUMNS'),
+    `SELECT COLUMN_NAME
+     FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = ?`,
+    [tableName]
+  );
+
+  return new Set(rows.map((row) => row.COLUMN_NAME));
+}
+
+async function tableIndexSet(tableName) {
+  const [rows] = await alertQuery(
+    schemaQueryContext('inspect_alert_schema_indexes', 'INFORMATION_SCHEMA.STATISTICS'),
+    `SELECT DISTINCT INDEX_NAME
+     FROM INFORMATION_SCHEMA.STATISTICS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = ?`,
+    [tableName]
+  );
+
+  return new Set(rows.map((row) => row.INDEX_NAME));
+}
+
+async function ensureColumn(tableName, columns, columnName, definition) {
+  if (columns.has(columnName)) {
+    return;
+  }
+
+  try {
+    await alertQuery(
+      schemaQueryContext(`add_${tableName}_${columnName}_column`, tableName),
+      `ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`
+    );
+  } catch (error) {
+    if (error.code !== 'ER_DUP_FIELDNAME') {
+      throw error;
+    }
+  }
+
+  columns.add(columnName);
+}
+
+async function ensureIndex(tableName, indexes, indexName, definition) {
+  if (indexes.has(indexName)) {
+    return;
+  }
+
+  try {
+    await alertQuery(
+      schemaQueryContext(`add_${tableName}_${indexName}_index`, tableName),
+      `CREATE INDEX ${indexName} ON ${tableName} ${definition}`
+    );
+  } catch (error) {
+    if (error.code !== 'ER_DUP_KEYNAME') {
+      throw error;
+    }
+  }
+
+  indexes.add(indexName);
+}
+
+async function ensureAlertSchema() {
+  if (!alertSchemaReadyPromise) {
+    alertSchemaReadyPromise = (async () => {
+      const cronLogColumns = await tableColumnSet('cron_logs');
+      const alertRuleColumns = await tableColumnSet('alert_rules');
+      const alertEventColumns = await tableColumnSet('alert_events');
+
+      await ensureColumn('cron_logs', cronLogColumns, 'service_group', "VARCHAR(120) NOT NULL DEFAULT 'Unassigned'");
+      await ensureColumn('alert_rules', alertRuleColumns, 'env', 'VARCHAR(80) NULL');
+      await ensureColumn('alert_rules', alertRuleColumns, 'service_group', 'VARCHAR(120) NULL');
+      await ensureColumn('alert_events', alertEventColumns, 'env', 'VARCHAR(80) NULL');
+      await ensureColumn('alert_events', alertEventColumns, 'service_group', 'VARCHAR(120) NULL');
+
+      const cronLogIndexes = await tableIndexSet('cron_logs');
+      const alertRuleIndexes = await tableIndexSet('alert_rules');
+      const alertEventIndexes = await tableIndexSet('alert_events');
+
+      if (cronLogColumns.has('env') && cronLogColumns.has('service_group') && cronLogColumns.has('timestamp')) {
+        await ensureIndex('cron_logs', cronLogIndexes, 'idx_cron_logs_env_service_timestamp', '(env, service_group, timestamp)');
+      }
+
+      if (cronLogColumns.has('service_group') && cronLogColumns.has('timestamp')) {
+        await ensureIndex('cron_logs', cronLogIndexes, 'idx_cron_logs_service_timestamp', '(service_group, timestamp)');
+      }
+
+      if (alertRuleColumns.has('env') && alertRuleColumns.has('service_group') && alertRuleColumns.has('cron_name')) {
+        await ensureIndex('alert_rules', alertRuleIndexes, 'idx_alert_rules_scope', '(env, service_group, cron_name)');
+      }
+
+      if (alertEventColumns.has('env') && alertEventColumns.has('service_group') && alertEventColumns.has('state') && alertEventColumns.has('triggered_at')) {
+        await ensureIndex('alert_events', alertEventIndexes, 'idx_alert_events_scope_state', '(env, service_group, state, triggered_at)');
+      }
+    })().catch((error) => {
+      alertSchemaReadyPromise = null;
+      throw error;
+    });
+  }
+
+  await alertSchemaReadyPromise;
 }
 
 function shouldLogEvaluationFailure(error) {
@@ -431,6 +541,8 @@ async function notifyAlert(app, alert, rule, lifecycle = 'triggered') {
 }
 
 async function listRules() {
+  await ensureAlertSchema();
+
   const [rules] = await alertQuery({ operation: 'list_alert_rules', table: 'alert_rules' }, `
     SELECT id, name, type, cron_name, severity, threshold, timeframe_minutes,
       env, service_group,
@@ -800,7 +912,7 @@ export async function evaluateAlerts(app) {
   return alerts;
 }
 
-export async function evaluateAlertsSafely(app) {
+export async function evaluateAlertsSafely(app, context = {}) {
   try {
     await evaluateAlerts(app);
   } catch (error) {
@@ -811,6 +923,8 @@ export async function evaluateAlertsSafely(app) {
       errno: error.errno,
       sql_state: error.sqlState,
       stack: error.stack,
+      endpoint: context.endpoint,
+      phase: context.phase,
       query_context: error.alertQueryContext
     };
 
@@ -827,6 +941,8 @@ export async function getAlertRules() {
 }
 
 export async function createAlertRule(payload) {
+  await ensureAlertSchema();
+
   const rule = normalizeRulePayload(payload);
   const enabled = typeof payload.enabled === 'boolean'
     ? payload.enabled
@@ -856,6 +972,8 @@ export async function createAlertRule(payload) {
 }
 
 export async function updateAlertRule(id, payload) {
+  await ensureAlertSchema();
+
   const rule = normalizeRulePayload(payload);
   await alertQuery({ operation: 'update_alert_rule', table: 'alert_rules', rule }, `
     UPDATE alert_rules
@@ -884,6 +1002,8 @@ export async function updateAlertRule(id, payload) {
 }
 
 export async function listAlerts({ state = 'active', env, service_group, limit = 50 } = {}) {
+  await ensureAlertSchema();
+
   const values = [];
   const filters = [];
 
@@ -929,6 +1049,8 @@ export async function listAlerts({ state = 'active', env, service_group, limit =
 }
 
 export async function acknowledgeAlert(id) {
+  await ensureAlertSchema();
+
   await alertQuery({ operation: 'acknowledge_alert_event', table: 'alert_events', alert_id: id }, `
     UPDATE alert_events
     SET state = 'acknowledged',
