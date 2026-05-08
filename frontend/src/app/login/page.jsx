@@ -1,11 +1,11 @@
 'use client';
 
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { LockKeyhole, Mail } from 'lucide-react';
 import { BrandMark } from '@/components/BrandMark';
 import { ThemeToggle } from '@/components/ThemeToggle';
-import { login } from '@/lib/api';
+import { getCurrentUser, login } from '@/lib/api';
 
 function LoginForm() {
   const router = useRouter();
@@ -14,6 +14,35 @@ function LoginForm() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [checkingSession, setCheckingSession] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    getCurrentUser({ redirectOnAuthFailure: false })
+      .then((data) => {
+        if (cancelled) {
+          return;
+        }
+
+        if (data?.user) {
+          const next = searchParams.get('next') || '/';
+          router.replace(next.startsWith('/') && !next.startsWith('//') ? next : '/');
+          return;
+        }
+
+        setCheckingSession(false);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCheckingSession(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [router, searchParams]);
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -34,6 +63,20 @@ function LoginForm() {
     } finally {
       setLoading(false);
     }
+  }
+
+  if (checkingSession) {
+    return (
+      <div className="flex min-h-[calc(100vh-12rem)] items-center justify-center py-8">
+        <section className="flex w-full max-w-sm flex-col items-center gap-5 rounded-lg border border-slate-200 bg-white p-6 text-center shadow-sm dark:border-slate-800 dark:bg-slate-950">
+          <BrandMark />
+          <div className="space-y-2">
+            <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-slate-200 border-t-blue-600 dark:border-slate-800 dark:border-t-blue-400" aria-hidden="true" />
+            <p className="text-sm font-medium text-slate-600 dark:text-slate-300">Checking secure session...</p>
+          </div>
+        </section>
+      </div>
+    );
   }
 
   return (

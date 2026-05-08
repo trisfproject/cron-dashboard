@@ -39,24 +39,47 @@ function passwordReminderMessage(security) {
   return 'Your password is over 30 days old. Please update your password to maintain account security.';
 }
 
+function AuthBootstrapScreen() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-surface px-4">
+      <section className="flex w-full max-w-sm flex-col items-center gap-5 rounded-lg border border-slate-200 bg-white p-6 text-center shadow-sm dark:border-slate-800 dark:bg-slate-950">
+        <BrandMark />
+        <div className="space-y-2">
+          <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-slate-200 border-t-blue-600 dark:border-slate-800 dark:border-t-blue-400" aria-hidden="true" />
+          <p className="text-sm font-medium text-slate-600 dark:text-slate-300">Validating secure session...</p>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 export function AppShell({ children }) {
   const pathname = usePathname();
   const authScreen = pathname === '/login';
   const [user, setUser] = useState(null);
+  const [authReady, setAuthReady] = useState(authScreen);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [dismissedPasswordReminder, setDismissedPasswordReminder] = useState(false);
 
   useEffect(() => {
     if (authScreen) {
+      setAuthReady(true);
       return undefined;
     }
 
     let cancelled = false;
+    setAuthReady(false);
 
     getCurrentUser()
       .then((data) => {
         if (!cancelled) {
-          setUser(data?.user || null);
+          if (data?.user) {
+            setUser(data.user);
+            setAuthReady(true);
+          } else {
+            setUser(null);
+            window.location.assign('/login');
+          }
         }
       })
       .catch(() => {
@@ -160,6 +183,10 @@ export function AppShell({ children }) {
         {children}
       </div>
     );
+  }
+
+  if (!authReady) {
+    return <AuthBootstrapScreen />;
   }
 
   return (

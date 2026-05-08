@@ -87,7 +87,12 @@ function redirectToLogin() {
 
 async function request(path, options = {}) {
   let response;
-  const { headers: optionHeaders, credentials, ...fetchOptions } = options;
+  const {
+    headers: optionHeaders,
+    credentials,
+    redirectOnAuthFailure = true,
+    ...fetchOptions
+  } = options;
 
   try {
     response = await fetch(`${getApiBaseUrl()}${path}`, {
@@ -114,7 +119,7 @@ async function request(path, options = {}) {
     const serverMessage = body?.error || body?.message || response.statusText || 'Request failed';
 
     if (response.status === 401) {
-      if (path !== '/auth/login') {
+      if (redirectOnAuthFailure && path !== '/auth/login') {
         redirectToLogin();
       }
 
@@ -207,8 +212,8 @@ export function logout() {
   });
 }
 
-export function getCurrentUser() {
-  return request('/auth/me');
+export function getCurrentUser(options = {}) {
+  return request('/auth/me', options);
 }
 
 export function evaluateAlerts() {
