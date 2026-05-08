@@ -214,7 +214,7 @@ export async function registerRoutes(app) {
       return;
     }
 
-    const adminRoutePrefixes = ['/alerts', '/alert-rules', '/users', '/audit-logs'];
+    const adminRoutePrefixes = ['/alerts', '/alert-rules', '/users', '/audit-logs', '/audit'];
     const routePath = request.url.split('?')[0];
 
     if (adminRoutePrefixes.some((prefix) => routePath === prefix || routePath.startsWith(`${prefix}/`))) {
@@ -831,32 +831,46 @@ export async function registerRoutes(app) {
     }
   );
 
-  app.get(
-    '/audit-logs',
-    {
-      schema: {
-        querystring: {
-          type: 'object',
-          properties: {
-            action: { type: 'string' },
-            user_id: { type: 'integer' },
-            start: { type: 'string' },
-            end: { type: 'string' },
-            limit: { type: 'integer', minimum: 1, maximum: 500, default: 100 }
-          }
+  const auditLogsRouteOptions = {
+    schema: {
+      querystring: {
+        type: 'object',
+        properties: {
+          action: { type: 'string' },
+          user_id: { type: 'integer' },
+          start: { type: 'string' },
+          end: { type: 'string' },
+          limit: { type: 'integer', minimum: 1, maximum: 500, default: 20 },
+          offset: { type: 'integer', minimum: 0, maximum: 100000, default: 0 }
         }
       }
-    },
-    async (request) => ({
-      audit_logs: await listAuditLogs({
-        action: request.query.action,
-        userId: request.query.user_id,
-        start: request.query.start,
-        end: request.query.end,
-        limit: request.query.limit || 100
-      })
-    })
-  );
+    }
+  };
+
+  async function auditLogsHandler(request) {
+    const limit = Math.min(Number(request.query.limit || 20), 500);
+    const offset = Number(request.query.offset || 0);
+    const rows = await listAuditLogs({
+      action: request.query.action,
+      userId: request.query.user_id,
+      start: request.query.start,
+      end: request.query.end,
+      limit: limit + 1,
+      offset
+    });
+    const pageRows = rows.slice(0, limit);
+
+    return {
+      audit_logs: pageRows,
+      limit,
+      offset,
+      next_offset: offset + pageRows.length,
+      has_more: rows.length > limit
+    };
+  }
+
+  app.get('/audit-logs', auditLogsRouteOptions, auditLogsHandler);
+  app.get('/audit', auditLogsRouteOptions, auditLogsHandler);
 
   app.get('/users', async () => ({ users: await listUsers() }));
 

@@ -793,9 +793,11 @@ export async function logAudit({
   ]);
 }
 
-export async function listAuditLogs({ action, userId, start, end, limit = 100 } = {}) {
+export async function listAuditLogs({ action, userId, start, end, limit = 100, offset = 0 } = {}) {
   const filters = [];
   const values = [];
+  const safeLimit = Math.min(Math.max(Number(limit || 100), 1), 501);
+  const safeOffset = Math.max(Number(offset || 0), 0);
 
   if (action) {
     filters.push('action = ?');
@@ -817,7 +819,7 @@ export async function listAuditLogs({ action, userId, start, end, limit = 100 } 
     values.push(end);
   }
 
-  values.push(Number(limit || 100));
+  values.push(safeLimit, safeOffset);
   const where = filters.length > 0 ? `WHERE ${filters.join(' AND ')}` : '';
   const [rows] = await pool.query(`
     SELECT id, user_id, user_email, action, target_type, target_id, target_label,
@@ -825,8 +827,8 @@ export async function listAuditLogs({ action, userId, start, end, limit = 100 } 
       DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at
     FROM audit_logs
     ${where}
-    ORDER BY created_at DESC
-    LIMIT ?
+    ORDER BY created_at DESC, id DESC
+    LIMIT ? OFFSET ?
   `, values);
 
   return rows.map((row) => ({
