@@ -7,7 +7,7 @@ import { Activity, AlertTriangle, Bell, ClipboardList, ListChecks, Menu, UserCir
 import { BrandMark } from '@/components/BrandMark';
 import { LogoutButton } from '@/components/LogoutButton';
 import { ThemeToggle } from '@/components/ThemeToggle';
-import { appMetadata, formatAppVersion } from '@/lib/appMetadata';
+import { appMetadata } from '@/lib/appMetadata';
 import { getCurrentUser, recordPasswordReminderShown } from '@/lib/api';
 
 const NAV_ITEMS = [
@@ -356,20 +356,14 @@ export function AppShell({ children }) {
         </aside>
       </div>
       <main className="mx-auto w-full max-w-7xl flex-1 px-4 pb-8 pt-5 sm:px-6 sm:py-8 lg:px-8">{children}</main>
-      <footer className="border-t border-slate-200/70 bg-white/60 px-4 py-[calc(0.875rem+env(safe-area-inset-bottom))] text-center text-xs text-slate-500 backdrop-blur dark:border-slate-800/80 dark:bg-slate-950/50 dark:text-slate-400 sm:px-6">
-        <div className="mx-auto flex max-w-7xl flex-col items-center justify-center gap-2 sm:flex-row sm:justify-between sm:text-left">
-          <p className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 font-medium tracking-normal text-slate-600 dark:text-slate-300">
+      <footer className="border-t border-slate-200/70 bg-white/60 px-4 py-[calc(0.875rem+env(safe-area-inset-bottom))] text-center backdrop-blur dark:border-slate-800/80 dark:bg-slate-950/50 sm:px-6">
+        <div className="mx-auto flex max-w-7xl flex-col items-center justify-center gap-1.5">
+          <p className="text-sm font-medium tracking-normal text-slate-700 dark:text-slate-200">
             <span>NYX x trisf.bot</span>
-            <span className="text-slate-300 dark:text-slate-700">/</span>
-            <span className="font-normal text-slate-500 dark:text-slate-400">DevSecOps</span>
-            <span className="text-slate-300 dark:text-slate-700">/</span>
-            <span className="font-normal text-slate-500 dark:text-slate-400">TechDev</span>
+            <span className="ml-1 text-slate-500 dark:text-slate-400">v{appMetadata.version}</span>
           </p>
-          <p
-            className="font-mono text-[0.6875rem] leading-5 tracking-normal text-slate-400 dark:text-slate-500 sm:text-right"
-            title={appMetadata.buildTimestamp ? `Built ${appMetadata.buildTimestamp}` : undefined}
-          >
-            {formatAppVersion()}
+          <p className="text-xs font-normal tracking-normal text-slate-500 dark:text-slate-400">
+            DevSecOps / TechDev
           </p>
         </div>
       </footer>
