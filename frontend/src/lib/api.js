@@ -207,6 +207,19 @@ export function getIncidents(params = {}, options = {}) {
   return request(`/incidents${suffix}`, options);
 }
 
+export function getReliabilityReport(params = {}, options = {}) {
+  const query = new URLSearchParams();
+
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== '') {
+      query.set(key, String(value));
+    }
+  }
+
+  const suffix = query.toString() ? `?${query.toString()}` : '';
+  return request(`/reports/reliability${suffix}`, options);
+}
+
 export function getMaintenanceWindows(params = {}, options = {}) {
   const query = new URLSearchParams();
 

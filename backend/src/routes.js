@@ -35,7 +35,7 @@ import {
   setCronScheduleEnabled,
   updateCronSchedule
 } from './heartbeat.js';
-import { listIncidentEvents } from './incidents.js';
+import { getReliabilityReport, listIncidentEvents } from './incidents.js';
 import {
   createMaintenanceWindow,
   endMaintenanceWindow,
@@ -779,6 +779,36 @@ export async function registerRoutes(app) {
         });
       } catch (error) {
         logEndpointError(request, error, 'Incident timeline endpoint failed');
+        throw error;
+      }
+    }
+  );
+
+  app.get(
+    '/reports/reliability',
+    {
+      schema: {
+        querystring: {
+          type: 'object',
+          properties: {
+            range: { type: 'string', enum: ['today', '7d', '30d'], default: '7d' },
+            env: { type: 'string' },
+            service_group: { type: 'string' },
+            sort: { type: 'string', enum: ['incidents', 'downtime'], default: 'downtime' }
+          }
+        }
+      }
+    },
+    async (request) => {
+      try {
+        return await getReliabilityReport({
+          range: request.query.range || '7d',
+          env: request.query.env,
+          service_group: request.query.service_group,
+          sort: request.query.sort || 'downtime'
+        });
+      } catch (error) {
+        logEndpointError(request, error, 'Reliability report endpoint failed');
         throw error;
       }
     }

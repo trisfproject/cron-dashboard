@@ -1,7 +1,11 @@
 import { pool } from './db.js';
+import { resolveDateFilter } from './utils/range-filter.js';
 
 const UTC_SQL_TIMEZONE = '+00:00';
 const JAKARTA_SQL_TIMEZONE = '+07:00';
+const JAKARTA_OFFSET_MS = 7 * 60 * 60 * 1000;
+const INCIDENT_TYPES = ['alert_triggered', 'missing_detected'];
+const RECOVERY_TYPES = ['alert_resolved', 'heartbeat_recovered'];
 
 let incidentSchemaReadyPromise;
 
@@ -223,5 +227,168 @@ export async function listIncidentEvents({ cron, env, service_group, limit = 20,
     offset: safeOffset,
     next_offset: safeOffset + pageRows.length,
     has_more: rows.length > safeLimit
+  };
+}
+
+function addReportScopeFilters(filters, values, { env, service_group } = {}) {
+  if (env) {
+    filters.push('incident_events.env = ?');
+    values.push(env);
+  }
+
+  if (service_group) {
+    filters.push('incident_events.service_group = ?');
+    values.push(service_group);
+  }
+}
+
+function incidentPlaceholders(values) {
+  return values.map(() => '?').join(', ');
+}
+
+function availabilityPercent(totalDowntimeMinutes, periodMinutes) {
+  if (!periodMinutes || periodMinutes <= 0) {
+    return 100;
+  }
+
+  const uptimeMinutes = Math.max(periodMinutes - totalDowntimeMinutes, 0);
+  return Math.round((uptimeMinutes / periodMinutes) * 10000) / 100;
+}
+
+function jakartaDateOnly(date) {
+  return new Date(date.getTime() + JAKARTA_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+function normalizeDailyTrend(rows, startDate, endDate) {
+  const rowMap = new Map(rows.map((row) => [row.day, row]));
+  const days = [];
+  const cursor = new Date(`${jakartaDateOnly(startDate)}T00:00:00.000+07:00`);
+  const end = new Date(`${jakartaDateOnly(endDate)}T00:00:00.000+07:00`);
+
+  while (cursor <= end) {
+    const day = jakartaDateOnly(cursor);
+    const row = rowMap.get(day);
+    days.push({
+      day,
+      incidents: Number(row?.incidents || 0),
+      recoveries: Number(row?.recoveries || 0)
+    });
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+
+  return days;
+}
+
+export async function getReliabilityReport({ range = '7d', env, service_group, sort = 'downtime' } = {}) {
+  await ensureIncidentSchema();
+
+  const dateFilter = resolveDateFilter({ range });
+  const filters = ['incident_events.occurred_at BETWEEN ? AND ?'];
+  const values = [...dateFilter.values];
+  addReportScopeFilters(filters, values, { env, service_group });
+  const where = filters.join(' AND ');
+  const eventTypes = [...INCIDENT_TYPES, ...RECOVERY_TYPES];
+  const periodMinutes = Math.max(1, Math.ceil((dateFilter.endDate.getTime() - dateFilter.startDate.getTime()) / 60000));
+
+  const [[summary]] = await query(`
+    SELECT
+      SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) THEN 1 ELSE 0 END) AS total_incidents,
+      SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(RECOVERY_TYPES)}) THEN 1 ELSE 0 END) AS total_recoveries,
+      COALESCE(SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(RECOVERY_TYPES)}) THEN incident_events.downtime_minutes ELSE 0 END), 0) AS total_downtime_minutes,
+      COALESCE(AVG(CASE WHEN incident_events.type IN (${incidentPlaceholders(RECOVERY_TYPES)}) AND incident_events.downtime_minutes IS NOT NULL THEN incident_events.downtime_minutes END), 0) AS mttr_minutes,
+      COUNT(*) AS total_events
+    FROM incident_events
+    WHERE ${where}
+      AND incident_events.type IN (${incidentPlaceholders(eventTypes)})
+  `, [
+    ...INCIDENT_TYPES,
+    ...RECOVERY_TYPES,
+    ...RECOVERY_TYPES,
+    ...RECOVERY_TYPES,
+    ...values,
+    ...eventTypes
+  ]);
+
+  const alertFilters = ['alert_events.triggered_at BETWEEN ? AND ?'];
+  const alertValues = [...dateFilter.values];
+  if (env) {
+    alertFilters.push('alert_events.env = ?');
+    alertValues.push(env);
+  }
+  if (service_group) {
+    alertFilters.push('alert_events.service_group = ?');
+    alertValues.push(service_group);
+  }
+  const [[alertSummary]] = await query(`
+    SELECT COUNT(*) AS total_alerts
+    FROM alert_events
+    WHERE ${alertFilters.join(' AND ')}
+  `, alertValues);
+
+  const [problematicRows] = await query(`
+    SELECT
+      incident_events.cron_name,
+      MAX(incident_events.env) AS env,
+      MAX(incident_events.service_group) AS service_group,
+      SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) THEN 1 ELSE 0 END) AS incident_count,
+      COALESCE(SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(RECOVERY_TYPES)}) THEN incident_events.downtime_minutes ELSE 0 END), 0) AS total_downtime_minutes,
+      COALESCE(AVG(CASE WHEN incident_events.type IN (${incidentPlaceholders(RECOVERY_TYPES)}) AND incident_events.downtime_minutes IS NOT NULL THEN incident_events.downtime_minutes END), 0) AS avg_recovery_minutes,
+      MAX(incident_events.occurred_at) AS latest_event
+    FROM incident_events
+    WHERE ${where}
+      AND incident_events.type IN (${incidentPlaceholders(eventTypes)})
+    GROUP BY incident_events.cron_name
+    HAVING incident_count > 0 OR total_downtime_minutes > 0
+    ORDER BY ${sort === 'incidents' ? 'incident_count DESC, total_downtime_minutes DESC' : 'total_downtime_minutes DESC, incident_count DESC'}, latest_event DESC
+    LIMIT 10
+  `, [
+    ...INCIDENT_TYPES,
+    ...RECOVERY_TYPES,
+    ...RECOVERY_TYPES,
+    ...values,
+    ...eventTypes
+  ]);
+
+  const [trendRows] = await query(`
+    SELECT
+      DATE_FORMAT(CONVERT_TZ(incident_events.occurred_at, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d') AS day,
+      SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) THEN 1 ELSE 0 END) AS incidents,
+      SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(RECOVERY_TYPES)}) THEN 1 ELSE 0 END) AS recoveries
+    FROM incident_events
+    WHERE ${where}
+      AND incident_events.type IN (${incidentPlaceholders(eventTypes)})
+    GROUP BY day
+    ORDER BY day ASC
+  `, [
+    ...INCIDENT_TYPES,
+    ...RECOVERY_TYPES,
+    ...values,
+    ...eventTypes
+  ]);
+
+  const totalDowntimeMinutes = Number(summary?.total_downtime_minutes || 0);
+
+  return {
+    summary: {
+      availability_percent: availabilityPercent(totalDowntimeMinutes, periodMinutes),
+      total_incidents: Number(summary?.total_incidents || 0),
+      total_recoveries: Number(summary?.total_recoveries || 0),
+      total_downtime_minutes: totalDowntimeMinutes,
+      mttr_minutes: Number(summary?.mttr_minutes || 0),
+      total_alerts: Number(alertSummary?.total_alerts || 0)
+    },
+    problematic_crons: problematicRows.map((row) => ({
+      cron_name: row.cron_name,
+      env: row.env,
+      service_group: row.service_group,
+      incident_count: Number(row.incident_count || 0),
+      total_downtime_minutes: Number(row.total_downtime_minutes || 0),
+      avg_recovery_minutes: Number(row.avg_recovery_minutes || 0)
+    })),
+    trend: normalizeDailyTrend(trendRows, dateFilter.startDate, dateFilter.endDate),
+    range: dateFilter.range || range,
+    start: dateFilter.values[0],
+    end: dateFilter.values[1],
+    timezone: 'Asia/Jakarta'
   };
 }
