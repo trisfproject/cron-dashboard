@@ -49,6 +49,10 @@ function minutesBetween(left, right) {
   return Math.max(0, Math.floor((left.getTime() - right.getTime()) / 60000));
 }
 
+function addMinutes(date, minutes) {
+  return new Date(date.getTime() + Number(minutes || 0) * 60000);
+}
+
 function formatWibDate(date) {
   if (!date) {
     return null;
@@ -186,6 +190,14 @@ function scheduleRuntime(schedule, now = new Date()) {
     activeWindow,
     schedule_description: describeSchedule(schedule.schedule_expression, timezone)
   };
+}
+
+function nextExpectedAfter(schedule, date) {
+  const timezone = schedule.timezone || DEFAULT_TIMEZONE;
+  return parseCronExpression(schedule.schedule_expression, {
+    currentDate: date,
+    tz: timezone
+  }).next().toDate();
 }
 
 async function query(sql, values = []) {
@@ -592,20 +604,23 @@ export async function evaluateHeartbeatSchedules({ persist = false, app } = {}) 
       const scheduleEnvKey = `${schedule.cron_name}:${String(schedule.environment || '').toLowerCase()}`;
       const heartbeat = heartbeatByCron.get(scheduleEnvKey) || heartbeatByCron.get(schedule.cron_name);
       const lastHeartbeatAt = toDate(heartbeat?.last_heartbeat_at);
-      const missing = runtime.activeWindow
-        && minutesBetween(now, runtime.previousDueAt) > runtime.graceMinutes
-        && (!lastHeartbeatAt || lastHeartbeatAt.getTime() < runtime.previousDueAt.getTime());
-      const heartbeatRestored = Boolean(lastHeartbeatAt && lastHeartbeatAt.getTime() >= runtime.previousDueAt.getTime());
+      const missedExpectedAt = lastHeartbeatAt
+        ? nextExpectedAfter(schedule, lastHeartbeatAt)
+        : runtime.previousDueAt;
+      const overdueAt = addMinutes(missedExpectedAt, runtime.graceMinutes);
+      const missing = runtime.activeWindow && now.getTime() > overdueAt.getTime();
+      const heartbeatRestored = Boolean(lastHeartbeatAt && runtime.activeWindow && !missing);
       const missingMinutes = lastHeartbeatAt
         ? minutesBetween(now, lastHeartbeatAt)
-        : minutesBetween(now, runtime.previousDueAt);
+        : minutesBetween(now, missedExpectedAt);
 
       health.push({
         ...schedule,
         heartbeat_status: missing ? 'missing' : runtime.activeWindow ? 'healthy' : 'outside_window',
         last_heartbeat_at: formatWibDate(lastHeartbeatAt),
         last_heartbeat_minutes_ago: lastHeartbeatAt ? minutesBetween(now, lastHeartbeatAt) : null,
-        expected_at: formatWibDate(runtime.previousDueAt),
+        expected_at: formatWibDate(missedExpectedAt),
+        overdue_at: formatWibDate(overdueAt),
         next_expected_at: formatWibDate(runtime.nextDueAt),
         cadence_minutes: runtime.cadenceMinutes,
         missing_duration_minutes: missing ? missingMinutes : 0,
