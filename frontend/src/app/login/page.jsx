@@ -80,15 +80,23 @@ function LoginForm() {
   }
 
   return (
-    <div className="flex min-h-[calc(100vh-12rem)] items-center justify-center py-8">
-      <section className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950 sm:p-6">
-        <div className="mb-6 flex items-start justify-between gap-4">
-          <div>
-            <BrandMark />
-            <h1 className="mt-5 text-xl font-semibold tracking-normal text-ink">Sign in to NYX</h1>
-            <p className="mt-1 text-sm text-slate-500">Access operational observability, alerts, and cron reliability data.</p>
+    <div className="flex min-h-[calc(100vh-12rem)] items-center justify-center px-3 py-8 sm:px-4 sm:py-10">
+      <section className="w-full max-w-md rounded-lg border border-slate-200 bg-white px-4 py-6 shadow-sm dark:border-slate-800 dark:bg-slate-950 min-[360px]:px-5 sm:p-6">
+        <div className="mb-7 space-y-5 sm:mb-8 sm:space-y-6">
+          <div className="flex items-start justify-between gap-2 min-[360px]:gap-3 sm:grid sm:grid-cols-[1fr_auto_1fr] sm:items-center sm:gap-4">
+            <span aria-hidden="true" className="hidden sm:block" />
+            <BrandMark variant="login" />
+            <div className="flex shrink-0 justify-end pt-1 sm:pt-0">
+              <ThemeToggle />
+            </div>
           </div>
-          <ThemeToggle />
+
+          <div className="max-w-sm sm:mx-auto sm:text-center">
+            <h1 className="text-2xl font-semibold tracking-normal text-ink sm:text-xl">Sign in to NYX</h1>
+            <p className="mt-2 text-sm leading-6 text-slate-500 dark:text-slate-400">
+              Access operational observability, alerts, and cron reliability data.
+            </p>
+          </div>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
