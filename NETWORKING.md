@@ -1,4 +1,4 @@
-# Cron Dashboard - Networking Configuration
+# NYX Monitoring Platform - Networking Configuration
 
 ## Architecture
 

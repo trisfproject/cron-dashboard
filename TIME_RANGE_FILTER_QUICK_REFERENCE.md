@@ -2,7 +2,7 @@
 
 ## What Was Implemented ✅
 
-Complete time range filtering for the Cron Dashboard analytics. Users can now filter metrics by:
+Complete time range filtering for NYX Monitoring Platform analytics. Users can now filter metrics by:
 - **Today** (hourly aggregation)
 - **7 Days** (hourly aggregation, default)
 - **30 Days** (daily aggregation)

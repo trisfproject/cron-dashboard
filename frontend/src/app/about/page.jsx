@@ -90,7 +90,7 @@ const RELEASES = [
     version: '1.0.0',
     label: 'Foundation release',
     title: 'Foundational Monitoring Platform',
-    summary: 'Established the core NYX cron observability platform with authenticated dashboard access, durable ingest storage, operational metrics, and production deployment scaffolding.',
+    summary: 'Established the core NYX Monitoring Platform with authenticated access, durable ingest storage, operational metrics, and production deployment scaffolding.',
     sections: [
       {
         title: 'Core Platform',
@@ -236,7 +236,7 @@ export default function AboutPage() {
                   <p className="text-sm font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">About NYX</p>
                   <h1 className="mt-2 text-2xl font-semibold tracking-normal text-ink sm:text-3xl">NYX Monitoring Platform</h1>
                   <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600 dark:text-slate-300 sm:text-base">
-                    Operational observability and cron reliability dashboard for internal platform teams.
+                    Enterprise monitoring for operational observability, alert response, and cron reliability across internal platform teams.
                   </p>
                 </div>
               </div>
@@ -246,7 +246,7 @@ export default function AboutPage() {
               </div>
             </div>
             <div className="grid gap-3 sm:grid-cols-2 lg:w-[26rem]">
-              <MetadataPill icon={Server} label="Platform" value="Cron observability" />
+              <MetadataPill icon={Server} label="Platform" value="Monitoring platform" />
               <MetadataPill icon={ShieldCheck} label="Visibility" value="Admin only" />
               <MetadataPill icon={LockKeyhole} label="Access" value="Authenticated session" />
               <MetadataPill icon={Clock3} label="Runtime" value={appMetadata.environment || 'Internal'} />

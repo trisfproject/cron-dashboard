@@ -1,4 +1,4 @@
-# Cron Dashboard - Single-VM Deployment Verification
+# NYX Monitoring Platform - Single-VM Deployment Verification
 
 ## Architecture Overview
 

@@ -73,7 +73,7 @@ services:
       context: .
       dockerfile: frontend/Dockerfile
       args:
-        NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-Cron Dashboard}
+        NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-NYX Monitoring Platform}
         NEXT_PUBLIC_APP_VERSION: ${NEXT_PUBLIC_APP_VERSION:-}
         NEXT_PUBLIC_GIT_HASH: ${NEXT_PUBLIC_GIT_HASH:-}
         NEXT_PUBLIC_APP_ENV: ${NEXT_PUBLIC_APP_ENV:-}

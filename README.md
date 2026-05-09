@@ -1,6 +1,6 @@
-# Cron Dashboard
+# NYX Monitoring Platform
 
-Production-ready cron monitoring MVP with a Fastify API, Next.js dashboard, MySQL storage, Docker Compose, and host-based NGINX reverse proxy configs.
+Production-ready monitoring platform with cron observability, a Fastify API, Next.js dashboard, MySQL storage, Docker Compose, and host-based NGINX reverse proxy configs.
 
 ## Folder Structure
 

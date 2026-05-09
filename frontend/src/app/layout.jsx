@@ -3,8 +3,14 @@ import { AppShell } from '@/components/AppShell';
 import { ThemeProvider } from '@/components/ThemeProvider';
 
 export const metadata = {
-  title: process.env.NEXT_PUBLIC_APP_NAME || 'Cron Dashboard',
-  description: 'Production cron monitoring dashboard'
+  title: process.env.NEXT_PUBLIC_APP_NAME || 'NYX Monitoring Platform',
+  description: 'Enterprise monitoring platform for operational observability, alerts, and cron reliability',
+  icons: {
+    icon: [
+      { url: '/favicon.ico?v=20260509', sizes: 'any' }
+    ],
+    shortcut: ['/favicon.ico?v=20260509']
+  }
 };
 
 const themeScript = `

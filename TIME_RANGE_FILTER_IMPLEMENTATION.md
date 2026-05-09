@@ -1,4 +1,4 @@
-# Cron Dashboard — Time Range Filter Implementation
+# NYX Monitoring Platform - Time Range Filter Implementation
 
 ## Overview
 
