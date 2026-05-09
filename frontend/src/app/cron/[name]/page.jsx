@@ -83,6 +83,11 @@ function incidentStyle(type) {
       label: 'Triggered',
       className: 'bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-950/50 dark:text-rose-200 dark:ring-rose-900'
     },
+    alert_triggered: {
+      icon: AlertTriangle,
+      label: 'Alert triggered',
+      className: 'bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-950/50 dark:text-rose-200 dark:ring-rose-900'
+    },
     missing_detected: {
       icon: AlertTriangle,
       label: 'Missing detected',
@@ -96,6 +101,11 @@ function incidentStyle(type) {
     resolved: {
       icon: CheckCircle2,
       label: 'Resolved',
+      className: 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-200 dark:ring-emerald-900'
+    },
+    alert_resolved: {
+      icon: CheckCircle2,
+      label: 'Alert resolved',
       className: 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-200 dark:ring-emerald-900'
     },
     heartbeat_recovered: {

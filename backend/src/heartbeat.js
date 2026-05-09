@@ -1002,8 +1002,10 @@ async function notifyMissingCron(app, alert, rule, lastNotifiedAt, lifecycle) {
     repeat_interval_minutes: repeatMinutes
   };
 
-  if (status === 'success' && lifecycle === 'reminder') {
-    await recordHeartbeatIncidentEvent(alert, rule, lifecycle, repeatMinutes);
+  if (status === 'success') {
+    if (lifecycle === 'reminder') {
+      await recordHeartbeatIncidentEvent(alert, rule, lifecycle, repeatMinutes);
+    }
 
     const message = lifecycle === 'resolved'
       ? 'Missing cron recovery notification sent'
@@ -1034,6 +1036,7 @@ async function recordHeartbeatIncidentEvent(alert, rule, lifecycle, repeatMinute
     alert_event_id: alert.id,
     rule_id: rule.id,
     cron_name: alert.cron_name,
+    server: alert.server,
     env: alert.env,
     service_group: alert.service_group,
     severity: alert.severity,

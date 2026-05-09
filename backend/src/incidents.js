@@ -9,6 +9,34 @@ async function query(sql, values = []) {
   return pool.query(sql, values);
 }
 
+async function tableColumnSet(tableName) {
+  const [rows] = await query(
+    `SELECT COLUMN_NAME
+     FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = ?`,
+    [tableName]
+  );
+
+  return new Set(rows.map((row) => row.COLUMN_NAME));
+}
+
+async function ensureColumn(tableName, columns, columnName, definition) {
+  if (columns.has(columnName)) {
+    return;
+  }
+
+  try {
+    await query(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
+  } catch (error) {
+    if (error.code !== 'ER_DUP_FIELDNAME') {
+      throw error;
+    }
+  }
+
+  columns.add(columnName);
+}
+
 async function ensureIncidentSchema() {
   if (!incidentSchemaReadyPromise) {
     incidentSchemaReadyPromise = (async () => {
@@ -20,6 +48,7 @@ async function ensureIncidentSchema() {
           rule_id BIGINT UNSIGNED NULL,
           alert_key VARCHAR(512) NULL,
           cron_name VARCHAR(255) NOT NULL,
+          server VARCHAR(255) NULL,
           env VARCHAR(80) NULL,
           service_group VARCHAR(120) NULL,
           severity VARCHAR(20) NULL,
@@ -37,6 +66,9 @@ async function ensureIncidentSchema() {
           KEY idx_incident_events_scope_time (env, service_group, occurred_at)
         )
       `);
+
+      const columns = await tableColumnSet('incident_events');
+      await ensureColumn('incident_events', columns, 'server', 'VARCHAR(255) NULL');
     })().catch((error) => {
       incidentSchemaReadyPromise = null;
       throw error;
@@ -53,8 +85,10 @@ function eventTitle(type, fallback) {
 
   return {
     triggered: 'Alert triggered',
+    alert_triggered: 'Alert triggered',
     reminder_sent: 'Reminder sent',
     resolved: 'Alert resolved',
+    alert_resolved: 'Alert resolved',
     missing_detected: 'Missing detected',
     heartbeat_recovered: 'Heartbeat recovered'
   }[type] || String(type || 'Incident event').replaceAll('_', ' ');
@@ -89,6 +123,7 @@ export async function recordIncidentEvent(event = {}) {
     event.rule_id || null,
     event.alert_key || null,
     event.cron_name,
+    event.server || null,
     event.env || null,
     event.service_group || null,
     event.severity || null,
@@ -105,9 +140,9 @@ export async function recordIncidentEvent(event = {}) {
 
   const [result] = await query(`
     INSERT IGNORE INTO incident_events
-      (event_key, alert_event_id, rule_id, alert_key, cron_name, env, service_group, severity,
+      (event_key, alert_event_id, rule_id, alert_key, cron_name, server, env, service_group, severity,
        type, title, reason, downtime_minutes, metadata_json${occurredAtColumns})
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${occurredAtPlaceholder})
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${occurredAtPlaceholder})
   `, values);
 
   return result.insertId || null;
@@ -140,7 +175,7 @@ export async function listIncidentEvents({ cron, env, service_group, limit = 20,
   values.push(safeLimit + 1, safeOffset);
 
   const [rows] = await query(`
-    SELECT id, alert_event_id, rule_id, alert_key, cron_name, env, service_group, severity,
+    SELECT id, alert_event_id, rule_id, alert_key, cron_name, server, env, service_group, severity,
       type, title, reason, downtime_minutes, metadata_json,
       DATE_FORMAT(CONVERT_TZ(occurred_at, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s') AS occurred_at,
       DATE_FORMAT(CONVERT_TZ(created_at, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s') AS created_at
@@ -163,6 +198,7 @@ export async function listIncidentEvents({ cron, env, service_group, limit = 20,
 
     return {
       ...row,
+      event_type: row.type,
       metadata,
       metadata_json: undefined
     };

@@ -773,22 +773,8 @@ async function upsertAlert(app, rule, trigger) {
       state: 'active'
     };
 
-    await recordIncidentEvent({
-      event_key: `${result.insertId}:triggered:${result.insertId}`,
-      alert_event_id: result.insertId,
-      rule_id: rule.id,
-      cron_name: trigger.cron_name,
-      env: trigger.env || rule.env || null,
-      service_group: trigger.service_group || rule.service_group || null,
-      severity: rule.severity,
-      type: 'triggered',
-      title: 'Alert triggered',
-      reason: trigger.reason,
-      metadata: {
-        alert_type: rule.type,
-        rule_name: rule.name,
-        lifecycle: 'triggered'
-      }
+    await recordAlertIncidentEvent(alert, rule, 'alert_triggered', {
+      event_key: `${result.insertId}:alert_triggered:${result.insertId}`
     });
 
     await maybeNotify(app, alert, rule, null, 'triggered');
@@ -797,7 +783,7 @@ async function upsertAlert(app, rule, trigger) {
 
   const escalated = existing.severity !== 'critical' && rule.severity === 'critical';
   const reactivated = existing.state === 'resolved';
-  await alertQuery({ operation: 'update_alert_event', table: 'alert_events', rule, alert_id: existing.id }, `
+  const [updateResult] = await alertQuery({ operation: 'update_alert_event', table: 'alert_events', rule, alert_id: existing.id }, `
     UPDATE alert_events
     SET reason = ?,
       env = ?,
@@ -808,7 +794,13 @@ async function upsertAlert(app, rule, trigger) {
       resolved_at = NULL,
       updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
+      ${reactivated ? "AND state = 'resolved'" : ''}
   `, [trigger.reason, trigger.env || rule.env || null, trigger.service_group || rule.service_group || null, rule.severity, existing.id]);
+
+  if (reactivated && updateResult.affectedRows === 0) {
+    app?.log?.debug({ alert_id: existing.id, rule_id: rule.id, cron_name: trigger.cron_name }, 'Alert reactivation suppressed; incident already active');
+    return null;
+  }
 
   const alert = {
     id: existing.id,
@@ -824,27 +816,15 @@ async function upsertAlert(app, rule, trigger) {
   };
 
   if (reactivated) {
-    await recordIncidentEvent({
-      event_key: `${existing.id}:triggered:${Date.now()}`,
-      alert_event_id: existing.id,
-      rule_id: rule.id,
-      cron_name: trigger.cron_name,
-      env: trigger.env || rule.env || null,
-      service_group: trigger.service_group || rule.service_group || null,
-      severity: rule.severity,
-      type: 'triggered',
-      title: 'Alert triggered',
-      reason: trigger.reason,
-      metadata: {
-        alert_type: rule.type,
-        rule_name: rule.name,
-        lifecycle: 'triggered'
-      }
+    await recordAlertIncidentEvent(alert, rule, 'alert_triggered', {
+      event_key: `${existing.id}:alert_triggered:${Date.now()}`
     });
   }
 
   if (reactivated || escalated) {
     await maybeNotify(app, alert, rule, existing.last_notified_at, escalated ? 'escalated' : 'triggered');
+  } else if (existing.state === 'active' || existing.state === 'acknowledged') {
+    await maybeNotify(app, alert, rule, existing.last_notified_at, 'reminder');
   }
 
   return alert;
@@ -860,10 +840,34 @@ function incidentTypeForLifecycle(alert, lifecycle) {
   }
 
   if (lifecycle === 'resolved') {
-    return 'resolved';
+    return 'alert_resolved';
   }
 
-  return lifecycle === 'reminder' ? 'reminder_sent' : 'triggered';
+  return lifecycle === 'reminder' ? 'reminder_sent' : 'alert_triggered';
+}
+
+async function recordAlertIncidentEvent(alert, rule, type, options = {}) {
+  await recordIncidentEvent({
+    event_key: options.event_key,
+    alert_event_id: alert.id,
+    rule_id: alert.rule_id || rule.id,
+    alert_key: alert.alert_key,
+    cron_name: alert.cron_name,
+    server: alert.server,
+    env: alert.env,
+    service_group: alert.service_group,
+    severity: alert.severity,
+    type,
+    title: options.title || (type === 'alert_resolved' ? 'Alert resolved' : type === 'reminder_sent' ? 'Reminder sent' : 'Alert triggered'),
+    reason: alert.reason,
+    downtime_minutes: options.downtime_minutes,
+    metadata: {
+      alert_type: alert.type,
+      rule_name: rule.name,
+      lifecycle: options.lifecycle || type,
+      notification_status: options.notification_status || null
+    }
+  });
 }
 
 async function updateNotificationStatus(alertId, result, alert, rule, lifecycle) {
@@ -884,30 +888,43 @@ async function updateNotificationStatus(alertId, result, alert, rule, lifecycle)
   ]);
 
   if (result.status === 'success' && lifecycle === 'reminder') {
-    await recordIncidentEvent({
+    await recordAlertIncidentEvent(alert, rule, incidentTypeForLifecycle(alert, lifecycle), {
       event_key: `${alertId}:${incidentTypeForLifecycle(alert, lifecycle)}:${result.status}:${Date.now()}`,
-      alert_event_id: alertId,
-      rule_id: alert.rule_id || rule.id,
-      cron_name: alert.cron_name,
-      env: alert.env,
-      service_group: alert.service_group,
-      severity: alert.severity,
-      type: incidentTypeForLifecycle(alert, lifecycle),
-      title: lifecycle === 'resolved' ? 'Alert resolved' : lifecycle === 'escalated' ? 'Alert escalated' : 'Alert triggered',
-      reason: alert.reason,
-      metadata: {
-        alert_type: alert.type,
-        rule_name: rule.name,
-        lifecycle,
-        notification_status: result.status
-      }
+      title: 'Reminder sent',
+      lifecycle,
+      notification_status: result.status
     });
   }
+}
+
+async function claimAlertReminder(alertId, cooldownMinutes) {
+  const [result] = await alertQuery({ operation: 'claim_alert_reminder', table: 'alert_events', alert_id: alertId }, `
+    UPDATE alert_events
+    SET last_notified_at = UTC_TIMESTAMP(),
+      last_notification_status = 'pending',
+      last_notification_error = NULL,
+      updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+      AND state IN ('active', 'acknowledged')
+      AND (last_notification_status IS NULL OR last_notification_status <> 'pending')
+      AND (last_notified_at IS NULL OR last_notified_at <= UTC_TIMESTAMP() - INTERVAL ? MINUTE)
+  `, [alertId, Number(cooldownMinutes || 10)]);
+
+  return result.affectedRows > 0;
 }
 
 async function maybeNotify(app, alert, rule, lastNotifiedAt, lifecycle = 'triggered') {
   const cooldown = Number(rule.cooldown_minutes || 10) * 60 * 1000;
   const last = lastNotifiedAt ? new Date(lastNotifiedAt).getTime() : 0;
+
+  if (lifecycle === 'reminder') {
+    const claimed = await claimAlertReminder(alert.id, rule.cooldown_minutes);
+
+    if (!claimed) {
+      app?.log?.debug({ alert_id: alert.id, cron_name: alert.cron_name }, 'Alert reminder suppressed');
+      return { sent: false, status: 'suppressed', error: null };
+    }
+  }
 
   if (lifecycle === 'triggered' && last && Date.now() - last < cooldown) {
     return { sent: false, status: 'suppressed', error: null };
@@ -930,7 +947,11 @@ export async function evaluateAlerts(app) {
     for (const trigger of triggers) {
       const key = alertKey(effectiveRule, trigger.cron_name, trigger.env, trigger.service_group);
       activeKeys.add(key);
-      alerts.push(await upsertAlert(app, effectiveRule, trigger));
+      const alert = await upsertAlert(app, effectiveRule, trigger);
+
+      if (alert) {
+        alerts.push(alert);
+      }
     }
   }
 
@@ -1003,14 +1024,14 @@ export async function evaluateAlerts(app) {
         }, 'Alert incident closed');
 
         await recordIncidentEvent({
-          event_key: `${resolvedAlert.id}:resolved:${Date.now()}`,
+          event_key: `${resolvedAlert.id}:alert_resolved:${Date.now()}`,
           alert_event_id: resolvedAlert.id,
           rule_id: resolvedAlert.rule_id,
           cron_name: resolvedAlert.cron_name,
           env: resolvedAlert.env,
           service_group: resolvedAlert.service_group,
           severity: resolvedAlert.severity,
-          type: 'resolved',
+          type: 'alert_resolved',
           title: 'Alert resolved',
           reason: resolvedAlert.reason,
           metadata: {
