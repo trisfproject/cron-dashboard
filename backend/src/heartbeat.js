@@ -90,6 +90,17 @@ function humanMinutes(minutes) {
   return remainder ? `${hours}h ${remainder}m` : `${hours} hours`;
 }
 
+function compactWibTime(value) {
+  return String(value).padStart(2, '0') === '24' ? '00:00' : `${String(value).padStart(2, '0')}:00`;
+}
+
+function compactRecoveredTime(value) {
+  const text = String(value || '').trim();
+  const timeMatch = text.match(/\b(\d{2}:\d{2})(?::\d{2})?\b/);
+
+  return timeMatch ? timeMatch[1] : text || formatWibDate(new Date()).slice(11, 16);
+}
+
 function describeField(value, unit, rangeFormatter = (item) => item) {
   if (value === '*') {
     return `every ${unit}`;
@@ -122,7 +133,7 @@ export function describeSchedule(expression, timezone = DEFAULT_TIMEZONE) {
 
   const [minute, hour, dayOfMonth, month, dayOfWeek] = parts;
   const minuteText = describeField(minute, 'minute', (item) => String(item).padStart(2, '0'));
-  const hourText = describeField(hour, 'hour', (item) => `${String(item).padStart(2, '0')}:00`);
+  const hourText = describeField(hour, 'hour', compactWibTime);
   const dayNames = {
     0: 'Sunday',
     1: 'Monday',
@@ -141,11 +152,15 @@ export function describeSchedule(expression, timezone = DEFAULT_TIMEZONE) {
         ? 'weekends'
         : dayOfWeek.split(',').map((item) => dayNames[item] || item).join(', ');
 
+  const timezoneLabel = timezone === DEFAULT_TIMEZONE ? 'WIB' : timezone;
+  const hourLabel = hour === '*' ? '' : ` (${hourText} ${timezoneLabel})`;
+  const dayLabel = dayText === 'every day' ? '' : ` ${dayText}`;
+
   if (hour === '*' && dayOfMonth === '*' && month === '*' && dayOfWeek === '*') {
-    return `${minuteText}, every hour (${timezone})`;
+    return `${minuteText} (${timezoneLabel})`;
   }
 
-  return `${minuteText}; hours ${hourText}; ${dayText} (${timezone})`;
+  return `${minuteText}${hourLabel}${dayLabel}`;
 }
 
 export function validateScheduleExpression(expression, timezone = DEFAULT_TIMEZONE) {
@@ -682,15 +697,11 @@ export function buildMissingCronTelegramMessage(alert, rule, lifecycle = 'trigge
     return [
       '✅ <b>NYX Cron Recovered</b>',
       '',
-      `<b>Cron:</b>\n${escapeTelegramHtml(alert.cron_name || '-')}`,
+      `<b>Cron:</b> ${escapeTelegramHtml(alert.cron_name || '-')}`,
+      `<b>Status:</b> Heartbeat restored`,
       '',
-      '<b>Status:</b>\nHeartbeat restored',
-      '',
-      `<b>Recovered At:</b>\n${escapeTelegramHtml(alert.recovered_at || formatWibDate(new Date()))} WIB`,
-      '',
-      `<b>Downtime Duration:</b>\n${escapeTelegramHtml(alert.downtime_duration_label || '-')}`,
-      '',
-      `<b>Last Heartbeat:</b>\n${escapeTelegramHtml(alert.last_heartbeat_at ? `${alert.last_heartbeat_at} WIB` : '-')}`
+      `<b>Recovered At:</b> ${escapeTelegramHtml(compactRecoveredTime(alert.recovered_at))} WIB`,
+      `<b>Downtime:</b> ${escapeTelegramHtml(alert.downtime_duration_label || '-')}`
     ].join('\n');
   }
 
@@ -701,23 +712,13 @@ export function buildMissingCronTelegramMessage(alert, rule, lifecycle = 'trigge
   return [
     `🚨 <b>${escapeTelegramHtml(title)}</b>`,
     '',
-    `<b>Cron:</b>\n${escapeTelegramHtml(alert.cron_name || '-')}`,
+    `<b>Cron:</b> ${escapeTelegramHtml(alert.cron_name || '-')}`,
+    '<b>Issue:</b> Cron heartbeat missing',
     '',
-    '<b>Issue:</b>\nExpected cron execution was not detected',
+    `<b>Schedule:</b> ${escapeTelegramHtml(alert.schedule_description || rule.name || '-')}`,
+    `<b>Last Seen:</b> ${escapeTelegramHtml(alert.last_seen_label || '-')}`,
     '',
-    `<b>Missing Duration:</b>\n${escapeTelegramHtml(alert.missing_duration_label || '-')}`,
-    '',
-    `<b>Expected Schedule:</b>\n${escapeTelegramHtml(alert.schedule_description || rule.name || '-')}`,
-    '',
-    `<b>Expected At:</b>\n${escapeTelegramHtml(alert.expected_at ? `${alert.expected_at} WIB` : '-')}`,
-    '',
-    `<b>Last Seen:</b>\n${escapeTelegramHtml(alert.last_seen_label || '-')}`,
-    '',
-    `<b>Last Heartbeat:</b>\n${escapeTelegramHtml(alert.last_heartbeat_at ? `${alert.last_heartbeat_at} WIB` : '-')}`,
-    '',
-    `<b>Environment:</b>\n${escapeTelegramHtml(alert.env || '-')}`,
-    '',
-    `<b>Server:</b>\n${escapeTelegramHtml(alert.server || '-')}`
+    `<b>Missing:</b> ${escapeTelegramHtml(alert.missing_duration_label || '-')}`
   ].join('\n');
 }
 
