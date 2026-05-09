@@ -1,5 +1,5 @@
 import { pool } from './db.js';
-import { resolveDateFilter } from './utils/range-filter.js';
+import { assertValidCustomDateRange, resolveDateFilter } from './utils/range-filter.js';
 
 const UTC_SQL_TIMEZONE = '+00:00';
 const JAKARTA_SQL_TIMEZONE = '+07:00';
@@ -8,6 +8,7 @@ const INCIDENT_TYPES = ['alert_triggered', 'missing_detected'];
 const RECOVERY_TYPES = ['alert_resolved', 'heartbeat_recovered'];
 
 let incidentSchemaReadyPromise;
+let reportTimeIndexesReadyPromise;
 
 async function query(sql, values = []) {
   return pool.query(sql, values);
@@ -25,6 +26,18 @@ async function tableColumnSet(tableName) {
   return new Set(rows.map((row) => row.COLUMN_NAME));
 }
 
+async function tableIndexSet(tableName) {
+  const [rows] = await query(
+    `SELECT DISTINCT INDEX_NAME
+     FROM INFORMATION_SCHEMA.STATISTICS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = ?`,
+    [tableName]
+  );
+
+  return new Set(rows.map((row) => row.INDEX_NAME));
+}
+
 async function ensureColumn(tableName, columns, columnName, definition) {
   if (columns.has(columnName)) {
     return;
@@ -39,6 +52,22 @@ async function ensureColumn(tableName, columns, columnName, definition) {
   }
 
   columns.add(columnName);
+}
+
+async function ensureIndex(tableName, indexes, indexName, definition) {
+  if (indexes.has(indexName)) {
+    return;
+  }
+
+  try {
+    await query(`CREATE INDEX ${indexName} ON ${tableName} ${definition}`);
+  } catch (error) {
+    if (error.code !== 'ER_DUP_KEYNAME') {
+      throw error;
+    }
+  }
+
+  indexes.add(indexName);
 }
 
 async function ensureIncidentSchema() {
@@ -65,6 +94,7 @@ async function ensureIncidentSchema() {
           created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           PRIMARY KEY (id),
           UNIQUE KEY uq_incident_events_key (event_key),
+          KEY idx_incident_events_occurred_at (occurred_at),
           KEY idx_incident_events_cron_time (cron_name, occurred_at),
           KEY idx_incident_events_alert_time (alert_event_id, occurred_at),
           KEY idx_incident_events_scope_time (env, service_group, occurred_at)
@@ -73,6 +103,9 @@ async function ensureIncidentSchema() {
 
       const columns = await tableColumnSet('incident_events');
       await ensureColumn('incident_events', columns, 'server', 'VARCHAR(255) NULL');
+
+      const indexes = await tableIndexSet('incident_events');
+      await ensureIndex('incident_events', indexes, 'idx_incident_events_occurred_at', '(occurred_at)');
     })().catch((error) => {
       incidentSchemaReadyPromise = null;
       throw error;
@@ -80,6 +113,20 @@ async function ensureIncidentSchema() {
   }
 
   await incidentSchemaReadyPromise;
+}
+
+async function ensureReportTimeIndexes() {
+  if (!reportTimeIndexesReadyPromise) {
+    reportTimeIndexesReadyPromise = (async () => {
+      const alertIndexes = await tableIndexSet('alert_events');
+      await ensureIndex('alert_events', alertIndexes, 'idx_alert_events_triggered_at', '(triggered_at)');
+    })().catch((error) => {
+      reportTimeIndexesReadyPromise = null;
+      throw error;
+    });
+  }
+
+  await reportTimeIndexesReadyPromise;
 }
 
 function eventTitle(type, fallback) {
@@ -279,10 +326,12 @@ function normalizeDailyTrend(rows, startDate, endDate) {
   return days;
 }
 
-export async function getReliabilityReport({ range = '7d', env, service_group, sort = 'downtime' } = {}) {
+export async function getReliabilityReport({ range = '7d', start, end, env, service_group, sort = 'downtime' } = {}) {
   await ensureIncidentSchema();
+  await ensureReportTimeIndexes();
 
-  const dateFilter = resolveDateFilter({ range });
+  assertValidCustomDateRange({ start, end });
+  const dateFilter = resolveDateFilter({ range, start, end });
   const filters = ['incident_events.occurred_at BETWEEN ? AND ?'];
   const values = [...dateFilter.values];
   addReportScopeFilters(filters, values, { env, service_group });
@@ -367,14 +416,17 @@ export async function getReliabilityReport({ range = '7d', env, service_group, s
   ]);
 
   const totalDowntimeMinutes = Number(summary?.total_downtime_minutes || 0);
+  const totalIncidents = Number(summary?.total_incidents || 0);
+  const uptimeMinutes = Math.max(periodMinutes - totalDowntimeMinutes, 0);
 
   return {
     summary: {
       availability_percent: availabilityPercent(totalDowntimeMinutes, periodMinutes),
-      total_incidents: Number(summary?.total_incidents || 0),
+      total_incidents: totalIncidents,
       total_recoveries: Number(summary?.total_recoveries || 0),
       total_downtime_minutes: totalDowntimeMinutes,
       mttr_minutes: Number(summary?.mttr_minutes || 0),
+      mtbf_minutes: totalIncidents > 0 ? Math.round((uptimeMinutes / totalIncidents) * 100) / 100 : periodMinutes,
       total_alerts: Number(alertSummary?.total_alerts || 0)
     },
     problematic_crons: problematicRows.map((row) => ({
@@ -386,7 +438,7 @@ export async function getReliabilityReport({ range = '7d', env, service_group, s
       avg_recovery_minutes: Number(row.avg_recovery_minutes || 0)
     })),
     trend: normalizeDailyTrend(trendRows, dateFilter.startDate, dateFilter.endDate),
-    range: dateFilter.range || range,
+    range: dateFilter.mode === 'custom' ? 'custom' : (dateFilter.range || range),
     start: dateFilter.values[0],
     end: dateFilter.values[1],
     timezone: 'Asia/Jakarta'

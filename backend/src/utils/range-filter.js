@@ -59,6 +59,17 @@ function endOfJakartaDay(value) {
   return new Date(`${value}T23:59:59.999+07:00`);
 }
 
+function isValidDateOnly(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false;
+  }
+
+  const [year, month, day] = value.split('-').map(Number);
+  const date = startOfJakartaDay(value);
+  const parts = getJakartaParts(date);
+  return parts.year === year && parts.month === month && parts.day === day;
+}
+
 function toMysqlDateTime(date) {
   return date.toISOString().slice(0, 23).replace('T', ' ');
 }
@@ -69,6 +80,10 @@ function parseJakartaDateTime(value, boundary = 'start') {
   }
 
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    if (!isValidDateOnly(value)) {
+      return null;
+    }
+
     return boundary === 'end' ? endOfJakartaDay(value) : startOfJakartaDay(value);
   }
 
@@ -247,6 +262,48 @@ export function isValidRange(range) {
 
 export function getDefaultWindow() {
   return '30m';
+}
+
+function customRangeError(query = {}) {
+  const hasStart = query.start !== undefined && query.start !== null && query.start !== '';
+  const hasEnd = query.end !== undefined && query.end !== null && query.end !== '';
+
+  if (!hasStart && !hasEnd) {
+    return null;
+  }
+
+  if (!hasStart || !hasEnd) {
+    return 'Custom reports require both start and end dates.';
+  }
+
+  const customStart = parseJakartaDateTime(query.start, 'start');
+  const customEnd = parseJakartaDateTime(query.end, 'end');
+
+  if (!customStart || !customEnd) {
+    return 'Custom report dates must be valid YYYY-MM-DD dates or Jakarta-local timestamps.';
+  }
+
+  const duration = customEnd.getTime() - customStart.getTime();
+
+  if (duration <= 0) {
+    return 'Custom report end date must be after the start date.';
+  }
+
+  if (duration > MAX_CUSTOM_DAYS * DAY_MS) {
+    return `Custom report ranges cannot exceed ${MAX_CUSTOM_DAYS} days.`;
+  }
+
+  return null;
+}
+
+export function assertValidCustomDateRange(query = {}) {
+  const message = customRangeError(query);
+
+  if (message) {
+    const error = new Error(message);
+    error.statusCode = 400;
+    throw error;
+  }
 }
 
 export function resolveDateFilter(query = {}) {

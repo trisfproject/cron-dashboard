@@ -116,6 +116,7 @@ CREATE TABLE IF NOT EXISTS alert_events (
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uq_alert_events_key (alert_key),
+  KEY idx_alert_events_triggered_at (triggered_at),
   KEY idx_alert_events_state_triggered (state, triggered_at),
   KEY idx_alert_events_rule_state (rule_id, state),
   KEY idx_alert_events_scope_state (env, service_group, state, triggered_at),

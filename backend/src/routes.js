@@ -784,34 +784,48 @@ export async function registerRoutes(app) {
     }
   );
 
-  app.get(
-    '/reports/reliability',
-    {
-      schema: {
-        querystring: {
-          type: 'object',
-          properties: {
-            range: { type: 'string', enum: ['today', '7d', '30d'], default: '7d' },
-            env: { type: 'string' },
-            service_group: { type: 'string' },
-            sort: { type: 'string', enum: ['incidents', 'downtime'], default: 'downtime' }
-          }
+  const reliabilityReportRoute = async (request) => {
+    try {
+      return await getReliabilityReport({
+        range: request.query.range || '7d',
+        start: request.query.start,
+        end: request.query.end,
+        env: request.query.env,
+        service_group: request.query.service_group,
+        sort: request.query.sort || 'downtime'
+      });
+    } catch (error) {
+      logEndpointError(request, error, 'Reliability report endpoint failed');
+      throw error;
+    }
+  };
+
+  const reliabilityReportOptions = {
+    schema: {
+      querystring: {
+        type: 'object',
+        properties: {
+          range: { type: 'string', enum: ['today', '7d', '30d'], default: '7d' },
+          start: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}([ T]\\d{2}:\\d{2}(:\\d{2})?([+-]\\d{2}:\\d{2}|Z)?)?$' },
+          end: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}([ T]\\d{2}:\\d{2}(:\\d{2})?([+-]\\d{2}:\\d{2}|Z)?)?$' },
+          env: { type: 'string' },
+          service_group: { type: 'string' },
+          sort: { type: 'string', enum: ['incidents', 'downtime'], default: 'downtime' }
         }
       }
-    },
-    async (request) => {
-      try {
-        return await getReliabilityReport({
-          range: request.query.range || '7d',
-          env: request.query.env,
-          service_group: request.query.service_group,
-          sort: request.query.sort || 'downtime'
-        });
-      } catch (error) {
-        logEndpointError(request, error, 'Reliability report endpoint failed');
-        throw error;
-      }
     }
+  };
+
+  app.get(
+    '/reports/reliability',
+    reliabilityReportOptions,
+    reliabilityReportRoute
+  );
+
+  app.get(
+    '/reports',
+    reliabilityReportOptions,
+    reliabilityReportRoute
   );
 
   app.post(
