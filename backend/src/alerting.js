@@ -1,6 +1,7 @@
 import { pool } from './db.js';
 import { logAudit } from './auth.js';
 import { recordIncidentEvent } from './incidents.js';
+import { isNotificationSilenced } from './maintenance.js';
 
 const JAKARTA_SQL_TIMEZONE = '+07:00';
 const UTC_SQL_TIMEZONE = '+00:00';
@@ -928,6 +929,29 @@ async function maybeNotify(app, alert, rule, lastNotifiedAt, lifecycle = 'trigge
 
   if (lifecycle === 'triggered' && last && Date.now() - last < cooldown) {
     return { sent: false, status: 'suppressed', error: null };
+  }
+
+  const maintenance = await isNotificationSilenced({
+    cron_name: alert.cron_name,
+    server: alert.server,
+    env: alert.env,
+    service_group: alert.service_group
+  });
+
+  if (maintenance) {
+    const result = {
+      sent: false,
+      status: 'skipped',
+      error: `Suppressed by maintenance until ${maintenance.expires_at} WIB`
+    };
+    await updateNotificationStatus(alert.id, result, alert, rule, lifecycle);
+    app?.log?.info({
+      alert_id: alert.id,
+      cron_name: alert.cron_name,
+      maintenance_window_id: maintenance.id,
+      lifecycle
+    }, 'Alert notification suppressed by maintenance');
+    return result;
   }
 
   const result = await notifyAlert(app, alert, rule, lifecycle === 'escalated' ? 'triggered' : lifecycle);

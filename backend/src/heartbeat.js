@@ -1,6 +1,7 @@
 import * as cronParser from 'cron-parser';
 import { pool } from './db.js';
 import { recordIncidentEvent } from './incidents.js';
+import { isNotificationSilenced } from './maintenance.js';
 
 const DEFAULT_TIMEZONE = 'Asia/Jakarta';
 const DEFAULT_GRACE_MINUTES = 10;
@@ -955,6 +956,30 @@ async function notifyMissingCron(app, alert, rule, lastNotifiedAt, lifecycle) {
       repeat_interval_minutes: repeatMinutes,
       last_notified_at: lastNotifiedAt || null
     }, lifecycle === 'reminder' ? 'Missing cron reminder suppressed' : 'Missing cron notification suppressed');
+    return;
+  }
+
+  const maintenance = await isNotificationSilenced({
+    cron_name: alert.cron_name,
+    server: alert.server,
+    env: alert.env,
+    service_group: alert.service_group
+  });
+
+  if (maintenance) {
+    await query(`
+      UPDATE alert_events
+      SET last_notification_status = 'skipped',
+        last_notification_error = ?,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `, [`Suppressed by maintenance until ${maintenance.expires_at} WIB`, alert.id]);
+    app?.log?.info({
+      alert_id: alert.id,
+      cron_name: alert.cron_name,
+      maintenance_window_id: maintenance.id,
+      lifecycle
+    }, 'Missing cron notification suppressed by maintenance');
     return;
   }
 

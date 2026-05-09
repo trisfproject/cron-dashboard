@@ -10,7 +10,7 @@ import { MetricCard } from '@/components/MetricCard';
 import { TimelineChart } from '@/components/TimelineChart';
 import { LogsTable } from '@/components/LogsTable';
 import { TimeRangeFilter } from '@/components/TimeRangeFilter';
-import { getAlerts, getAuditLogs, getCurrentUser, getLogs, getScopeOptions, getStats } from '@/lib/api';
+import { getAlerts, getAuditLogs, getCurrentUser, getLogs, getMaintenanceWindows, getScopeOptions, getStats } from '@/lib/api';
 import { formatDuration, formatNumber, formatPercent } from '@/lib/format';
 
 const emptyStats = {
@@ -37,7 +37,8 @@ const POLL_INTERVALS = {
   alerts: 10000,
   logs: 30000,
   audit: 60000,
-  auth: 60000
+  auth: 60000,
+  maintenance: 60000
 };
 const VALID_WINDOWS = new Set(['5m', '15m', '30m', '1h', '4h']);
 const VALID_RANGES = new Set(['today', '7d', '30d']);
@@ -63,7 +64,8 @@ function resourceLabel(resource) {
     alerts: 'Alerts',
     logs: 'Timeline',
     audit: 'Audit feed',
-    auth: 'Session'
+    auth: 'Session',
+    maintenance: 'Maintenance status'
   }[resource] || 'Dashboard data';
 }
 
@@ -357,6 +359,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
   const [logs, setLogs] = useState([]);
   const [alerts, setAlerts] = useState([]);
   const [auditFeed, setAuditFeed] = useState([]);
+  const [maintenanceWindows, setMaintenanceWindows] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
   const [scope, setScope] = useState(initialScope);
   const [scopeOptions, setScopeOptions] = useState({ environments: [], service_groups: [] });
@@ -623,6 +626,15 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
       );
     }
 
+    function runMaintenance() {
+      const { scopeParams } = dashboardParams();
+      return runResource(
+        'maintenance',
+        (signal) => getMaintenanceWindows({ ...scopeParams }, { signal }),
+        (maintenanceData) => setMaintenanceWindows(Array.isArray(maintenanceData?.maintenance_windows) ? maintenanceData.maintenance_windows : [])
+      );
+    }
+
     function intervalFor(resource) {
       if (!refreshInterval || !liveMode) {
         return 0;
@@ -651,13 +663,14 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
       schedule('logs', runLogs);
       schedule('audit', runAudit);
       schedule('auth', runAuth);
+      schedule('maintenance', runMaintenance);
     }
 
     async function initialLoad() {
       setLoading(true);
       setPollWarnings({});
 
-      await Promise.all([runAuth(), runStats(), runLogs()]);
+      await Promise.all([runAuth(), runStats(), runLogs(), runMaintenance()]);
       await Promise.all([runAlerts(), runAudit()]);
 
       if (!cancelled) {
@@ -675,6 +688,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
       runLogs();
       runAuth();
       runAudit();
+      runMaintenance();
       scheduleAll();
     };
 
@@ -811,6 +825,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
   const heartbeatSchedules = Array.isArray(heartbeat.schedules) ? heartbeat.schedules : [];
   const missingHeartbeatSchedules = heartbeatSchedules.filter((schedule) => schedule.heartbeat_status === 'missing');
   const pollWarningMessages = Object.values(pollWarnings).filter(Boolean);
+  const activeMaintenance = maintenanceWindows[0] || null;
   const visibleHeartbeatSchedules = heartbeatSchedules.slice(0, 6);
   const problematicJobs = Array.isArray(insights.problematic_jobs) ? insights.problematic_jobs : [];
   const rankedHealthJobs = rankCronHealthJobs(problematicJobs);
@@ -888,6 +903,13 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
       {pollWarningMessages.length > 0 ? (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
           ⚠ {pollWarningMessages.slice(0, 2).join(' ')}
+        </div>
+      ) : null}
+
+      {activeMaintenance ? (
+        <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200">
+          🛠 Maintenance active until {activeMaintenance.expires_at} WIB
+          {activeMaintenance.remaining_minutes !== null ? ` (${activeMaintenance.remaining_minutes}m remaining)` : ''}.
         </div>
       ) : null}
 

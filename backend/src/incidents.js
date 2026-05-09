@@ -90,7 +90,10 @@ function eventTitle(type, fallback) {
     resolved: 'Alert resolved',
     alert_resolved: 'Alert resolved',
     missing_detected: 'Missing detected',
-    heartbeat_recovered: 'Heartbeat recovered'
+    heartbeat_recovered: 'Heartbeat recovered',
+    maintenance_enabled: 'Maintenance enabled',
+    maintenance_disabled: 'Maintenance disabled',
+    maintenance_expired: 'Maintenance expired'
   }[type] || String(type || 'Incident event').replaceAll('_', ' ');
 }
 

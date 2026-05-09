@@ -2,18 +2,24 @@
 
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
-import { Activity, AlertTriangle, BarChart3, Bell, CheckCircle2, Clock3, Gauge, Radio, RotateCcw, ShieldCheck, Timer, Zap } from 'lucide-react';
+import { Activity, AlertTriangle, BarChart3, Bell, CheckCircle2, Clock3, Gauge, Radio, RotateCcw, ShieldCheck, Timer, Wrench, Zap } from 'lucide-react';
 import { FailureWarningChart, DurationChart, ThroughputChart, TimelineChart } from '@/components/TimelineChart';
 import { InteractiveLogsTable } from '@/components/InteractiveLogsTable';
 import { EnvironmentBadge, ServiceGroupBadge } from '@/components/EnvironmentBadge';
 import { MetricCard } from '@/components/MetricCard';
 import { TimeRangeFilter } from '@/components/TimeRangeFilter';
-import { getIncidents, getLogs, getStats } from '@/lib/api';
+import { createMaintenanceWindow, disableMaintenanceWindow, getCurrentUser, getIncidents, getLogs, getMaintenanceWindows, getStats } from '@/lib/api';
 import { formatDate, formatDuration, formatNumber, formatPercent } from '@/lib/format';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_FILTER = { type: 'window', value: '30m' };
 const INCIDENT_PAGE_SIZE = 10;
+const MAINTENANCE_DURATIONS = [
+  { label: '30 minutes', value: 30 },
+  { label: '1 hour', value: 60 },
+  { label: '4 hours', value: 240 },
+  { label: 'Custom', value: 'custom' }
+];
 const VALID_WINDOWS = new Set(['5m', '15m', '30m', '1h', '4h']);
 const VALID_RANGES = new Set(['today', '7d', '30d']);
 const JAKARTA_OFFSET_MS = 7 * 60 * 60 * 1000;
@@ -112,6 +118,21 @@ function incidentStyle(type) {
       icon: CheckCircle2,
       label: 'Recovered',
       className: 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-200 dark:ring-emerald-900'
+    },
+    maintenance_enabled: {
+      icon: Wrench,
+      label: 'Maintenance enabled',
+      className: 'bg-blue-50 text-blue-700 ring-blue-200 dark:bg-blue-950/50 dark:text-blue-200 dark:ring-blue-900'
+    },
+    maintenance_disabled: {
+      icon: Wrench,
+      label: 'Maintenance disabled',
+      className: 'bg-slate-100 text-slate-700 ring-slate-200 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-800'
+    },
+    maintenance_expired: {
+      icon: Wrench,
+      label: 'Maintenance expired',
+      className: 'bg-slate-100 text-slate-700 ring-slate-200 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-800'
     }
   }[type] || {
     icon: Activity,
@@ -185,6 +206,14 @@ function CronDetailContent() {
   const [incidentsError, setIncidentsError] = useState(null);
   const [hasMoreIncidents, setHasMoreIncidents] = useState(false);
   const [nextIncidentOffset, setNextIncidentOffset] = useState(0);
+  const [incidentRefreshTick, setIncidentRefreshTick] = useState(0);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [maintenanceWindows, setMaintenanceWindows] = useState([]);
+  const [maintenanceDuration, setMaintenanceDuration] = useState(60);
+  const [customMaintenanceMinutes, setCustomMaintenanceMinutes] = useState(120);
+  const [maintenanceReason, setMaintenanceReason] = useState('');
+  const [maintenanceSaving, setMaintenanceSaving] = useState(false);
+  const [maintenanceError, setMaintenanceError] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [hasLoaded, setHasLoaded] = useState(false);
@@ -300,7 +329,66 @@ function CronDetailContent() {
     return () => {
       cancelled = true;
     };
-  }, [cronName, env, serviceGroup]);
+  }, [cronName, env, incidentRefreshTick, serviceGroup]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    getCurrentUser()
+      .then((data) => {
+        if (!cancelled) {
+          setCurrentUser(data?.user || null);
+        }
+      })
+      .catch((userError) => {
+        console.error('Failed to load current user:', userError);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function refreshMaintenance() {
+    const data = await getMaintenanceWindows({
+      cron_name: cronName,
+      ...(server ? { server } : {}),
+      ...(env ? { env } : {}),
+      ...(serviceGroup ? { service_group: serviceGroup } : {})
+    });
+    setMaintenanceWindows(Array.isArray(data?.maintenance_windows) ? data.maintenance_windows : []);
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadMaintenance() {
+      try {
+        const data = await getMaintenanceWindows({
+          cron_name: cronName,
+          ...(server ? { server } : {}),
+          ...(env ? { env } : {}),
+          ...(serviceGroup ? { service_group: serviceGroup } : {})
+        });
+
+        if (!cancelled) {
+          setMaintenanceWindows(Array.isArray(data?.maintenance_windows) ? data.maintenance_windows : []);
+        }
+      } catch (maintenanceLoadError) {
+        if (!cancelled) {
+          console.error('Failed to load maintenance status:', maintenanceLoadError);
+        }
+      }
+    }
+
+    if (cronName) {
+      loadMaintenance();
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cronName, env, server, serviceGroup]);
 
   const summary = stats?.summary ?? {};
   const timeline = Array.isArray(stats?.timeline) ? stats.timeline : [];
@@ -318,6 +406,8 @@ function CronDetailContent() {
   })), [logs]);
   const hasData = totalRuns > 0 || logs.length > 0;
   const isCustom = filter.type === 'custom';
+  const activeMaintenance = maintenanceWindows[0] || null;
+  const isAdmin = currentUser?.role === 'admin';
 
   function applyCustomRange(nextCustomRange) {
     if (isValidCustomRange(nextCustomRange)) {
@@ -362,6 +452,52 @@ function CronDetailContent() {
     }
   }
 
+  async function enableMaintenance() {
+    setMaintenanceSaving(true);
+    setMaintenanceError(null);
+
+    try {
+      const duration = maintenanceDuration === 'custom'
+        ? Number(customMaintenanceMinutes || 0)
+        : Number(maintenanceDuration);
+
+      if (!duration || duration < 1) {
+        throw new Error('Choose a maintenance duration.');
+      }
+
+      await createMaintenanceWindow({
+        cron_name: cronName,
+        ...(server ? { server } : {}),
+        ...(env ? { env } : {}),
+        ...(serviceGroup ? { service_group: serviceGroup } : {}),
+        duration_minutes: duration,
+        reason: maintenanceReason || undefined
+      });
+      setMaintenanceReason('');
+      await refreshMaintenance();
+      setIncidentRefreshTick((value) => value + 1);
+    } catch (saveError) {
+      setMaintenanceError(saveError?.message || 'Failed to enable maintenance');
+    } finally {
+      setMaintenanceSaving(false);
+    }
+  }
+
+  async function disableMaintenance(id) {
+    setMaintenanceSaving(true);
+    setMaintenanceError(null);
+
+    try {
+      await disableMaintenanceWindow(id);
+      await refreshMaintenance();
+      setIncidentRefreshTick((value) => value + 1);
+    } catch (disableError) {
+      setMaintenanceError(disableError?.message || 'Failed to disable maintenance');
+    } finally {
+      setMaintenanceSaving(false);
+    }
+  }
+
   if (loading && !hasLoaded) {
     return (
       <div className="space-y-6">
@@ -402,6 +538,34 @@ function CronDetailContent() {
         </div>
       ) : null}
 
+      {activeMaintenance ? (
+        <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-2">
+              <Wrench className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              <div>
+                <p className="font-semibold">Maintenance active</p>
+                <p className="mt-1">
+                  Notifications are silenced until {activeMaintenance.expires_at} WIB
+                  {activeMaintenance.remaining_minutes !== null ? ` (${activeMaintenance.remaining_minutes}m remaining)` : ''}.
+                </p>
+                {activeMaintenance.reason ? <p className="mt-1 text-blue-700 dark:text-blue-200">{activeMaintenance.reason}</p> : null}
+              </div>
+            </div>
+            {isAdmin ? (
+              <button
+                type="button"
+                onClick={() => disableMaintenance(activeMaintenance.id)}
+                disabled={maintenanceSaving}
+                className="inline-flex min-h-10 items-center justify-center rounded-md border border-blue-200 bg-white px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-200"
+              >
+                Disable
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
       {!error && !hasData ? (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-5 text-sm text-amber-800">
           No executions found for this exact cron name in the selected time window.
@@ -437,6 +601,61 @@ function CronDetailContent() {
         </button>
         {loading ? <span className="text-sm text-slate-500">Refreshing...</span> : null}
       </div>
+
+      {isAdmin ? (
+        <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+          <div className="mb-3 flex items-center gap-2">
+            <Wrench className="h-4 w-4 text-slate-500" aria-hidden="true" />
+            <h2 className="text-sm font-semibold text-ink">Maintenance Mode</h2>
+          </div>
+          <div className="grid gap-3 md:grid-cols-[minmax(0,12rem)_minmax(0,10rem)_1fr_auto] md:items-end">
+            <label className="block text-sm">
+              <span className="mb-1 block text-xs font-medium text-slate-500">Duration</span>
+              <select
+                value={maintenanceDuration}
+                onChange={(event) => setMaintenanceDuration(event.target.value === 'custom' ? 'custom' : Number(event.target.value))}
+                className="min-h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-slate-800 dark:bg-slate-950"
+              >
+                {MAINTENANCE_DURATIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </label>
+            {maintenanceDuration === 'custom' ? (
+              <label className="block text-sm">
+                <span className="mb-1 block text-xs font-medium text-slate-500">Minutes</span>
+                <input
+                  type="number"
+                  min="1"
+                  max="10080"
+                  value={customMaintenanceMinutes}
+                  onChange={(event) => setCustomMaintenanceMinutes(event.target.value)}
+                  className="min-h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-slate-800 dark:bg-slate-950"
+                />
+              </label>
+            ) : <div className="hidden md:block" />}
+            <label className="block text-sm">
+              <span className="mb-1 block text-xs font-medium text-slate-500">Reason</span>
+              <input
+                type="text"
+                value={maintenanceReason}
+                onChange={(event) => setMaintenanceReason(event.target.value)}
+                placeholder="Deployment, infrastructure work..."
+                className="min-h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-slate-800 dark:bg-slate-950"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={enableMaintenance}
+              disabled={maintenanceSaving}
+              className="inline-flex min-h-10 items-center justify-center rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+            >
+              {activeMaintenance ? 'Extend Silence' : 'Silence Alerts'}
+            </button>
+          </div>
+          {maintenanceError ? <p className="mt-2 text-sm text-rose-600">{maintenanceError}</p> : null}
+        </section>
+      ) : null}
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard icon={Activity} label="Executions" value={hasData ? formatNumber(totalRuns) : 'No data'} subtext="Selected time window" />

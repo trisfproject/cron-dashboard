@@ -36,6 +36,11 @@ import {
   updateCronSchedule
 } from './heartbeat.js';
 import { listIncidentEvents } from './incidents.js';
+import {
+  createMaintenanceWindow,
+  endMaintenanceWindow,
+  listMaintenanceWindows
+} from './maintenance.js';
 import { normalizeTimelineBuckets, resolveDateFilter } from './utils/range-filter.js';
 
 const ingestBodySchema = {
@@ -770,6 +775,112 @@ export async function registerRoutes(app) {
         });
       } catch (error) {
         logEndpointError(request, error, 'Incident timeline endpoint failed');
+        throw error;
+      }
+    }
+  );
+
+  app.get(
+    '/maintenance',
+    {
+      schema: {
+        querystring: {
+          type: 'object',
+          properties: {
+            cron_name: { type: 'string' },
+            server: { type: 'string' },
+            env: { type: 'string' },
+            service_group: { type: 'string' },
+            active: { type: 'boolean', default: true }
+          }
+        }
+      }
+    },
+    async (request) => {
+      try {
+        return {
+          maintenance_windows: await listMaintenanceWindows({
+            cron_name: request.query.cron_name,
+            server: request.query.server,
+            env: request.query.env,
+            service_group: request.query.service_group,
+            active: request.query.active !== false
+          })
+        };
+      } catch (error) {
+        logEndpointError(request, error, 'Maintenance list endpoint failed');
+        throw error;
+      }
+    }
+  );
+
+  app.post(
+    '/maintenance',
+    {
+      preHandler: requireAdmin,
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            cron_name: { type: 'string', maxLength: 255 },
+            server: { type: 'string', maxLength: 255 },
+            env: { type: 'string', maxLength: 80 },
+            service_group: { type: 'string', maxLength: 120 },
+            duration_minutes: { type: 'integer', minimum: 1, maximum: 10080 },
+            reason: { type: 'string', maxLength: 1000 }
+          }
+        }
+      }
+    },
+    async (request) => {
+      try {
+        const maintenance = await createMaintenanceWindow(request.body, request.user);
+        await logAudit({
+          user: request.user,
+          action: 'maintenance_enabled',
+          targetType: 'maintenance_window',
+          targetId: maintenance.id,
+          targetLabel: maintenance.cron_name || maintenance.service_group || maintenance.env || 'global',
+          request,
+          metadata: { expires_at: maintenance.expires_at, reason: maintenance.reason }
+        });
+        return { maintenance };
+      } catch (error) {
+        logEndpointError(request, error, 'Maintenance create endpoint failed');
+        throw error;
+      }
+    }
+  );
+
+  app.delete(
+    '/maintenance/:id',
+    {
+      preHandler: requireAdmin,
+      schema: {
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: {
+            id: { type: 'integer', minimum: 1 }
+          }
+        }
+      }
+    },
+    async (request) => {
+      try {
+        const maintenance = await endMaintenanceWindow(Number(request.params.id));
+        await logAudit({
+          user: request.user,
+          action: 'maintenance_disabled',
+          targetType: 'maintenance_window',
+          targetId: Number(request.params.id),
+          targetLabel: maintenance?.cron_name || maintenance?.service_group || maintenance?.env || 'global',
+          request
+        });
+        return { maintenance };
+      } catch (error) {
+        logEndpointError(request, error, 'Maintenance disable endpoint failed');
         throw error;
       }
     }
