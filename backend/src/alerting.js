@@ -175,7 +175,7 @@ function shouldLogEvaluationFailure(error) {
 
 function parseChannels(value) {
   if (Array.isArray(value)) {
-    return value.filter(Boolean);
+    return uniqueList(value.filter(Boolean));
   }
 
   if (!value) {
@@ -184,13 +184,17 @@ function parseChannels(value) {
 
   try {
     const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed.filter(Boolean) : [];
+    return Array.isArray(parsed) ? uniqueList(parsed.filter(Boolean)) : [];
   } catch {
-    return String(value)
+    return uniqueList(String(value)
       .split(',')
       .map((item) => item.trim())
-      .filter(Boolean);
+      .filter(Boolean));
   }
+}
+
+function uniqueList(values) {
+  return [...new Set(values)];
 }
 
 function normalizeRulePayload(payload = {}) {
@@ -313,10 +317,10 @@ function nowIso() {
 }
 
 function telegramChatIds() {
-  return String(process.env.TELEGRAM_CHAT_ID || '')
+  return uniqueList(String(process.env.TELEGRAM_CHAT_ID || '')
     .split(',')
     .map((chatId) => chatId.trim())
-    .filter(Boolean);
+    .filter(Boolean));
 }
 
 function normalizeTelegramTopicId(value) {
@@ -830,11 +834,12 @@ async function maybeNotify(app, alert, rule, lastNotifiedAt, lifecycle = 'trigge
   const last = lastNotifiedAt ? new Date(lastNotifiedAt).getTime() : 0;
 
   if (lifecycle === 'triggered' && last && Date.now() - last < cooldown) {
-    return;
+    return { sent: false, status: 'suppressed', error: null };
   }
 
   const result = await notifyAlert(app, alert, rule, lifecycle === 'escalated' ? 'triggered' : lifecycle);
   await updateNotificationStatus(alert.id, result);
+  return result;
 }
 
 export async function evaluateAlerts(app) {
@@ -880,16 +885,6 @@ export async function evaluateAlerts(app) {
         WHERE alert_events.id IN (${resolvedIds.map(() => '?').join(',')})
       `, resolvedIds);
 
-      await alertQuery(
-        { operation: 'resolve_alert_events', table: 'alert_events' },
-        `UPDATE alert_events
-         SET state = 'resolved',
-           resolved_at = UTC_TIMESTAMP(),
-           updated_at = CURRENT_TIMESTAMP
-         WHERE id IN (${resolvedIds.map(() => '?').join(',')})`,
-        resolvedIds
-      );
-
       for (const resolvedAlert of resolvedAlerts) {
         const rule = {
           id: resolvedAlert.rule_id,
@@ -898,7 +893,47 @@ export async function evaluateAlerts(app) {
           cooldown_minutes: resolvedAlert.cooldown_minutes,
           timeframe_minutes: 5
         };
-        await maybeNotify(app, { ...resolvedAlert, state: 'resolved' }, rule, null, 'resolved');
+
+        app?.log?.debug({
+          alert_id: resolvedAlert.id,
+          rule_id: resolvedAlert.rule_id,
+          cron_name: resolvedAlert.cron_name
+        }, 'Alert incident resolving');
+
+        const [resolveResult] = await alertQuery(
+          { operation: 'resolve_alert_event', table: 'alert_events', alert_id: resolvedAlert.id },
+          `UPDATE alert_events
+           SET state = 'resolved',
+             resolved_at = UTC_TIMESTAMP(),
+             updated_at = CURRENT_TIMESTAMP
+           WHERE id = ?
+             AND state IN ('active', 'acknowledged')`,
+          [resolvedAlert.id]
+        );
+
+        if (resolveResult.affectedRows === 0) {
+          app?.log?.debug({
+            alert_id: resolvedAlert.id,
+            rule_id: resolvedAlert.rule_id,
+            cron_name: resolvedAlert.cron_name
+          }, 'Resolved alert notification suppressed; incident already closed');
+          continue;
+        }
+
+        app?.log?.debug({
+          alert_id: resolvedAlert.id,
+          rule_id: resolvedAlert.rule_id,
+          cron_name: resolvedAlert.cron_name
+        }, 'Alert incident closed');
+
+        const notificationResult = await maybeNotify(app, { ...resolvedAlert, state: 'resolved' }, rule, null, 'resolved');
+        app?.log?.info({
+          alert_id: resolvedAlert.id,
+          rule_id: resolvedAlert.rule_id,
+          cron_name: resolvedAlert.cron_name,
+          notification_status: notificationResult?.status || null
+        }, 'Resolved alert notification dispatched');
+
         await logAudit({
           user: { email: 'system@nyx' },
           action: 'alert_resolved',
