@@ -1,5 +1,5 @@
--- Migration: 015_add_incident_impact_classification
--- Description: Classifies incident events so degradation alerts do not count as outage downtime.
+-- Migration: 016_refine_incident_impact_semantics
+-- Description: Separates lifecycle event impact from root reliability class for accurate outage/degradation reporting.
 
 SET @incident_events_exists = (
   SELECT COUNT(*)
@@ -22,7 +22,7 @@ SET @column_exists = (
     AND TABLE_NAME = 'incident_events'
     AND COLUMN_NAME = 'impact_type'
 );
-SET @sql = IF(@incident_events_exists > 0 AND @column_exists = 0, 'ALTER TABLE incident_events ADD COLUMN impact_type VARCHAR(40) NULL AFTER incident_status', 'SELECT ''015_add_incident_impact_classification: incident_events.impact_type already present or incident_events missing''');
+SET @sql = IF(@incident_events_exists > 0 AND @column_exists = 0, 'ALTER TABLE incident_events ADD COLUMN impact_type VARCHAR(40) NULL AFTER incident_status', 'SELECT ''016_refine_incident_impact_semantics: incident_events.impact_type already present or incident_events missing''');
 PREPARE stmt FROM @sql;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
@@ -34,7 +34,7 @@ SET @column_exists = (
     AND TABLE_NAME = 'incident_events'
     AND COLUMN_NAME = 'reliability_class'
 );
-SET @sql = IF(@incident_events_exists > 0 AND @column_exists = 0, 'ALTER TABLE incident_events ADD COLUMN reliability_class VARCHAR(40) NULL AFTER impact_type', 'SELECT ''015_add_incident_impact_classification: incident_events.reliability_class already present or incident_events missing''');
+SET @sql = IF(@incident_events_exists > 0 AND @column_exists = 0, 'ALTER TABLE incident_events ADD COLUMN reliability_class VARCHAR(40) NULL AFTER impact_type', 'SELECT ''016_refine_incident_impact_semantics: incident_events.reliability_class already present or incident_events missing''');
 PREPARE stmt FROM @sql;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
@@ -63,9 +63,7 @@ SET @sql = IF(@incident_events_exists > 0 AND @alert_events_exists > 0, '
       THEN ''degraded''
     ELSE ''informational''
   END
-  WHERE incident_events.impact_type IS NULL
-    OR incident_events.reliability_class IS NULL
-', 'SELECT ''015_add_incident_impact_classification: incident_events missing for impact backfill''');
+', 'SELECT ''016_refine_incident_impact_semantics: skipping joined backfill''');
 PREPARE stmt FROM @sql;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
@@ -93,21 +91,7 @@ SET @sql = IF(@incident_events_exists > 0 AND @alert_events_exists = 0, '
       THEN ''degraded''
     ELSE ''informational''
   END
-  WHERE impact_type IS NULL
-    OR reliability_class IS NULL
-', 'SELECT ''015_add_incident_impact_classification: alert_events present or incident_events missing for fallback backfill''');
-PREPARE stmt FROM @sql;
-EXECUTE stmt;
-DEALLOCATE PREPARE stmt;
-
-SET @index_exists = (
-  SELECT COUNT(*)
-  FROM INFORMATION_SCHEMA.STATISTICS
-  WHERE TABLE_SCHEMA = DATABASE()
-    AND TABLE_NAME = 'incident_events'
-    AND INDEX_NAME = 'idx_incident_events_impact_time'
-);
-SET @sql = IF(@incident_events_exists > 0 AND @index_exists = 0, 'CREATE INDEX idx_incident_events_impact_time ON incident_events(impact_type, occurred_at)', 'SELECT ''015_add_incident_impact_classification: idx_incident_events_impact_time already present or incident_events missing''');
+', 'SELECT ''016_refine_incident_impact_semantics: alert_events present or incident_events missing for fallback backfill''');
 PREPARE stmt FROM @sql;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
@@ -119,7 +103,7 @@ SET @index_exists = (
     AND TABLE_NAME = 'incident_events'
     AND INDEX_NAME = 'idx_incident_events_reliability_time'
 );
-SET @sql = IF(@incident_events_exists > 0 AND @index_exists = 0, 'CREATE INDEX idx_incident_events_reliability_time ON incident_events(reliability_class, occurred_at)', 'SELECT ''015_add_incident_impact_classification: idx_incident_events_reliability_time already present or incident_events missing''');
+SET @sql = IF(@incident_events_exists > 0 AND @index_exists = 0, 'CREATE INDEX idx_incident_events_reliability_time ON incident_events(reliability_class, occurred_at)', 'SELECT ''016_refine_incident_impact_semantics: idx_incident_events_reliability_time already present or incident_events missing''');
 PREPARE stmt FROM @sql;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;

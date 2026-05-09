@@ -7,8 +7,19 @@ const JAKARTA_OFFSET_MS = 7 * 60 * 60 * 1000;
 const INCIDENT_TYPES = ['alert_triggered', 'missing_detected'];
 const RECOVERY_TYPES = ['alert_resolved', 'heartbeat_recovered'];
 const VALID_IMPACT_TYPES = new Set(['outage', 'degraded', 'informational']);
+const VALID_RELIABILITY_CLASSES = new Set(['outage', 'degraded', 'informational']);
 const OUTAGE_INCIDENT_TYPES = new Set(['missing_cron', 'failed_threshold', 'cron_silence']);
 const DEGRADED_INCIDENT_TYPES = new Set(['success_rate_degradation', 'retry_storm', 'duration_anomaly', 'warning_threshold']);
+const LIFECYCLE_EVENT_TYPES = new Set([
+  'alert_triggered',
+  'alert_resolved',
+  'reminder_sent',
+  'incident_acknowledged',
+  'incident_note_added',
+  'maintenance_enabled',
+  'maintenance_disabled',
+  'maintenance_expired'
+]);
 
 let incidentSchemaReadyPromise;
 let reportTimeIndexesReadyPromise;
@@ -92,6 +103,7 @@ async function ensureIncidentSchema() {
           incident_type VARCHAR(40) NULL,
           incident_status VARCHAR(40) NULL,
           impact_type VARCHAR(40) NULL,
+          reliability_class VARCHAR(40) NULL,
           title VARCHAR(255) NOT NULL,
           reason TEXT NULL,
           started_at TIMESTAMP NULL,
@@ -115,6 +127,7 @@ async function ensureIncidentSchema() {
       await ensureColumn('incident_events', columns, 'incident_type', 'VARCHAR(40) NULL');
       await ensureColumn('incident_events', columns, 'incident_status', 'VARCHAR(40) NULL');
       await ensureColumn('incident_events', columns, 'impact_type', 'VARCHAR(40) NULL');
+      await ensureColumn('incident_events', columns, 'reliability_class', 'VARCHAR(40) NULL');
       await ensureColumn('incident_events', columns, 'started_at', 'TIMESTAMP NULL');
       await ensureColumn('incident_events', columns, 'resolved_at', 'TIMESTAMP NULL');
       await ensureColumn('incident_events', columns, 'downtime_seconds', 'INT UNSIGNED NULL');
@@ -123,6 +136,7 @@ async function ensureIncidentSchema() {
       const indexes = await tableIndexSet('incident_events');
       await ensureIndex('incident_events', indexes, 'idx_incident_events_occurred_at', '(occurred_at)');
       await ensureIndex('incident_events', indexes, 'idx_incident_events_impact_time', '(impact_type, occurred_at)');
+      await ensureIndex('incident_events', indexes, 'idx_incident_events_reliability_time', '(reliability_class, occurred_at)');
     })().catch((error) => {
       incidentSchemaReadyPromise = null;
       throw error;
@@ -183,6 +197,24 @@ function inferImpactType(event = {}) {
     return event.impact_type;
   }
 
+  const type = String(event.type || '').toLowerCase();
+
+  if (LIFECYCLE_EVENT_TYPES.has(type)) {
+    return 'informational';
+  }
+
+  if (type === 'missing_detected' || type === 'heartbeat_recovered') {
+    return 'outage';
+  }
+
+  return 'informational';
+}
+
+function inferReliabilityClass(event = {}) {
+  if (VALID_RELIABILITY_CLASSES.has(event.reliability_class)) {
+    return event.reliability_class;
+  }
+
   const incidentType = String(event.incident_type || event.type || '').toLowerCase();
   const type = String(event.type || '').toLowerCase();
   const severity = String(event.severity || '').toLowerCase();
@@ -195,7 +227,7 @@ function inferImpactType(event = {}) {
     return 'degraded';
   }
 
-  if (['incident_acknowledged', 'incident_note_added', 'maintenance_enabled', 'maintenance_disabled', 'maintenance_expired', 'reminder_sent'].includes(type)) {
+  if (LIFECYCLE_EVENT_TYPES.has(type)) {
     return 'informational';
   }
 
@@ -242,6 +274,7 @@ export async function recordIncidentEvent(event = {}) {
     event.incident_type || event.type,
     event.incident_status || null,
     inferImpactType(event),
+    inferReliabilityClass(event),
     eventTitle(event.type, event.title),
     event.reason || null,
     event.started_at || null,
@@ -258,9 +291,9 @@ export async function recordIncidentEvent(event = {}) {
   const [result] = await query(`
     INSERT IGNORE INTO incident_events
       (event_key, alert_event_id, rule_id, alert_key, cron_name, server, env, service_group, severity,
-       type, incident_type, incident_status, impact_type, title, reason, started_at, resolved_at, downtime_seconds,
+       type, incident_type, incident_status, impact_type, reliability_class, title, reason, started_at, resolved_at, downtime_seconds,
        downtime_minutes, metadata_json${occurredAtColumns})
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${occurredAtPlaceholder})
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${occurredAtPlaceholder})
   `, values);
 
   return result.insertId || null;
@@ -297,6 +330,7 @@ export async function listIncidentEvents({ cron, env, service_group, limit = 20,
       incident_events.cron_name, incident_events.server, incident_events.env, incident_events.service_group,
       incident_events.severity, incident_events.type, incident_events.incident_type, incident_events.incident_status,
       ${incidentImpactSql()} AS impact_type,
+      ${incidentReliabilitySql()} AS reliability_class,
       incident_events.title, incident_events.reason,
       incident_events.downtime_seconds, incident_events.downtime_minutes, incident_events.metadata_json,
       DATE_FORMAT(CONVERT_TZ(incident_events.started_at, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s') AS started_at,
@@ -360,8 +394,20 @@ function incidentPlaceholders(values) {
 }
 
 function incidentImpactSql() {
+  return `CASE
+    WHEN incident_events.type IN ('alert_triggered', 'alert_resolved', 'reminder_sent', 'incident_acknowledged', 'incident_note_added', 'maintenance_enabled', 'maintenance_disabled', 'maintenance_expired')
+      THEN 'informational'
+    WHEN incident_events.type IN ('missing_detected', 'heartbeat_recovered')
+      THEN 'outage'
+    WHEN incident_events.impact_type IN ('outage', 'degraded', 'informational')
+      THEN incident_events.impact_type
+    ELSE 'informational'
+  END`;
+}
+
+function incidentReliabilitySql() {
   return `COALESCE(
-    incident_events.impact_type,
+    incident_events.reliability_class,
     CASE
       WHEN incident_events.incident_type IN ('missing_cron', 'failed_threshold', 'cron_silence')
         OR incident_events.type IN ('missing_detected', 'heartbeat_recovered')
@@ -425,19 +471,19 @@ export async function getReliabilityReport({ range = '7d', start, end, env, serv
   addReportScopeFilters(filters, values, { env, service_group });
   const where = filters.join(' AND ');
   const eventTypes = [...INCIDENT_TYPES, ...RECOVERY_TYPES];
-  const impactSql = incidentImpactSql();
+  const reliabilitySql = incidentReliabilitySql();
   const periodMinutes = Math.max(1, Math.ceil((dateFilter.endDate.getTime() - dateFilter.startDate.getTime()) / 60000));
 
   const [[summary]] = await query(`
     SELECT
       SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) THEN 1 ELSE 0 END) AS total_incidents,
-      SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) AND ${impactSql} = 'outage' THEN 1 ELSE 0 END) AS outage_incidents,
-      SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) AND ${impactSql} = 'degraded' THEN 1 ELSE 0 END) AS degraded_incidents,
-      SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) AND ${impactSql} = 'informational' THEN 1 ELSE 0 END) AS informational_incidents,
+      SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) AND ${reliabilitySql} = 'outage' THEN 1 ELSE 0 END) AS outage_incidents,
+      SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) AND ${reliabilitySql} = 'degraded' THEN 1 ELSE 0 END) AS degraded_incidents,
+      SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) AND ${reliabilitySql} = 'informational' THEN 1 ELSE 0 END) AS informational_incidents,
       SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(RECOVERY_TYPES)}) THEN 1 ELSE 0 END) AS total_recoveries,
-      SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(RECOVERY_TYPES)}) AND ${impactSql} = 'outage' THEN 1 ELSE 0 END) AS outage_recoveries,
-      COALESCE(SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(RECOVERY_TYPES)}) AND ${impactSql} = 'outage' THEN COALESCE(incident_events.downtime_seconds, incident_events.downtime_minutes * 60, 0) ELSE 0 END), 0) AS total_downtime_seconds,
-      COALESCE(AVG(CASE WHEN incident_events.type IN (${incidentPlaceholders(RECOVERY_TYPES)}) AND ${impactSql} = 'outage' AND COALESCE(incident_events.downtime_seconds, incident_events.downtime_minutes * 60) IS NOT NULL THEN COALESCE(incident_events.downtime_seconds, incident_events.downtime_minutes * 60) END), 0) AS mttr_seconds,
+      SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(RECOVERY_TYPES)}) AND ${reliabilitySql} = 'outage' THEN 1 ELSE 0 END) AS outage_recoveries,
+      COALESCE(SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(RECOVERY_TYPES)}) AND ${reliabilitySql} = 'outage' THEN COALESCE(incident_events.downtime_seconds, incident_events.downtime_minutes * 60, 0) ELSE 0 END), 0) AS total_downtime_seconds,
+      COALESCE(AVG(CASE WHEN incident_events.type IN (${incidentPlaceholders(RECOVERY_TYPES)}) AND ${reliabilitySql} = 'outage' AND COALESCE(incident_events.downtime_seconds, incident_events.downtime_minutes * 60) IS NOT NULL THEN COALESCE(incident_events.downtime_seconds, incident_events.downtime_minutes * 60) END), 0) AS mttr_seconds,
       COUNT(*) AS total_events
     FROM incident_events
     WHERE ${where}
@@ -477,10 +523,10 @@ export async function getReliabilityReport({ range = '7d', start, end, env, serv
       MAX(incident_events.env) AS env,
       MAX(incident_events.service_group) AS service_group,
       SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) THEN 1 ELSE 0 END) AS incident_count,
-      SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) AND ${impactSql} = 'outage' THEN 1 ELSE 0 END) AS outage_incident_count,
-      SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) AND ${impactSql} = 'degraded' THEN 1 ELSE 0 END) AS degraded_incident_count,
-      COALESCE(SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(RECOVERY_TYPES)}) AND ${impactSql} = 'outage' THEN COALESCE(incident_events.downtime_seconds, incident_events.downtime_minutes * 60, 0) ELSE 0 END), 0) AS total_downtime_seconds,
-      COALESCE(AVG(CASE WHEN incident_events.type IN (${incidentPlaceholders(RECOVERY_TYPES)}) AND ${impactSql} = 'outage' AND COALESCE(incident_events.downtime_seconds, incident_events.downtime_minutes * 60) IS NOT NULL THEN COALESCE(incident_events.downtime_seconds, incident_events.downtime_minutes * 60) END), 0) AS avg_recovery_seconds,
+      SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) AND ${reliabilitySql} = 'outage' THEN 1 ELSE 0 END) AS outage_incident_count,
+      SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) AND ${reliabilitySql} = 'degraded' THEN 1 ELSE 0 END) AS degraded_incident_count,
+      COALESCE(SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(RECOVERY_TYPES)}) AND ${reliabilitySql} = 'outage' THEN COALESCE(incident_events.downtime_seconds, incident_events.downtime_minutes * 60, 0) ELSE 0 END), 0) AS total_downtime_seconds,
+      COALESCE(AVG(CASE WHEN incident_events.type IN (${incidentPlaceholders(RECOVERY_TYPES)}) AND ${reliabilitySql} = 'outage' AND COALESCE(incident_events.downtime_seconds, incident_events.downtime_minutes * 60) IS NOT NULL THEN COALESCE(incident_events.downtime_seconds, incident_events.downtime_minutes * 60) END), 0) AS avg_recovery_seconds,
       MAX(incident_events.occurred_at) AS latest_event
     FROM incident_events
     WHERE ${where}
@@ -503,8 +549,8 @@ export async function getReliabilityReport({ range = '7d', start, end, env, serv
     SELECT
       DATE_FORMAT(CONVERT_TZ(incident_events.occurred_at, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d') AS day,
       SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) THEN 1 ELSE 0 END) AS incidents,
-      SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) AND ${impactSql} = 'outage' THEN 1 ELSE 0 END) AS outage_incidents,
-      SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) AND ${impactSql} = 'degraded' THEN 1 ELSE 0 END) AS degraded_incidents,
+      SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) AND ${reliabilitySql} = 'outage' THEN 1 ELSE 0 END) AS outage_incidents,
+      SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) AND ${reliabilitySql} = 'degraded' THEN 1 ELSE 0 END) AS degraded_incidents,
       SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(RECOVERY_TYPES)}) THEN 1 ELSE 0 END) AS recoveries
     FROM incident_events
     WHERE ${where}
