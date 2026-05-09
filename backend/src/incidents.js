@@ -28,7 +28,7 @@ async function ensureIncidentSchema() {
           reason TEXT NULL,
           downtime_minutes INT NULL,
           metadata_json LONGTEXT NULL,
-          occurred_at DATETIME NOT NULL DEFAULT UTC_TIMESTAMP(),
+          occurred_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           PRIMARY KEY (id),
           UNIQUE KEY uq_incident_events_key (event_key),
@@ -80,12 +80,10 @@ export async function recordIncidentEvent(event = {}) {
 
   const eventKey = eventKeyFor(event);
   const metadata = event.metadata ? JSON.stringify(event.metadata) : null;
-  const [result] = await query(`
-    INSERT IGNORE INTO incident_events
-      (event_key, alert_event_id, rule_id, alert_key, cron_name, env, service_group, severity,
-       type, title, reason, downtime_minutes, metadata_json, occurred_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, UTC_TIMESTAMP()))
-  `, [
+  const occurredAt = event.occurred_at || null;
+  const occurredAtColumns = occurredAt ? ', occurred_at' : '';
+  const occurredAtPlaceholder = occurredAt ? ', ?' : '';
+  const values = [
     eventKey,
     event.alert_event_id || null,
     event.rule_id || null,
@@ -98,9 +96,19 @@ export async function recordIncidentEvent(event = {}) {
     eventTitle(event.type, event.title),
     event.reason || null,
     Number.isFinite(Number(event.downtime_minutes)) ? Number(event.downtime_minutes) : null,
-    metadata,
-    event.occurred_at || null
-  ]);
+    metadata
+  ];
+
+  if (occurredAt) {
+    values.push(occurredAt);
+  }
+
+  const [result] = await query(`
+    INSERT IGNORE INTO incident_events
+      (event_key, alert_event_id, rule_id, alert_key, cron_name, env, service_group, severity,
+       type, title, reason, downtime_minutes, metadata_json${occurredAtColumns})
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${occurredAtPlaceholder})
+  `, values);
 
   return result.insertId || null;
 }
