@@ -35,6 +35,7 @@ import {
   setCronScheduleEnabled,
   updateCronSchedule
 } from './heartbeat.js';
+import { listIncidentEvents } from './incidents.js';
 import { normalizeTimelineBuckets, resolveDateFilter } from './utils/range-filter.js';
 
 const ingestBodySchema = {
@@ -737,6 +738,38 @@ export async function registerRoutes(app) {
         };
       } catch (error) {
         logEndpointError(request, error, 'Alert list endpoint failed');
+        throw error;
+      }
+    }
+  );
+
+  app.get(
+    '/incidents',
+    {
+      schema: {
+        querystring: {
+          type: 'object',
+          properties: {
+            cron: { type: 'string' },
+            env: { type: 'string' },
+            service_group: { type: 'string' },
+            limit: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
+            offset: { type: 'integer', minimum: 0, default: 0 }
+          }
+        }
+      }
+    },
+    async (request) => {
+      try {
+        return await listIncidentEvents({
+          cron: request.query.cron,
+          env: request.query.env,
+          service_group: request.query.service_group,
+          limit: request.query.limit,
+          offset: request.query.offset
+        });
+      } catch (error) {
+        logEndpointError(request, error, 'Incident timeline endpoint failed');
         throw error;
       }
     }

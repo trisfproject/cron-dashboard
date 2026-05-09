@@ -2,17 +2,18 @@
 
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
-import { Activity, AlertTriangle, BarChart3, Clock3, Gauge, Radio, RotateCcw, ShieldCheck, Timer, Zap } from 'lucide-react';
+import { Activity, AlertTriangle, BarChart3, Bell, CheckCircle2, Clock3, Gauge, Radio, RotateCcw, ShieldCheck, Timer, Zap } from 'lucide-react';
 import { FailureWarningChart, DurationChart, ThroughputChart, TimelineChart } from '@/components/TimelineChart';
 import { InteractiveLogsTable } from '@/components/InteractiveLogsTable';
 import { EnvironmentBadge, ServiceGroupBadge } from '@/components/EnvironmentBadge';
 import { MetricCard } from '@/components/MetricCard';
 import { TimeRangeFilter } from '@/components/TimeRangeFilter';
-import { getLogs, getStats } from '@/lib/api';
+import { getIncidents, getLogs, getStats } from '@/lib/api';
 import { formatDate, formatDuration, formatNumber, formatPercent } from '@/lib/format';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_FILTER = { type: 'window', value: '30m' };
+const INCIDENT_PAGE_SIZE = 10;
 const VALID_WINDOWS = new Set(['5m', '15m', '30m', '1h', '4h']);
 const VALID_RANGES = new Set(['today', '7d', '30d']);
 const JAKARTA_OFFSET_MS = 7 * 60 * 60 * 1000;
@@ -59,6 +60,54 @@ function normalizeStatsResponse(data) {
 function normalizeLogsResponse(data) {
   const source = data?.data && typeof data.data === 'object' ? data.data : data;
   return Array.isArray(source?.logs) ? source.logs : [];
+}
+
+function normalizeIncidentsResponse(data) {
+  return {
+    incidents: Array.isArray(data?.incidents) ? data.incidents : [],
+    has_more: Boolean(data?.has_more),
+    next_offset: Number(data?.next_offset || 0)
+  };
+}
+
+function incidentTime(value) {
+  const text = String(value || '');
+  const match = text.match(/\b(\d{2}:\d{2})(?::\d{2})?\b/);
+  return match ? match[1] : '-';
+}
+
+function incidentStyle(type) {
+  return {
+    triggered: {
+      icon: AlertTriangle,
+      label: 'Triggered',
+      className: 'bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-950/50 dark:text-rose-200 dark:ring-rose-900'
+    },
+    missing_detected: {
+      icon: AlertTriangle,
+      label: 'Missing detected',
+      className: 'bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-950/50 dark:text-rose-200 dark:ring-rose-900'
+    },
+    reminder_sent: {
+      icon: Bell,
+      label: 'Reminder sent',
+      className: 'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-950/50 dark:text-amber-200 dark:ring-amber-900'
+    },
+    resolved: {
+      icon: CheckCircle2,
+      label: 'Resolved',
+      className: 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-200 dark:ring-emerald-900'
+    },
+    heartbeat_recovered: {
+      icon: CheckCircle2,
+      label: 'Recovered',
+      className: 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-200 dark:ring-emerald-900'
+    }
+  }[type] || {
+    icon: Activity,
+    label: String(type || 'Event').replaceAll('_', ' '),
+    className: 'bg-slate-100 text-slate-700 ring-slate-200 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-800'
+  };
 }
 
 function percentile(values, percentileValue) {
@@ -120,6 +169,12 @@ function CronDetailContent() {
   const [customRange, setCustomRange] = useState(isValidCustomRange(initialCustomRange) ? initialCustomRange : null);
   const [stats, setStats] = useState({ summary: {}, timeline: [], interval: 'hour' });
   const [logs, setLogs] = useState([]);
+  const [incidents, setIncidents] = useState([]);
+  const [incidentsLoading, setIncidentsLoading] = useState(false);
+  const [incidentsLoadingMore, setIncidentsLoadingMore] = useState(false);
+  const [incidentsError, setIncidentsError] = useState(null);
+  const [hasMoreIncidents, setHasMoreIncidents] = useState(false);
+  const [nextIncidentOffset, setNextIncidentOffset] = useState(0);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [hasLoaded, setHasLoaded] = useState(false);
@@ -191,6 +246,52 @@ function CronDetailContent() {
     };
   }, [cronName, customRange, env, filter, refreshTick, server, serviceGroup]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadIncidents() {
+      setIncidentsLoading(true);
+      setIncidentsError(null);
+
+      try {
+        const data = await getIncidents({
+          cron: cronName,
+          ...(env ? { env } : {}),
+          ...(serviceGroup ? { service_group: serviceGroup } : {}),
+          limit: INCIDENT_PAGE_SIZE,
+          offset: 0
+        });
+        const next = normalizeIncidentsResponse(data);
+
+        if (!cancelled) {
+          setIncidents(next.incidents);
+          setHasMoreIncidents(next.has_more);
+          setNextIncidentOffset(next.next_offset);
+        }
+      } catch (incidentError) {
+        if (!cancelled) {
+          console.error('Failed to fetch incident timeline:', incidentError);
+          setIncidentsError(incidentError?.message || 'Failed to load incident timeline');
+          setIncidents([]);
+          setHasMoreIncidents(false);
+          setNextIncidentOffset(0);
+        }
+      } finally {
+        if (!cancelled) {
+          setIncidentsLoading(false);
+        }
+      }
+    }
+
+    if (cronName) {
+      loadIncidents();
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cronName, env, serviceGroup]);
+
   const summary = stats?.summary ?? {};
   const timeline = Array.isArray(stats?.timeline) ? stats.timeline : [];
   const totalRuns = Number(summary.total_runs || 0);
@@ -220,6 +321,35 @@ function CronDetailContent() {
     setCustomRange(null);
     setFilter(DEFAULT_FILTER);
     setLiveMode(true);
+  }
+
+  async function loadMoreIncidents() {
+    if (incidentsLoadingMore || !hasMoreIncidents) {
+      return;
+    }
+
+    setIncidentsLoadingMore(true);
+    setIncidentsError(null);
+
+    try {
+      const data = await getIncidents({
+        cron: cronName,
+        ...(env ? { env } : {}),
+        ...(serviceGroup ? { service_group: serviceGroup } : {}),
+        limit: INCIDENT_PAGE_SIZE,
+        offset: nextIncidentOffset
+      });
+      const next = normalizeIncidentsResponse(data);
+
+      setIncidents((current) => [...current, ...next.incidents]);
+      setHasMoreIncidents(next.has_more);
+      setNextIncidentOffset(next.next_offset);
+    } catch (incidentError) {
+      console.error('Failed to load older incident events:', incidentError);
+      setIncidentsError(incidentError?.message || 'Failed to load older incidents');
+    } finally {
+      setIncidentsLoadingMore(false);
+    }
   }
 
   if (loading && !hasLoaded) {
@@ -341,6 +471,85 @@ function CronDetailContent() {
           <p className="mt-1 text-sm text-slate-500">Non-success outcomes for this exact cron command.</p>
         </div>
         <FailureWarningChart data={timeline} />
+      </section>
+
+      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-ink">Incident Timeline</h2>
+            <p className="mt-1 text-sm text-slate-500">Alert and heartbeat lifecycle history for this cron.</p>
+          </div>
+          <span className="text-xs text-slate-500">{incidents.length} event{incidents.length === 1 ? '' : 's'} loaded</span>
+        </div>
+
+        {incidentsError ? (
+          <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+            {incidentsError}
+          </div>
+        ) : null}
+
+        {incidentsLoading && incidents.length === 0 ? (
+          <div className="py-8 text-center text-sm text-slate-500">Loading incident timeline...</div>
+        ) : null}
+
+        {!incidentsLoading && incidents.length === 0 ? (
+          <div className="py-8 text-center text-sm text-slate-500">No incident events recorded for this cron yet.</div>
+        ) : null}
+
+        {incidents.length > 0 ? (
+          <ol className="relative space-y-3 border-l border-slate-200 pl-4 dark:border-slate-800">
+            {incidents.map((incident) => {
+              const style = incidentStyle(incident.type);
+              const Icon = style.icon;
+              const downtime = incident.downtime_minutes !== null && incident.downtime_minutes !== undefined
+                ? `downtime ${incident.downtime_minutes}m`
+                : null;
+              const schedule = incident.metadata?.schedule;
+
+              return (
+                <li key={incident.id} className="relative">
+                  <span className="absolute -left-[1.42rem] top-1 flex h-5 w-5 items-center justify-center rounded-full bg-white ring-1 ring-slate-200 dark:bg-slate-950 dark:ring-slate-800">
+                    <Icon className="h-3.5 w-3.5 text-slate-500" aria-hidden="true" />
+                  </span>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-mono text-sm font-semibold text-ink">{incidentTime(incident.occurred_at)}</span>
+                        <span className={`inline-flex rounded-md px-2 py-0.5 text-xs font-medium capitalize ring-1 ${style.className}`}>
+                          {style.label}
+                        </span>
+                        {incident.severity ? (
+                          <span className="text-xs text-slate-500">{incident.severity}</span>
+                        ) : null}
+                      </div>
+                      <p className="mt-1 text-sm font-medium text-ink">{incident.title}</p>
+                      <p className="mt-1 text-sm text-slate-500">{incident.reason || 'Incident lifecycle event'}</p>
+                      {schedule || downtime ? (
+                        <p className="mt-1 text-xs text-slate-500">
+                          {[downtime, schedule].filter(Boolean).join(' · ')}
+                        </p>
+                      ) : null}
+                    </div>
+                    <span className="shrink-0 text-xs text-slate-500">{incident.occurred_at} WIB</span>
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+        ) : null}
+
+        {hasMoreIncidents ? (
+          <div className="mt-5">
+            <button
+              type="button"
+              onClick={loadMoreIncidents}
+              disabled={incidentsLoadingMore}
+              className="inline-flex min-h-10 items-center rounded-md border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900"
+            >
+              {incidentsLoadingMore ? 'Loading older incidents...' : 'Load More'}
+            </button>
+          </div>
+        ) : null}
       </section>
 
       <section className="space-y-4">

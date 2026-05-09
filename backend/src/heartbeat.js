@@ -1,5 +1,6 @@
 import * as cronParser from 'cron-parser';
 import { pool } from './db.js';
+import { recordIncidentEvent } from './incidents.js';
 
 const DEFAULT_TIMEZONE = 'Asia/Jakarta';
 const DEFAULT_GRACE_MINUTES = 10;
@@ -830,6 +831,7 @@ async function persistHeartbeatAlerts(app, health) {
           VALUES (?, ?, ?, ?, ?, 'missing_cron', ?, ?, 'active', UTC_TIMESTAMP())
         `, [rule.id, key, item.cron_name, env, serviceGroup, severity, reason]);
 
+        await recordHeartbeatIncidentEvent({ id: result.insertId, severity, ...alertPayload }, rule, 'triggered', item.cooldown_minutes || rule.cooldown_minutes);
         await notifyMissingCron(app, { id: result.insertId, severity, ...alertPayload }, rule, null, 'triggered');
       } catch (error) {
         if (error.code !== 'ER_DUP_ENTRY') {
@@ -861,6 +863,10 @@ async function persistHeartbeatAlerts(app, health) {
     if (reactivated && updateResult.affectedRows === 0) {
       app?.log?.debug({ alert_id: existing.id, alert_key: key }, 'Missing cron reactivation suppressed; incident already active');
       continue;
+    }
+
+    if (reactivated) {
+      await recordHeartbeatIncidentEvent({ id: existing.id, severity, ...alertPayload }, rule, 'triggered', item.cooldown_minutes || rule.cooldown_minutes);
     }
 
     await notifyMissingCron(app, { id: existing.id, severity, ...alertPayload }, {
@@ -924,14 +930,16 @@ async function persistHeartbeatAlerts(app, health) {
     const incidentOpenedAt = toDate(row.triggered_at);
     const resolvedAt = new Date();
     const downtimeMinutes = incidentOpenedAt ? minutesBetween(resolvedAt, incidentOpenedAt) : null;
-
-    await notifyMissingCron(app, {
+    const resolvedAlert = {
       ...row,
       recovered_at: formatWibDate(resolvedAt),
       downtime_duration_label: downtimeMinutes === null ? '-' : humanMinutes(downtimeMinutes),
       last_heartbeat_at: currentHealth.last_heartbeat_at || null,
       schedule_description: currentHealth.schedule_description || null
-    }, rule, null, 'resolved');
+    };
+
+    await recordHeartbeatIncidentEvent(resolvedAlert, rule, 'resolved', rule.cooldown_minutes);
+    await notifyMissingCron(app, resolvedAlert, rule, null, 'resolved');
   }
 }
 
@@ -994,7 +1002,9 @@ async function notifyMissingCron(app, alert, rule, lastNotifiedAt, lifecycle) {
     repeat_interval_minutes: repeatMinutes
   };
 
-  if (status === 'success') {
+  if (status === 'success' && lifecycle === 'reminder') {
+    await recordHeartbeatIncidentEvent(alert, rule, lifecycle, repeatMinutes);
+
     const message = lifecycle === 'resolved'
       ? 'Missing cron recovery notification sent'
       : lifecycle === 'reminder'
@@ -1004,6 +1014,46 @@ async function notifyMissingCron(app, alert, rule, lastNotifiedAt, lifecycle) {
   } else {
     app?.log?.warn({ ...logPayload, errors }, 'Missing cron notification was not delivered');
   }
+}
+
+async function recordHeartbeatIncidentEvent(alert, rule, lifecycle, repeatMinutes) {
+  const type = lifecycle === 'resolved'
+    ? 'heartbeat_recovered'
+    : lifecycle === 'reminder'
+      ? 'reminder_sent'
+      : 'missing_detected';
+  const downtimeMatch = String(alert.downtime_duration_label || '').match(/^(\d+)/);
+
+  await recordIncidentEvent({
+    event_key: [
+      alert.id,
+      type,
+      lifecycle === 'resolved' ? alert.recovered_at : alert.expected_at,
+      lifecycle === 'reminder' ? alert.missing_duration_label : ''
+    ].join(':').slice(0, 255),
+    alert_event_id: alert.id,
+    rule_id: rule.id,
+    cron_name: alert.cron_name,
+    env: alert.env,
+    service_group: alert.service_group,
+    severity: alert.severity,
+    type,
+    title: lifecycle === 'resolved'
+      ? 'Heartbeat recovered'
+      : lifecycle === 'reminder'
+        ? 'Reminder sent'
+        : 'Missing detected',
+    reason: lifecycle === 'resolved' ? 'Heartbeat restored' : 'Cron heartbeat missing',
+    downtime_minutes: downtimeMatch ? Number(downtimeMatch[1]) : null,
+    metadata: {
+      lifecycle,
+      schedule: alert.schedule_description || null,
+      expected_at: alert.expected_at || null,
+      last_heartbeat_at: alert.last_heartbeat_at || null,
+      missing_duration: alert.missing_duration_label || null,
+      repeat_interval_minutes: repeatMinutes
+    }
+  });
 }
 
 async function claimMissingCronNotification(alertId, lifecycle, repeatMinutes) {

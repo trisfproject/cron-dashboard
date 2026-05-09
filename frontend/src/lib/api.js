@@ -194,6 +194,19 @@ export function getAlerts(params = {}, options = {}) {
   return request(`/alerts${suffix}`, options);
 }
 
+export function getIncidents(params = {}, options = {}) {
+  const query = new URLSearchParams();
+
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== '') {
+      query.set(key, String(value));
+    }
+  }
+
+  const suffix = query.toString() ? `?${query.toString()}` : '';
+  return request(`/incidents${suffix}`, options);
+}
+
 export function getHeartbeatHealth(params = {}, options = {}) {
   const query = new URLSearchParams();
 
