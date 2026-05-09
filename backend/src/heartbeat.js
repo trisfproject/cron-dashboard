@@ -45,6 +45,19 @@ function toDate(value) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+function toJakartaDate(value) {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = typeof value === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(value)
+    ? `${value.replace(' ', 'T')}+07:00`
+    : value;
+  const date = new Date(normalized);
+
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 function minutesBetween(left, right) {
   return Math.max(0, Math.floor((left.getTime() - right.getTime()) / 60000));
 }
@@ -618,6 +631,7 @@ export async function evaluateHeartbeatSchedules({ persist = false, app } = {}) 
         ...schedule,
         heartbeat_status: missing ? 'missing' : runtime.activeWindow ? 'healthy' : 'outside_window',
         last_heartbeat_at: formatWibDate(lastHeartbeatAt),
+        last_heartbeat_at_utc: lastHeartbeatAt ? lastHeartbeatAt.toISOString() : null,
         last_heartbeat_minutes_ago: lastHeartbeatAt ? minutesBetween(now, lastHeartbeatAt) : null,
         expected_at: formatWibDate(missedExpectedAt),
         overdue_at: formatWibDate(overdueAt),
@@ -672,7 +686,11 @@ export function buildMissingCronTelegramMessage(alert, rule, lifecycle = 'trigge
       '',
       '<b>Status:</b>\nHeartbeat restored',
       '',
-      `<b>Recovered at:</b>\n${escapeTelegramHtml(formatWibDate(new Date()))} WIB`
+      `<b>Recovered At:</b>\n${escapeTelegramHtml(alert.recovered_at || formatWibDate(new Date()))} WIB`,
+      '',
+      `<b>Downtime Duration:</b>\n${escapeTelegramHtml(alert.downtime_duration_label || '-')}`,
+      '',
+      `<b>Last Heartbeat:</b>\n${escapeTelegramHtml(alert.last_heartbeat_at ? `${alert.last_heartbeat_at} WIB` : '-')}`
     ].join('\n');
   }
 
@@ -718,11 +736,7 @@ async function persistHeartbeatAlerts(app, health) {
   }
 
   const activeKeys = new Set();
-  const recoveredKeys = new Set(
-    health
-      .filter((item) => item.heartbeat_restored)
-      .map((item) => missingAlertKey(rule, item))
-  );
+  const healthByKey = new Map(health.map((item) => [missingAlertKey(rule, item), item]));
   const missingItems = health.filter((item) => item.heartbeat_status === 'missing');
 
   for (const item of missingItems) {
@@ -787,13 +801,35 @@ async function persistHeartbeatAlerts(app, health) {
   }
 
   const [activeRows] = await query(
-    `SELECT id, alert_key, cron_name, env, service_group, severity, last_notified_at
+    `SELECT id, alert_key, cron_name, env, service_group, severity, last_notified_at, triggered_at,
+       DATE_FORMAT(CONVERT_TZ(triggered_at, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s') AS triggered_at_wib
      FROM alert_events
      WHERE state IN ('active', 'acknowledged')
        AND rule_id = ?`,
     [rule.id]
   );
-  const resolvedRows = activeRows.filter((row) => !activeKeys.has(row.alert_key) && recoveredKeys.has(row.alert_key));
+  const resolvedRows = activeRows.filter((row) => {
+    if (activeKeys.has(row.alert_key)) {
+      return false;
+    }
+
+    const currentHealth = healthByKey.get(row.alert_key);
+
+    if (!currentHealth || currentHealth.heartbeat_status === 'invalid_schedule') {
+      return false;
+    }
+
+    if (currentHealth.heartbeat_restored) {
+      return true;
+    }
+
+    const lastHeartbeatAt = currentHealth.last_heartbeat_at_utc
+      ? new Date(currentHealth.last_heartbeat_at_utc)
+      : toJakartaDate(currentHealth.last_heartbeat_at);
+    const incidentOpenedAt = toDate(row.triggered_at);
+
+    return Boolean(lastHeartbeatAt && incidentOpenedAt && lastHeartbeatAt.getTime() >= incidentOpenedAt.getTime());
+  });
 
   if (resolvedRows.length === 0) {
     return;
@@ -811,7 +847,18 @@ async function persistHeartbeatAlerts(app, health) {
   );
 
   for (const row of resolvedRows) {
-    await notifyMissingCron(app, row, rule, null, 'resolved');
+    const currentHealth = healthByKey.get(row.alert_key) || {};
+    const incidentOpenedAt = toDate(row.triggered_at);
+    const resolvedAt = new Date();
+    const downtimeMinutes = incidentOpenedAt ? minutesBetween(resolvedAt, incidentOpenedAt) : null;
+
+    await notifyMissingCron(app, {
+      ...row,
+      recovered_at: formatWibDate(resolvedAt),
+      downtime_duration_label: downtimeMinutes === null ? '-' : humanMinutes(downtimeMinutes),
+      last_heartbeat_at: currentHealth.last_heartbeat_at || null,
+      schedule_description: currentHealth.schedule_description || null
+    }, rule, null, 'resolved');
   }
 }
 
