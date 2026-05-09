@@ -6,8 +6,8 @@ const variants = {
     image: 'h-9 max-w-[150px] sm:max-w-[165px] lg:h-9 lg:max-w-[170px]'
   },
   login: {
-    wrapper: 'h-12 justify-start min-[360px]:h-14 sm:h-12 sm:justify-center lg:h-12',
-    image: 'h-10 max-w-[150px] min-[360px]:h-12 min-[360px]:max-w-[180px] sm:h-10 sm:max-w-[172px] lg:h-10'
+    wrapper: 'h-12 justify-start min-[360px]:h-14 sm:h-[3.25rem] md:h-14 lg:h-16',
+    image: 'h-10 max-w-[150px] min-[360px]:h-12 min-[360px]:max-w-[180px] sm:h-12 sm:max-w-[190px] md:h-14 md:max-w-[220px] lg:h-16 lg:max-w-[250px]'
   }
 };
 
