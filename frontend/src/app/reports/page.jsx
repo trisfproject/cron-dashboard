@@ -148,42 +148,75 @@ function SummaryCard({ icon: Icon, label, value, subtext }) {
 function TrendBars({ trend }) {
   const maxValue = Math.max(1, ...trend.map((row) => Math.max(Number(row.incidents || 0), Number(row.recoveries || 0))));
   const totalActivity = trend.reduce((sum, row) => sum + Number(row.incidents || 0) + Number(row.recoveries || 0), 0);
+  const totalIncidents = trend.reduce((sum, row) => sum + Number(row.incidents || 0), 0);
+  const totalRecoveries = trend.reduce((sum, row) => sum + Number(row.recoveries || 0), 0);
+  const trendHealthy = totalRecoveries >= totalIncidents;
 
   if (trend.length === 0 || totalActivity === 0) {
     return <div className="px-4 py-8 text-center text-sm text-slate-500 dark:text-slate-400">No incident trend data for this range.</div>;
   }
 
   return (
-    <div className="overflow-x-auto">
-      <div className="flex min-w-[36rem] items-end gap-3 px-4 py-5">
-        {trend.map((row) => {
-          const incidents = Number(row.incidents || 0);
-          const recoveries = Number(row.recoveries || 0);
-          const incidentHeight = incidents > 0 ? Math.max(4, (incidents / maxValue) * 96) : 0;
-          const recoveryHeight = recoveries > 0 ? Math.max(4, (recoveries / maxValue) * 96) : 0;
-
-          return (
-            <div key={row.day} className="flex min-w-16 flex-1 flex-col items-center gap-2">
-              <div className="flex h-28 items-end gap-1.5">
-                <span
-                  className="w-3 rounded-t bg-rose-500 dark:bg-rose-400"
-                  style={{ height: `${incidentHeight}px` }}
-                  title={`${incidents} incidents`}
-                />
-                <span
-                  className="w-3 rounded-t bg-emerald-500 dark:bg-emerald-400"
-                  style={{ height: `${recoveryHeight}px` }}
-                  title={`${recoveries} recoveries`}
-                />
-              </div>
-              <p className="text-center text-xs font-medium text-slate-500 dark:text-slate-400">{row.day.slice(5)}</p>
-            </div>
-          );
-        })}
+    <div>
+      <div className="flex flex-col gap-2 border-b border-slate-200 px-4 py-3 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm text-slate-600 dark:text-slate-300">
+          {formatNumber(totalIncidents)} triggered / {formatNumber(totalRecoveries)} resolved
+        </p>
+        <span className={`w-fit rounded-md px-2 py-1 text-xs font-medium ring-1 ${
+          trendHealthy
+            ? 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:ring-emerald-900'
+            : 'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-900'
+        }`}
+        >
+          {trendHealthy ? 'Recoveries are keeping pace' : 'New incidents are outpacing recoveries'}
+        </span>
       </div>
-      <div className="flex items-center gap-4 border-t border-slate-200 px-4 py-3 text-xs font-medium text-slate-500 dark:border-slate-800 dark:text-slate-400">
-        <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded bg-rose-500" /> Incidents</span>
-        <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded bg-emerald-500" /> Recoveries</span>
+      <div className="overflow-x-auto">
+        <div className="flex min-w-[36rem] items-end gap-3 px-4 py-5">
+          {trend.map((row) => {
+            const incidents = Number(row.incidents || 0);
+            const recoveries = Number(row.recoveries || 0);
+            const outageIncidents = Number(row.outage_incidents || 0);
+            const degradedIncidents = Number(row.degraded_incidents || 0);
+            const incidentHeight = incidents > 0 ? Math.max(4, (incidents / maxValue) * 96) : 0;
+            const recoveryHeight = recoveries > 0 ? Math.max(4, (recoveries / maxValue) * 96) : 0;
+            const incidentTitle = [
+              row.day,
+              `${formatNumber(incidents)} incidents triggered`,
+              `${formatNumber(outageIncidents)} outage-class`,
+              `${formatNumber(degradedIncidents)} degradation-class`
+            ].join('\n');
+            const recoveryTitle = [
+              row.day,
+              `${formatNumber(recoveries)} incidents resolved`
+            ].join('\n');
+
+            return (
+              <div key={row.day} className="flex min-w-16 flex-1 flex-col items-center gap-2">
+                <div className="flex h-28 items-end gap-1.5">
+                  <span
+                    className="w-3 rounded-t bg-rose-500 dark:bg-rose-400"
+                    style={{ height: `${incidentHeight}px` }}
+                    title={incidentTitle}
+                    aria-label={incidentTitle}
+                  />
+                  <span
+                    className="w-3 rounded-t bg-emerald-500 dark:bg-emerald-400"
+                    style={{ height: `${recoveryHeight}px` }}
+                    title={recoveryTitle}
+                    aria-label={recoveryTitle}
+                  />
+                </div>
+                <p className="text-center text-xs font-medium text-slate-500 dark:text-slate-400">{row.day.slice(5)}</p>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-4 border-t border-slate-200 px-4 py-3 text-xs font-medium text-slate-500 dark:border-slate-800 dark:text-slate-400">
+        <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded bg-rose-500" /> Incidents Triggered</span>
+        <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded bg-emerald-500" /> Incidents Resolved</span>
+        <span className="text-slate-400 dark:text-slate-500">Green keeping pace with red means the incident queue is stabilizing.</span>
       </div>
     </div>
   );
@@ -560,7 +593,7 @@ function ReportsContent() {
           <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
             <div className="border-b border-slate-200 px-4 py-4 dark:border-slate-800">
               <h2 className="text-base font-semibold text-ink">Incident Trend</h2>
-              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Daily incident starts and recoveries in WIB.</p>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Compare daily triggered incidents against resolved incidents in WIB to see whether operations are stabilizing or accumulating unresolved work.</p>
             </div>
             <TrendBars trend={trend} />
           </section>
