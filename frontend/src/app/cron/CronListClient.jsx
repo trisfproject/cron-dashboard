@@ -59,7 +59,7 @@ function heartbeatStatus(job) {
   const heartbeat = job?.heartbeat;
 
   if (!heartbeat) {
-    return { label: 'Disabled', tone: 'disabled' };
+    return { label: 'Not Configured', tone: 'not_configured' };
   }
 
   if (heartbeat.enabled === false || heartbeat.status === 'disabled') {
@@ -75,10 +75,10 @@ function heartbeatStatus(job) {
   }
 
   if (heartbeat.status === 'outside_window') {
-    return { label: 'Enabled', tone: 'enabled' };
+    return { label: 'Healthy', tone: 'healthy' };
   }
 
-  return { label: 'Heartbeat Enabled', tone: 'enabled' };
+  return { label: 'Healthy', tone: 'healthy' };
 }
 
 function HeartbeatBadge({ job }) {
@@ -86,8 +86,8 @@ function HeartbeatBadge({ job }) {
   const className = {
     healthy: 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:ring-emerald-900',
     missing: 'bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-950/40 dark:text-rose-200 dark:ring-rose-900',
-    enabled: 'bg-blue-50 text-blue-700 ring-blue-200 dark:bg-blue-950/40 dark:text-blue-200 dark:ring-blue-900',
-    disabled: 'bg-slate-100 text-slate-600 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-800'
+    disabled: 'bg-slate-100 text-slate-600 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-800',
+    not_configured: 'bg-slate-50 text-slate-500 ring-slate-200 dark:bg-slate-950 dark:text-slate-400 dark:ring-slate-800'
   }[status.tone];
 
   return (
@@ -315,6 +315,10 @@ export function CronListClient({
   }
 
   async function openHeartbeat(job) {
+    if (!canManageHeartbeat) {
+      return;
+    }
+
     setSelectedJob(job);
     setHeartbeatForm(scheduleDefaults(job));
     setHeartbeatError('');
