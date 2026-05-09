@@ -1,7 +1,7 @@
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { CronListClient } from './CronListClient';
-import { getCronList, getScopeOptions } from '@/lib/api';
+import { getCronList, getCurrentUser, getScopeOptions } from '@/lib/api';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,10 +30,11 @@ export default async function CronListPage({ searchParams }) {
   };
   let response = { jobs: [], has_more: false, next_offset: 0, limit: PAGE_SIZE, offset: 0 };
   let scopeOptions = { environments: [], service_groups: [] };
+  let currentUser = null;
   let error = null;
 
   try {
-    const [cronResponse, scopeResponse] = await Promise.all([
+    const [cronResponse, scopeResponse, userResponse] = await Promise.all([
       getCronList({ ...filters, limit: PAGE_SIZE, offset: 0 }, apiOptions),
       getScopeOptions(apiOptions).catch((scopeError) => {
         if (scopeError?.status === 401) {
@@ -41,9 +42,17 @@ export default async function CronListPage({ searchParams }) {
         }
 
         return { environments: [], service_groups: [] };
+      }),
+      getCurrentUser(apiOptions).catch((userError) => {
+        if (userError?.status === 401) {
+          throw userError;
+        }
+
+        return { user: null };
       })
     ]);
     response = cronResponse || response;
+    currentUser = userResponse?.user || null;
     scopeOptions = {
       environments: Array.isArray(scopeResponse?.environments) ? scopeResponse.environments : [],
       service_groups: Array.isArray(scopeResponse?.service_groups) ? scopeResponse.service_groups : []
@@ -69,6 +78,7 @@ export default async function CronListPage({ searchParams }) {
       scopeOptions={scopeOptions}
       filters={filters}
       error={error}
+      canManageHeartbeat={currentUser?.role === 'admin'}
     />
   );
 }

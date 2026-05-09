@@ -207,6 +207,40 @@ export function getHeartbeatHealth(params = {}, options = {}) {
   return request(`/heartbeat-health${suffix}`, options);
 }
 
+export function getCronSchedule(params = {}, options = {}) {
+  const query = new URLSearchParams();
+
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== '') {
+      query.set(key, String(value));
+    }
+  }
+
+  const suffix = query.toString() ? `?${query.toString()}` : '';
+  return request(`/cron-schedules/lookup${suffix}`, options);
+}
+
+export function createCronSchedule(schedule) {
+  return request('/cron-schedules', {
+    method: 'POST',
+    body: JSON.stringify(schedule)
+  });
+}
+
+export function updateCronSchedule(id, schedule) {
+  return request(`/cron-schedules/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(schedule)
+  });
+}
+
+export function toggleCronSchedule(id, enabled) {
+  return request(`/cron-schedules/${id}/toggle`, {
+    method: 'POST',
+    body: JSON.stringify({ enabled })
+  });
+}
+
 export function getScopeOptions(options = {}) {
   return request('/scope-options', options);
 }

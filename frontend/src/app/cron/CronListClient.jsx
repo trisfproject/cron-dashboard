@@ -4,7 +4,14 @@ import Link from 'next/link';
 import { Fragment, useState } from 'react';
 import { EnvironmentBadge, ServiceGroupBadge } from '@/components/EnvironmentBadge';
 import { StatusBadge } from '@/components/StatusBadge';
-import { getCronList, formatApiError } from '@/lib/api';
+import {
+  createCronSchedule,
+  formatApiError,
+  getCronList,
+  getCronSchedule,
+  toggleCronSchedule,
+  updateCronSchedule
+} from '@/lib/api';
 import { formatDate, formatDuration, formatNumber, formatPercent } from '@/lib/format';
 
 const PAGE_SIZE = 20;
@@ -48,18 +55,184 @@ function groupSort(left, right, groupedJobs) {
   return left.localeCompare(right);
 }
 
+function heartbeatStatus(job) {
+  const heartbeat = job?.heartbeat;
+
+  if (!heartbeat) {
+    return { label: 'Disabled', tone: 'disabled' };
+  }
+
+  if (heartbeat.enabled === false || heartbeat.status === 'disabled') {
+    return { label: 'Disabled', tone: 'disabled' };
+  }
+
+  if (heartbeat.status === 'missing') {
+    return { label: 'Missing', tone: 'missing' };
+  }
+
+  if (heartbeat.status === 'healthy') {
+    return { label: 'Healthy', tone: 'healthy' };
+  }
+
+  if (heartbeat.status === 'outside_window') {
+    return { label: 'Enabled', tone: 'enabled' };
+  }
+
+  return { label: 'Heartbeat Enabled', tone: 'enabled' };
+}
+
+function HeartbeatBadge({ job }) {
+  const status = heartbeatStatus(job);
+  const className = {
+    healthy: 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:ring-emerald-900',
+    missing: 'bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-950/40 dark:text-rose-200 dark:ring-rose-900',
+    enabled: 'bg-blue-50 text-blue-700 ring-blue-200 dark:bg-blue-950/40 dark:text-blue-200 dark:ring-blue-900',
+    disabled: 'bg-slate-100 text-slate-600 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-800'
+  }[status.tone];
+
+  return (
+    <span className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ring-1 ${className}`}>
+      {status.label}
+    </span>
+  );
+}
+
+function scheduleDefaults(job, schedule = null) {
+  return {
+    id: schedule?.id || job?.heartbeat?.id || null,
+    cron_name: job?.cron_name || schedule?.cron_name || '',
+    schedule_expression: schedule?.schedule_expression || job?.heartbeat?.schedule_expression || '*/5 * * * *',
+    timezone: schedule?.timezone || 'Asia/Jakarta',
+    grace_period_minutes: Number(schedule?.grace_period_minutes ?? job?.heartbeat?.grace_period_minutes ?? 10),
+    cooldown_minutes: Number(schedule?.cooldown_minutes ?? job?.heartbeat?.cooldown_minutes ?? 30),
+    severity: schedule?.severity || job?.heartbeat?.severity || 'critical',
+    environment: schedule?.environment || job?.env || 'Production',
+    service_group: schedule?.service_group || job?.service_group || parseServiceGroup(job?.cron_name),
+    enabled: schedule?.enabled ?? job?.heartbeat?.enabled ?? true,
+    description: schedule?.description || ''
+  };
+}
+
+function HeartbeatModal({ job, form, saving, loading, error, onChange, onClose, onSubmit, onToggle }) {
+  if (!job || !form) {
+    return null;
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/40 p-0 sm:items-center sm:p-4" role="dialog" aria-modal="true">
+      <div className="max-h-[92vh] w-full overflow-y-auto rounded-t-lg border border-slate-200 bg-white shadow-xl dark:border-slate-800 dark:bg-slate-950 sm:max-w-2xl sm:rounded-lg">
+        <form onSubmit={onSubmit} className="space-y-5 p-5">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold text-ink">Heartbeat Configuration</h2>
+              <p className="mt-1 text-sm text-slate-500">Schedule-aware monitoring for this observed cron row.</p>
+            </div>
+            <button type="button" onClick={onClose} className="rounded-md px-2 py-1 text-sm font-semibold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-900">
+              Close
+            </button>
+          </div>
+
+          {error ? (
+            <div className="whitespace-pre-line rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200">
+              {error}
+            </div>
+          ) : null}
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="space-y-1 sm:col-span-2">
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Cron Name</span>
+              <input value={form.cron_name} readOnly className={`${filterInputClass} bg-slate-50 dark:bg-slate-900`} />
+            </label>
+
+            <label className="space-y-1 sm:col-span-2">
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Schedule Expression</span>
+              <input
+                value={form.schedule_expression}
+                onChange={(event) => onChange('schedule_expression', event.target.value)}
+                className={filterInputClass}
+                placeholder="*/5 * * * *"
+                required
+              />
+            </label>
+
+            <label className="space-y-1">
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Grace Period Minutes</span>
+              <input type="number" min="1" max="10080" value={form.grace_period_minutes} onChange={(event) => onChange('grace_period_minutes', Number(event.target.value))} className={filterInputClass} />
+            </label>
+
+            <label className="space-y-1">
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Cooldown Minutes</span>
+              <input type="number" min="1" max="10080" value={form.cooldown_minutes} onChange={(event) => onChange('cooldown_minutes', Number(event.target.value))} className={filterInputClass} />
+            </label>
+
+            <label className="space-y-1">
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Severity</span>
+              <select value={form.severity} onChange={(event) => onChange('severity', event.target.value)} className={filterSelectClass}>
+                <option value="critical">Critical</option>
+                <option value="warning">Warning</option>
+              </select>
+            </label>
+
+            <label className="space-y-1">
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Enabled</span>
+              <select value={form.enabled ? 'true' : 'false'} onChange={(event) => onChange('enabled', event.target.value === 'true')} className={filterSelectClass}>
+                <option value="true">Enabled</option>
+                <option value="false">Disabled</option>
+              </select>
+            </label>
+
+            <label className="space-y-1">
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Environment</span>
+              <input value={form.environment} onChange={(event) => onChange('environment', event.target.value)} className={filterInputClass} />
+            </label>
+
+            <label className="space-y-1">
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Service Group</span>
+              <input value={form.service_group || ''} onChange={(event) => onChange('service_group', event.target.value)} className={filterInputClass} />
+            </label>
+          </div>
+
+          <div className="flex flex-col-reverse gap-2 border-t border-slate-200 pt-4 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              {form.id ? (
+                <button type="button" onClick={onToggle} disabled={saving || loading} className="min-h-10 rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900">
+                  {form.enabled ? 'Disable Heartbeat' : 'Enable Heartbeat'}
+                </button>
+              ) : null}
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <button type="button" onClick={onClose} className="min-h-10 rounded-md border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900">
+                Cancel
+              </button>
+              <button type="submit" disabled={saving || loading} className="min-h-10 rounded-md bg-ink px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-blue-600 dark:hover:bg-blue-500">
+                {saving ? 'Saving...' : form.id ? 'Save Changes' : 'Enable Heartbeat'}
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export function CronListClient({
   initialJobs = [],
   initialPagination = {},
   scopeOptions = { environments: [], service_groups: [] },
   filters = {},
-  error = null
+  error = null,
+  canManageHeartbeat = false
 }) {
   const [jobs, setJobs] = useState(Array.isArray(initialJobs) ? initialJobs : []);
   const [hasMore, setHasMore] = useState(Boolean(initialPagination?.has_more));
   const [nextOffset, setNextOffset] = useState(Number(initialPagination?.next_offset || initialJobs.length || 0));
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadError, setLoadError] = useState('');
+  const [selectedJob, setSelectedJob] = useState(null);
+  const [heartbeatForm, setHeartbeatForm] = useState(null);
+  const [heartbeatLoading, setHeartbeatLoading] = useState(false);
+  const [heartbeatSaving, setHeartbeatSaving] = useState(false);
+  const [heartbeatError, setHeartbeatError] = useState('');
   const rangeLabel = {
     today: 'today',
     '7d': 'the last 7 days',
@@ -115,6 +288,109 @@ export function CronListClient({
       setLoadError(formatApiError(fetchError, 'Failed to load more cron jobs'));
     } finally {
       setLoadingMore(false);
+    }
+  }
+
+  function mergeHeartbeatSchedule(schedule) {
+    setJobs((currentJobs) => currentJobs.map((job) => {
+      if (job.cron_name !== schedule.cron_name || String(job.env || '').toLowerCase() !== String(schedule.environment || '').toLowerCase()) {
+        return job;
+      }
+
+      return {
+        ...job,
+        heartbeat: {
+          ...(job.heartbeat || {}),
+          id: schedule.id,
+          enabled: schedule.enabled,
+          status: schedule.enabled ? (job.heartbeat?.status && job.heartbeat.status !== 'disabled' ? job.heartbeat.status : 'enabled') : 'disabled',
+          schedule_expression: schedule.schedule_expression,
+          schedule_description: schedule.schedule_description,
+          grace_period_minutes: schedule.grace_period_minutes,
+          cooldown_minutes: schedule.cooldown_minutes,
+          severity: schedule.severity
+        }
+      };
+    }));
+  }
+
+  async function openHeartbeat(job) {
+    setSelectedJob(job);
+    setHeartbeatForm(scheduleDefaults(job));
+    setHeartbeatError('');
+    setHeartbeatLoading(true);
+
+    try {
+      const response = await getCronSchedule({ cron_name: job.cron_name, env: job.env }, { redirectOnAuthFailure: false });
+      if (response?.schedule) {
+        setHeartbeatForm(scheduleDefaults(job, response.schedule));
+      }
+    } catch (fetchError) {
+      if (fetchError?.status !== 404) {
+        setHeartbeatError(formatApiError(fetchError, 'Failed to load heartbeat configuration'));
+      }
+    } finally {
+      setHeartbeatLoading(false);
+    }
+  }
+
+  function updateHeartbeatForm(key, value) {
+    setHeartbeatForm((current) => ({ ...current, [key]: value }));
+  }
+
+  async function saveHeartbeat(event) {
+    event.preventDefault();
+    setHeartbeatError('');
+
+    if (!String(heartbeatForm?.schedule_expression || '').trim()) {
+      setHeartbeatError('Schedule expression is required.');
+      return;
+    }
+
+    setHeartbeatSaving(true);
+
+    try {
+      const payload = {
+        ...heartbeatForm,
+        grace_period_minutes: Number(heartbeatForm.grace_period_minutes),
+        cooldown_minutes: Number(heartbeatForm.cooldown_minutes)
+      };
+      const response = heartbeatForm.id
+        ? await updateCronSchedule(heartbeatForm.id, payload)
+        : await createCronSchedule(payload);
+
+      if (response?.schedule) {
+        mergeHeartbeatSchedule(response.schedule);
+        setHeartbeatForm(scheduleDefaults(selectedJob, response.schedule));
+      }
+
+      setSelectedJob(null);
+      setHeartbeatForm(null);
+    } catch (saveError) {
+      setHeartbeatError(formatApiError(saveError, 'Failed to save heartbeat schedule'));
+    } finally {
+      setHeartbeatSaving(false);
+    }
+  }
+
+  async function toggleHeartbeat() {
+    if (!heartbeatForm?.id) {
+      return;
+    }
+
+    setHeartbeatSaving(true);
+    setHeartbeatError('');
+
+    try {
+      const response = await toggleCronSchedule(heartbeatForm.id, !heartbeatForm.enabled);
+      if (response?.schedule) {
+        mergeHeartbeatSchedule(response.schedule);
+        setHeartbeatForm(scheduleDefaults(selectedJob, response.schedule));
+      }
+    } catch (toggleError) {
+      setHeartbeatError(formatApiError(toggleError, 'Failed to toggle heartbeat schedule'));
+    } finally {
+      setHeartbeatSaving(false);
     }
   }
 
@@ -178,6 +454,14 @@ export function CronListClient({
                     </Link>
                     <StatusBadge status={job?.last_status} />
                   </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <HeartbeatBadge job={job} />
+                    {canManageHeartbeat ? (
+                      <button type="button" onClick={() => openHeartbeat(job)} className="min-h-9 rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900">
+                        {job?.heartbeat ? 'Configure Heartbeat' : 'Enable Heartbeat'}
+                      </button>
+                    ) : null}
+                  </div>
                   <div className="grid grid-cols-2 gap-3 text-sm">
                     <div className="min-w-0">
                       <p className="text-xs text-slate-500">Freshness</p>
@@ -226,13 +510,15 @@ export function CronListClient({
                 <th className="px-4 py-3">Avg duration</th>
                 <th className="px-4 py-3">Success rate</th>
                 <th className="px-4 py-3">Runs</th>
+                <th className="px-4 py-3">Heartbeat</th>
+                {canManageHeartbeat ? <th className="px-4 py-3">Actions</th> : null}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {serviceGroups.map((group) => (
                 <Fragment key={`${group}-desktop-group`}>
                   <tr key={`${group}-header`} className="bg-slate-50/70 dark:bg-slate-900/50">
-                    <td className="px-4 py-2 text-xs font-semibold uppercase tracking-normal text-slate-500 dark:text-slate-400" colSpan={9}>
+                    <td className="px-4 py-2 text-xs font-semibold uppercase tracking-normal text-slate-500 dark:text-slate-400" colSpan={canManageHeartbeat ? 11 : 10}>
                       <span>{group}</span>
                       <span className="ml-2 font-medium normal-case text-slate-400">{formatNumber(groupedJobs[group].length)} rows</span>
                     </td>
@@ -250,13 +536,21 @@ export function CronListClient({
                       <td className="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-300">{formatDuration(job?.avg_duration ?? 0)}</td>
                       <td className="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-300">{formatPercent(job?.success_rate ?? 0)}</td>
                       <td className="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-300">{formatNumber(job?.total_runs ?? 0)}</td>
+                      <td className="whitespace-nowrap px-4 py-3"><HeartbeatBadge job={job} /></td>
+                      {canManageHeartbeat ? (
+                        <td className="whitespace-nowrap px-4 py-3">
+                          <button type="button" onClick={() => openHeartbeat(job)} className="min-h-9 rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900">
+                            {job?.heartbeat ? 'Configure' : 'Enable'}
+                          </button>
+                        </td>
+                      ) : null}
                     </tr>
                   ))}
                 </Fragment>
               ))}
               {displayJobs.length === 0 && !error ? (
                 <tr>
-                  <td className="px-4 py-8 text-center text-slate-500" colSpan={9}>No cron executions found for {rangeLabel}.</td>
+                  <td className="px-4 py-8 text-center text-slate-500" colSpan={canManageHeartbeat ? 11 : 10}>No cron executions found for {rangeLabel}.</td>
                 </tr>
               ) : null}
             </tbody>
@@ -280,6 +574,21 @@ export function CronListClient({
           </div>
         </div>
       </div>
+      <HeartbeatModal
+        job={selectedJob}
+        form={heartbeatForm}
+        saving={heartbeatSaving}
+        loading={heartbeatLoading}
+        error={heartbeatError}
+        onChange={updateHeartbeatForm}
+        onClose={() => {
+          setSelectedJob(null);
+          setHeartbeatForm(null);
+          setHeartbeatError('');
+        }}
+        onSubmit={saveHeartbeat}
+        onToggle={toggleHeartbeat}
+      />
     </div>
   );
 }

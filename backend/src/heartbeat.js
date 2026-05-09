@@ -131,6 +131,25 @@ export function describeSchedule(expression, timezone = DEFAULT_TIMEZONE) {
   return `${minuteText}; hours ${hourText}; ${dayText} (${timezone})`;
 }
 
+export function validateScheduleExpression(expression, timezone = DEFAULT_TIMEZONE) {
+  const value = String(expression || '').trim();
+
+  if (!value) {
+    throw Object.assign(new Error('Schedule expression is required'), { statusCode: 400 });
+  }
+
+  try {
+    parseCronExpression(value, {
+      currentDate: new Date(),
+      tz: timezone || DEFAULT_TIMEZONE
+    }).next();
+  } catch (error) {
+    throw Object.assign(new Error(`Invalid cron schedule expression: ${error.message}`), { statusCode: 400 });
+  }
+
+  return value;
+}
+
 function scheduleRuntime(schedule, now = new Date()) {
   const timezone = schedule.timezone || DEFAULT_TIMEZONE;
   const interval = parseCronExpression(schedule.schedule_expression, {
@@ -340,6 +359,173 @@ export async function listCronSchedules({ enabled, env, service_group } = {}) {
     enabled: Boolean(row.enabled),
     schedule_description: describeSchedule(row.schedule_expression, row.timezone)
   }));
+}
+
+function normalizeSchedulePayload(payload = {}, existing = {}) {
+  const timezone = String(payload.timezone || existing.timezone || DEFAULT_TIMEZONE).trim() || DEFAULT_TIMEZONE;
+  const scheduleExpression = validateScheduleExpression(payload.schedule_expression ?? existing.schedule_expression, timezone);
+  const cronName = String(payload.cron_name || existing.cron_name || '').trim();
+  const environment = String(payload.environment || payload.env || existing.environment || 'Production').trim() || 'Production';
+
+  if (!cronName) {
+    throw Object.assign(new Error('Cron name is required'), { statusCode: 400 });
+  }
+
+  return {
+    cron_name: cronName,
+    schedule_expression: scheduleExpression,
+    timezone,
+    grace_period_minutes: Math.max(1, Number(payload.grace_period_minutes ?? existing.grace_period_minutes ?? DEFAULT_GRACE_MINUTES)),
+    cooldown_minutes: Math.max(1, Number(payload.cooldown_minutes ?? existing.cooldown_minutes ?? DEFAULT_COOLDOWN_MINUTES)),
+    severity: ['warning', 'critical'].includes(payload.severity || existing.severity) ? (payload.severity || existing.severity) : 'critical',
+    enabled: typeof payload.enabled === 'boolean' ? payload.enabled : existing.enabled !== undefined ? Boolean(existing.enabled) : true,
+    environment,
+    service_group: payload.service_group !== undefined ? String(payload.service_group || '').trim() || null : existing.service_group || null,
+    description: payload.description !== undefined ? String(payload.description || '').trim() || null : existing.description || null
+  };
+}
+
+export async function getCronScheduleByScope({ cron_name, env, environment } = {}) {
+  await ensureHeartbeatSchema();
+
+  const cronName = String(cron_name || '').trim();
+  const scheduleEnv = String(environment || env || 'Production').trim() || 'Production';
+
+  if (!cronName) {
+    throw Object.assign(new Error('Cron name is required'), { statusCode: 400 });
+  }
+
+  const [[schedule]] = await query(`
+    SELECT id, cron_name, schedule_expression, timezone, grace_period_minutes,
+      cooldown_minutes, severity, enabled, environment, service_group, description,
+      DATE_FORMAT(CONVERT_TZ(created_at, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s') AS created_at,
+      DATE_FORMAT(CONVERT_TZ(updated_at, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s') AS updated_at
+    FROM cron_schedules
+    WHERE cron_name = ? AND environment = ?
+    LIMIT 1
+  `, [cronName, scheduleEnv]);
+
+  return schedule
+    ? { ...schedule, enabled: Boolean(schedule.enabled), schedule_description: describeSchedule(schedule.schedule_expression, schedule.timezone) }
+    : null;
+}
+
+export async function createCronSchedule(payload = {}) {
+  await ensureHeartbeatSchema();
+
+  const schedule = normalizeSchedulePayload(payload);
+  const [result] = await query(`
+    INSERT INTO cron_schedules
+      (cron_name, schedule_expression, timezone, grace_period_minutes, cooldown_minutes,
+       severity, enabled, environment, service_group, description)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `, [
+    schedule.cron_name,
+    schedule.schedule_expression,
+    schedule.timezone,
+    schedule.grace_period_minutes,
+    schedule.cooldown_minutes,
+    schedule.severity,
+    schedule.enabled ? 1 : 0,
+    schedule.environment,
+    schedule.service_group,
+    schedule.description
+  ]).catch((error) => {
+    if (error.code === 'ER_DUP_ENTRY') {
+      throw Object.assign(new Error('Heartbeat schedule already exists for this cron and environment'), { statusCode: 409 });
+    }
+
+    throw error;
+  });
+
+  return getCronScheduleById(result.insertId);
+}
+
+export async function getCronScheduleById(id) {
+  await ensureHeartbeatSchema();
+
+  const [[schedule]] = await query(`
+    SELECT id, cron_name, schedule_expression, timezone, grace_period_minutes,
+      cooldown_minutes, severity, enabled, environment, service_group, description,
+      DATE_FORMAT(CONVERT_TZ(created_at, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s') AS created_at,
+      DATE_FORMAT(CONVERT_TZ(updated_at, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s') AS updated_at
+    FROM cron_schedules
+    WHERE id = ?
+    LIMIT 1
+  `, [Number(id)]);
+
+  if (!schedule) {
+    return null;
+  }
+
+  return { ...schedule, enabled: Boolean(schedule.enabled), schedule_description: describeSchedule(schedule.schedule_expression, schedule.timezone) };
+}
+
+export async function updateCronSchedule(id, payload = {}) {
+  await ensureHeartbeatSchema();
+
+  const existing = await getCronScheduleById(id);
+
+  if (!existing) {
+    throw Object.assign(new Error('Heartbeat schedule not found'), { statusCode: 404 });
+  }
+
+  const schedule = normalizeSchedulePayload(payload, existing);
+
+  await query(`
+    UPDATE cron_schedules
+    SET cron_name = ?,
+      schedule_expression = ?,
+      timezone = ?,
+      grace_period_minutes = ?,
+      cooldown_minutes = ?,
+      severity = ?,
+      enabled = ?,
+      environment = ?,
+      service_group = ?,
+      description = ?,
+      updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `, [
+    schedule.cron_name,
+    schedule.schedule_expression,
+    schedule.timezone,
+    schedule.grace_period_minutes,
+    schedule.cooldown_minutes,
+    schedule.severity,
+    schedule.enabled ? 1 : 0,
+    schedule.environment,
+    schedule.service_group,
+    schedule.description,
+    Number(id)
+  ]).catch((error) => {
+    if (error.code === 'ER_DUP_ENTRY') {
+      throw Object.assign(new Error('Heartbeat schedule already exists for this cron and environment'), { statusCode: 409 });
+    }
+
+    throw error;
+  });
+
+  return getCronScheduleById(id);
+}
+
+export async function setCronScheduleEnabled(id, enabled) {
+  await ensureHeartbeatSchema();
+
+  await query(`
+    UPDATE cron_schedules
+    SET enabled = ?,
+      updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `, [enabled ? 1 : 0, Number(id)]);
+
+  const schedule = await getCronScheduleById(id);
+
+  if (!schedule) {
+    throw Object.assign(new Error('Heartbeat schedule not found'), { statusCode: 404 });
+  }
+
+  return schedule;
 }
 
 async function getMissingCronRule() {

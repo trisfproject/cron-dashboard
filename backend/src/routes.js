@@ -27,9 +27,13 @@ import {
   updateAlertRule
 } from './alerting.js';
 import {
+  createCronSchedule,
   evaluateHeartbeatSchedules,
+  getCronScheduleByScope,
   heartbeatSummary,
-  listCronSchedules
+  listCronSchedules,
+  setCronScheduleEnabled,
+  updateCronSchedule
 } from './heartbeat.js';
 import { normalizeTimelineBuckets, resolveDateFilter } from './utils/range-filter.js';
 
@@ -558,9 +562,50 @@ export async function registerRoutes(app) {
         LIMIT ? OFFSET ?
       `, [...values, ...finalValues, limit + 1, offset]);
       const pageRows = rows.slice(0, limit);
+      const [heartbeat, registeredSchedules] = await Promise.all([
+        heartbeatSummary({
+          env: request.query.env,
+          service_group: request.query.service_group
+        }),
+        listCronSchedules({
+          env: request.query.env,
+          service_group: request.query.service_group
+        })
+      ]);
+      const heartbeatByScope = new Map((heartbeat.schedules || []).map((schedule) => [
+        `${schedule.cron_name}|${String(schedule.environment || schedule.env || '').toLowerCase()}`,
+        schedule
+      ]));
+      const scheduleByScope = new Map((registeredSchedules || []).map((schedule) => [
+        `${schedule.cron_name}|${String(schedule.environment || '').toLowerCase()}`,
+        schedule
+      ]));
+      const jobs = pageRows.map((job) => {
+        const scopeKey = `${job.cron_name}|${String(job.env || '').toLowerCase()}`;
+        const registeredSchedule = scheduleByScope.get(scopeKey);
+        const heartbeatSchedule = heartbeatByScope.get(scopeKey) || registeredSchedule;
+
+        return {
+          ...job,
+          heartbeat: heartbeatSchedule
+            ? {
+                id: heartbeatSchedule.id,
+                enabled: heartbeatSchedule.enabled,
+                status: heartbeatSchedule.enabled === false ? 'disabled' : heartbeatSchedule.heartbeat_status,
+                schedule_expression: heartbeatSchedule.schedule_expression,
+                schedule_description: heartbeatSchedule.schedule_description,
+                grace_period_minutes: heartbeatSchedule.grace_period_minutes,
+                cooldown_minutes: heartbeatSchedule.cooldown_minutes,
+                severity: heartbeatSchedule.severity,
+                last_heartbeat_at: heartbeatSchedule.last_heartbeat_at,
+                missing_duration_minutes: heartbeatSchedule.missing_duration_minutes
+              }
+            : null
+        };
+      });
 
       return {
-        jobs: pageRows,
+        jobs,
         range: dateFilter.range || 'today',
         timezone: 'Asia/Jakarta',
         limit,
@@ -752,6 +797,144 @@ export async function registerRoutes(app) {
         service_group: request.query.service_group
       })
     })
+  );
+
+  app.get(
+    '/cron-schedules/lookup',
+    {
+      schema: {
+        querystring: {
+          type: 'object',
+          required: ['cron_name'],
+          properties: {
+            cron_name: { type: 'string', minLength: 1 },
+            env: { type: 'string' },
+            environment: { type: 'string' }
+          }
+        }
+      }
+    },
+    async (request, reply) => {
+      const schedule = await getCronScheduleByScope(request.query);
+
+      if (!schedule) {
+        return reply.code(404).send({ error: 'Heartbeat schedule not found' });
+      }
+
+      return { schedule };
+    }
+  );
+
+  app.post(
+    '/cron-schedules',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['cron_name', 'schedule_expression'],
+          additionalProperties: true,
+          properties: {
+            cron_name: { type: 'string', minLength: 1, maxLength: 255 },
+            schedule_expression: { type: 'string', minLength: 1, maxLength: 120 },
+            timezone: { type: 'string', maxLength: 80 },
+            grace_period_minutes: { type: 'integer', minimum: 1, maximum: 10080 },
+            cooldown_minutes: { type: 'integer', minimum: 1, maximum: 10080 },
+            severity: { type: 'string', enum: ['warning', 'critical'] },
+            enabled: { type: 'boolean' },
+            environment: { type: 'string', maxLength: 80 },
+            service_group: { type: 'string', maxLength: 120 },
+            description: { type: 'string' }
+          }
+        }
+      }
+    },
+    async (request, reply) => {
+      const schedule = await createCronSchedule(request.body);
+      await logAudit({
+        user: request.user,
+        action: 'heartbeat_schedule_created',
+        targetType: 'cron_schedule',
+        targetId: schedule.id,
+        targetLabel: schedule.cron_name,
+        request,
+        metadata: { environment: schedule.environment }
+      });
+      return reply.code(201).send({ schedule });
+    }
+  );
+
+  app.put(
+    '/cron-schedules/:id',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: { id: { type: 'integer' } }
+        },
+        body: {
+          type: 'object',
+          additionalProperties: true,
+          properties: {
+            cron_name: { type: 'string', minLength: 1, maxLength: 255 },
+            schedule_expression: { type: 'string', minLength: 1, maxLength: 120 },
+            timezone: { type: 'string', maxLength: 80 },
+            grace_period_minutes: { type: 'integer', minimum: 1, maximum: 10080 },
+            cooldown_minutes: { type: 'integer', minimum: 1, maximum: 10080 },
+            severity: { type: 'string', enum: ['warning', 'critical'] },
+            enabled: { type: 'boolean' },
+            environment: { type: 'string', maxLength: 80 },
+            service_group: { type: 'string', maxLength: 120 },
+            description: { type: 'string' }
+          }
+        }
+      }
+    },
+    async (request) => {
+      const schedule = await updateCronSchedule(Number(request.params.id), request.body);
+      await logAudit({
+        user: request.user,
+        action: 'heartbeat_schedule_updated',
+        targetType: 'cron_schedule',
+        targetId: schedule.id,
+        targetLabel: schedule.cron_name,
+        request,
+        metadata: { environment: schedule.environment }
+      });
+      return { schedule };
+    }
+  );
+
+  app.post(
+    '/cron-schedules/:id/toggle',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: { id: { type: 'integer' } }
+        },
+        body: {
+          type: 'object',
+          required: ['enabled'],
+          additionalProperties: false,
+          properties: { enabled: { type: 'boolean' } }
+        }
+      }
+    },
+    async (request) => {
+      const schedule = await setCronScheduleEnabled(Number(request.params.id), request.body.enabled);
+      await logAudit({
+        user: request.user,
+        action: schedule.enabled ? 'heartbeat_schedule_enabled' : 'heartbeat_schedule_disabled',
+        targetType: 'cron_schedule',
+        targetId: schedule.id,
+        targetLabel: schedule.cron_name,
+        request,
+        metadata: { environment: schedule.environment }
+      });
+      return { schedule };
+    }
   );
 
   app.post('/alerts/test-telegram', async (request, reply) => {
