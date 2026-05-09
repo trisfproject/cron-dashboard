@@ -611,7 +611,7 @@ export async function evaluateHeartbeatSchedules({ persist = false, app } = {}) 
       const missing = runtime.activeWindow && now.getTime() > overdueAt.getTime();
       const heartbeatRestored = Boolean(lastHeartbeatAt && runtime.activeWindow && !missing);
       const missingMinutes = lastHeartbeatAt
-        ? minutesBetween(now, lastHeartbeatAt)
+        ? minutesBetween(now, missedExpectedAt)
         : minutesBetween(now, missedExpectedAt);
 
       health.push({
@@ -656,7 +656,11 @@ function missingReason(item) {
     ? 'no heartbeat recorded'
     : `last seen ${humanMinutes(item.last_heartbeat_minutes_ago)} ago`;
 
-  return `${item.cron_name} missed expected heartbeat at ${item.expected_at || 'unknown'} WIB; ${lastSeen}`;
+  const missingDuration = item.missing_duration_minutes
+    ? `; missing for ${humanMinutes(item.missing_duration_minutes)}`
+    : '';
+
+  return `${item.cron_name} missed expected heartbeat at ${item.expected_at || 'unknown'} WIB; ${lastSeen}${missingDuration}`;
 }
 
 export function buildMissingCronTelegramMessage(alert, rule, lifecycle = 'triggered') {
@@ -672,16 +676,26 @@ export function buildMissingCronTelegramMessage(alert, rule, lifecycle = 'trigge
     ].join('\n');
   }
 
+  const title = lifecycle === 'reminder'
+    ? 'NYX Missing Cron Reminder'
+    : 'NYX Missing Cron Alert';
+
   return [
-    '🚨 <b>NYX Missing Cron Alert</b>',
+    `🚨 <b>${escapeTelegramHtml(title)}</b>`,
     '',
     `<b>Cron:</b>\n${escapeTelegramHtml(alert.cron_name || '-')}`,
     '',
     '<b>Issue:</b>\nExpected cron execution was not detected',
     '',
+    `<b>Missing Duration:</b>\n${escapeTelegramHtml(alert.missing_duration_label || '-')}`,
+    '',
     `<b>Expected Schedule:</b>\n${escapeTelegramHtml(alert.schedule_description || rule.name || '-')}`,
     '',
+    `<b>Expected At:</b>\n${escapeTelegramHtml(alert.expected_at ? `${alert.expected_at} WIB` : '-')}`,
+    '',
     `<b>Last Seen:</b>\n${escapeTelegramHtml(alert.last_seen_label || '-')}`,
+    '',
+    `<b>Last Heartbeat:</b>\n${escapeTelegramHtml(alert.last_heartbeat_at ? `${alert.last_heartbeat_at} WIB` : '-')}`,
     '',
     `<b>Environment:</b>\n${escapeTelegramHtml(alert.env || '-')}`,
     '',
@@ -732,7 +746,10 @@ async function persistHeartbeatAlerts(app, health) {
       env,
       service_group: serviceGroup,
       server: item.server,
+      expected_at: item.expected_at,
+      last_heartbeat_at: item.last_heartbeat_at,
       schedule_description: item.schedule_description,
+      missing_duration_label: item.missing_duration_minutes ? `${humanMinutes(item.missing_duration_minutes)}` : '-',
       last_seen_label: item.last_heartbeat_minutes_ago === null ? 'Never' : `${humanMinutes(item.last_heartbeat_minutes_ago)} ago`
     };
 
@@ -748,6 +765,7 @@ async function persistHeartbeatAlerts(app, health) {
     }
 
     const reactivated = existing.state === 'resolved';
+    const lifecycle = reactivated ? 'triggered' : 'reminder';
 
     await query(`
       UPDATE alert_events
@@ -765,7 +783,7 @@ async function persistHeartbeatAlerts(app, health) {
     await notifyMissingCron(app, { id: existing.id, severity, ...alertPayload }, {
       ...rule,
       cooldown_minutes: item.cooldown_minutes || rule.cooldown_minutes
-    }, existing.last_notified_at, reactivated ? 'triggered' : 'triggered');
+    }, existing.last_notified_at, lifecycle);
   }
 
   const [activeRows] = await query(
@@ -798,10 +816,10 @@ async function persistHeartbeatAlerts(app, health) {
 }
 
 async function notifyMissingCron(app, alert, rule, lastNotifiedAt, lifecycle) {
-  const cooldown = Number(rule.cooldown_minutes || DEFAULT_COOLDOWN_MINUTES) * 60 * 1000;
+  const cooldown = repeatIntervalMinutes(alert.severity, rule.cooldown_minutes) * 60 * 1000;
   const last = lastNotifiedAt ? new Date(lastNotifiedAt).getTime() : 0;
 
-  if (lifecycle === 'triggered' && last && Date.now() - last < cooldown) {
+  if (lifecycle === 'reminder' && last && Date.now() - last < cooldown) {
     return;
   }
 
@@ -840,6 +858,18 @@ async function notifyMissingCron(app, alert, rule, lastNotifiedAt, lifecycle) {
     delivered ? 'success' : 'failed',
     alert.id
   ]);
+}
+
+function repeatIntervalMinutes(severity, configuredMinutes) {
+  const minimumBySeverity = {
+    critical: 10,
+    warning: 15,
+    info: 30
+  };
+  const minimum = minimumBySeverity[severity] || DEFAULT_COOLDOWN_MINUTES;
+  const configured = Number(configuredMinutes || 0);
+
+  return Math.max(configured || minimum, minimum);
 }
 
 function parseChannels(value) {
