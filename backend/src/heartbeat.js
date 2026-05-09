@@ -1,0 +1,751 @@
+import * as cronParser from 'cron-parser';
+import { pool } from './db.js';
+
+const DEFAULT_TIMEZONE = 'Asia/Jakarta';
+const DEFAULT_GRACE_MINUTES = 10;
+const DEFAULT_COOLDOWN_MINUTES = 30;
+const UTC_SQL_TIMEZONE = '+00:00';
+const JAKARTA_SQL_TIMEZONE = '+07:00';
+const JAKARTA_NOW_SQL = `DATE_FORMAT(CONVERT_TZ(UTC_TIMESTAMP(), '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s')`;
+
+let heartbeatSchemaReadyPromise;
+
+function cronExpressionParser() {
+  return cronParser?.CronExpressionParser || cronParser?.default?.CronExpressionParser || null;
+}
+
+function parseCronExpression(expression, options) {
+  const parser = cronExpressionParser();
+
+  if (parser?.parse) {
+    return parser.parse(expression, options);
+  }
+
+  if (cronParser?.parseExpression) {
+    return cronParser.parseExpression(expression, options);
+  }
+
+  if (cronParser?.default?.parseExpression) {
+    return cronParser.default.parseExpression(expression, options);
+  }
+
+  throw new Error('Unsupported cron-parser API');
+}
+
+function toDate(value) {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = typeof value === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(value)
+    ? `${value.replace(' ', 'T')}Z`
+    : value;
+  const date = new Date(normalized);
+
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function minutesBetween(left, right) {
+  return Math.max(0, Math.floor((left.getTime() - right.getTime()) / 60000));
+}
+
+function formatWibDate(date) {
+  if (!date) {
+    return null;
+  }
+
+  const jakarta = new Date(date.getTime() + 7 * 60 * 60 * 1000);
+  const pad = (value) => String(value).padStart(2, '0');
+
+  return `${jakarta.getUTCFullYear()}-${pad(jakarta.getUTCMonth() + 1)}-${pad(jakarta.getUTCDate())} ${pad(jakarta.getUTCHours())}:${pad(jakarta.getUTCMinutes())}:${pad(jakarta.getUTCSeconds())}`;
+}
+
+function humanMinutes(minutes) {
+  const safeMinutes = Math.max(Number(minutes || 0), 0);
+
+  if (safeMinutes < 60) {
+    return `${safeMinutes} minutes`;
+  }
+
+  const hours = Math.floor(safeMinutes / 60);
+  const remainder = safeMinutes % 60;
+
+  return remainder ? `${hours}h ${remainder}m` : `${hours} hours`;
+}
+
+function describeField(value, unit, rangeFormatter = (item) => item) {
+  if (value === '*') {
+    return `every ${unit}`;
+  }
+
+  const stepMatch = value.match(/^\*\/(\d+)$/);
+  if (stepMatch) {
+    return `every ${stepMatch[1]} ${unit}s`;
+  }
+
+  const rangeStepMatch = value.match(/^(\d+)-(\d+)\/(\d+)$/);
+  if (rangeStepMatch) {
+    return `every ${rangeStepMatch[3]} ${unit}s from ${rangeFormatter(rangeStepMatch[1])} to ${rangeFormatter(rangeStepMatch[2])}`;
+  }
+
+  const rangeMatch = value.match(/^(\d+)-(\d+)$/);
+  if (rangeMatch) {
+    return `${rangeFormatter(rangeMatch[1])}-${rangeFormatter(rangeMatch[2])}`;
+  }
+
+  return value.split(',').map(rangeFormatter).join(', ');
+}
+
+export function describeSchedule(expression, timezone = DEFAULT_TIMEZONE) {
+  const parts = String(expression || '').trim().split(/\s+/);
+
+  if (parts.length !== 5) {
+    return `${expression} (${timezone})`;
+  }
+
+  const [minute, hour, dayOfMonth, month, dayOfWeek] = parts;
+  const minuteText = describeField(minute, 'minute', (item) => String(item).padStart(2, '0'));
+  const hourText = describeField(hour, 'hour', (item) => `${String(item).padStart(2, '0')}:00`);
+  const dayNames = {
+    0: 'Sunday',
+    1: 'Monday',
+    2: 'Tuesday',
+    3: 'Wednesday',
+    4: 'Thursday',
+    5: 'Friday',
+    6: 'Saturday',
+    7: 'Sunday'
+  };
+  const dayText = dayOfWeek === '*'
+    ? 'every day'
+    : dayOfWeek === '1-5'
+      ? 'Monday-Friday'
+      : dayOfWeek === '0,6' || dayOfWeek === '6,0'
+        ? 'weekends'
+        : dayOfWeek.split(',').map((item) => dayNames[item] || item).join(', ');
+
+  if (hour === '*' && dayOfMonth === '*' && month === '*' && dayOfWeek === '*') {
+    return `${minuteText}, every hour (${timezone})`;
+  }
+
+  return `${minuteText}; hours ${hourText}; ${dayText} (${timezone})`;
+}
+
+function scheduleRuntime(schedule, now = new Date()) {
+  const timezone = schedule.timezone || DEFAULT_TIMEZONE;
+  const interval = parseCronExpression(schedule.schedule_expression, {
+    currentDate: now,
+    tz: timezone
+  });
+  const previousDueAt = interval.prev().toDate();
+  const previousInterval = parseCronExpression(schedule.schedule_expression, {
+    currentDate: previousDueAt,
+    tz: timezone
+  });
+  const priorDueAt = previousInterval.prev().toDate();
+  const nextInterval = parseCronExpression(schedule.schedule_expression, {
+    currentDate: previousDueAt,
+    tz: timezone
+  });
+  const nextDueAt = nextInterval.next().toDate();
+  const cadenceMinutes = Math.max(1, Math.round((previousDueAt.getTime() - priorDueAt.getTime()) / 60000));
+  const nextGapMinutes = Math.max(1, Math.round((nextDueAt.getTime() - previousDueAt.getTime()) / 60000));
+  const graceMinutes = Number(schedule.grace_period_minutes || DEFAULT_GRACE_MINUTES);
+  const minutesSinceExpected = minutesBetween(now, previousDueAt);
+  const inactiveGap = nextGapMinutes > cadenceMinutes * 1.5;
+  const activeWindowLimit = inactiveGap
+    ? graceMinutes + Math.min(cadenceMinutes, 60)
+    : cadenceMinutes + graceMinutes;
+  const activeWindow = minutesSinceExpected <= activeWindowLimit;
+
+  return {
+    previousDueAt,
+    nextDueAt,
+    cadenceMinutes,
+    nextGapMinutes,
+    graceMinutes,
+    activeWindow,
+    schedule_description: describeSchedule(schedule.schedule_expression, timezone)
+  };
+}
+
+async function query(sql, values = []) {
+  return pool.query(sql, values);
+}
+
+async function tableColumnSet(tableName) {
+  const [rows] = await query(
+    `SELECT COLUMN_NAME
+     FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = ?`,
+    [tableName]
+  );
+
+  return new Set(rows.map((row) => row.COLUMN_NAME));
+}
+
+async function tableIndexSet(tableName) {
+  const [rows] = await query(
+    `SELECT DISTINCT INDEX_NAME
+     FROM INFORMATION_SCHEMA.STATISTICS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = ?`,
+    [tableName]
+  );
+
+  return new Set(rows.map((row) => row.INDEX_NAME));
+}
+
+async function ensureColumn(tableName, columns, columnName, definition) {
+  if (columns.has(columnName)) {
+    return;
+  }
+
+  try {
+    await query(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
+  } catch (error) {
+    if (error.code !== 'ER_DUP_FIELDNAME') {
+      throw error;
+    }
+  }
+
+  columns.add(columnName);
+}
+
+async function ensureIndex(tableName, indexes, indexName, definition) {
+  if (indexes.has(indexName)) {
+    return;
+  }
+
+  try {
+    await query(`CREATE INDEX ${indexName} ON ${tableName} ${definition}`);
+  } catch (error) {
+    if (error.code !== 'ER_DUP_KEYNAME') {
+      throw error;
+    }
+  }
+
+  indexes.add(indexName);
+}
+
+async function ensureMissingCronRuleType() {
+  const [columns] = await query(
+    `SELECT COLUMN_TYPE
+     FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'alert_rules'
+       AND COLUMN_NAME = 'type'
+     LIMIT 1`
+  );
+  const columnType = columns[0]?.COLUMN_TYPE || '';
+
+  if (!columnType.includes('missing_cron')) {
+    await query(`
+      ALTER TABLE alert_rules
+      MODIFY COLUMN type ENUM(
+        'failed_threshold',
+        'warning_threshold',
+        'success_rate_degradation',
+        'duration_anomaly',
+        'retry_storm',
+        'cron_silence',
+        'missing_cron'
+      ) NOT NULL
+    `);
+  }
+
+  await query(`
+    INSERT INTO alert_rules
+      (name, type, severity, threshold, timeframe_minutes, cooldown_minutes, channels, enabled)
+    SELECT 'Missing Cron Alert', 'missing_cron', 'critical', 1, 5, 30, '["telegram"]', 1
+    WHERE NOT EXISTS (SELECT 1 FROM alert_rules WHERE type = 'missing_cron' AND name = 'Missing Cron Alert')
+  `);
+}
+
+export async function ensureHeartbeatSchema() {
+  if (!heartbeatSchemaReadyPromise) {
+    heartbeatSchemaReadyPromise = (async () => {
+      await query(`
+        CREATE TABLE IF NOT EXISTS cron_schedules (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          cron_name VARCHAR(255) NOT NULL,
+          schedule_expression VARCHAR(120) NOT NULL,
+          timezone VARCHAR(80) NOT NULL DEFAULT 'Asia/Jakarta',
+          grace_period_minutes INT UNSIGNED NOT NULL DEFAULT 10,
+          cooldown_minutes INT UNSIGNED NOT NULL DEFAULT 30,
+          severity ENUM('info', 'warning', 'critical') NOT NULL DEFAULT 'critical',
+          enabled TINYINT(1) NOT NULL DEFAULT 1,
+          environment VARCHAR(80) NOT NULL DEFAULT 'Production',
+          service_group VARCHAR(120) NULL,
+          description TEXT NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          UNIQUE KEY uq_cron_schedules_scope (cron_name, environment),
+          KEY idx_cron_schedules_enabled_env_service (enabled, environment, service_group),
+          KEY idx_cron_schedules_cron_name (cron_name)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+
+      const scheduleColumns = await tableColumnSet('cron_schedules');
+      await ensureColumn('cron_schedules', scheduleColumns, 'cooldown_minutes', 'INT UNSIGNED NOT NULL DEFAULT 30');
+      const scheduleIndexes = await tableIndexSet('cron_schedules');
+      await ensureIndex('cron_schedules', scheduleIndexes, 'idx_cron_schedules_enabled_env_service', '(enabled, environment, service_group)');
+      await ensureIndex('cron_schedules', scheduleIndexes, 'idx_cron_schedules_cron_name', '(cron_name)');
+      await ensureMissingCronRuleType();
+    })().catch((error) => {
+      heartbeatSchemaReadyPromise = null;
+      throw error;
+    });
+  }
+
+  await heartbeatSchemaReadyPromise;
+}
+
+export async function listCronSchedules({ enabled, env, service_group } = {}) {
+  await ensureHeartbeatSchema();
+
+  const filters = [];
+  const values = [];
+
+  if (enabled !== undefined) {
+    filters.push('enabled = ?');
+    values.push(enabled ? 1 : 0);
+  }
+
+  if (env) {
+    filters.push('environment = ?');
+    values.push(env);
+  }
+
+  if (service_group) {
+    filters.push('service_group = ?');
+    values.push(service_group);
+  }
+
+  const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
+  const [rows] = await query(`
+    SELECT id, cron_name, schedule_expression, timezone, grace_period_minutes,
+      cooldown_minutes, severity, enabled, environment, service_group, description,
+      DATE_FORMAT(CONVERT_TZ(created_at, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s') AS created_at,
+      DATE_FORMAT(CONVERT_TZ(updated_at, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s') AS updated_at
+    FROM cron_schedules
+    ${where}
+    ORDER BY enabled DESC, environment ASC, service_group ASC, cron_name ASC
+  `, values);
+
+  return rows.map((row) => ({
+    ...row,
+    enabled: Boolean(row.enabled),
+    schedule_description: describeSchedule(row.schedule_expression, row.timezone)
+  }));
+}
+
+async function getMissingCronRule() {
+  await ensureHeartbeatSchema();
+
+  const [[rule]] = await query(`
+    SELECT id, name, type, severity, cooldown_minutes, channels
+    FROM alert_rules
+    WHERE type = 'missing_cron' AND name = 'Missing Cron Alert'
+    LIMIT 1
+  `);
+
+  return rule;
+}
+
+async function latestHeartbeats(schedules) {
+  if (schedules.length === 0) {
+    return new Map();
+  }
+
+  const names = [...new Set(schedules.map((schedule) => schedule.cron_name))];
+  const [rows] = await query(`
+    SELECT latest.cron_name, latest.env, latest.service_group, latest.timestamp AS last_heartbeat_at,
+      latest.server
+    FROM cron_logs latest
+    INNER JOIN (
+      SELECT cron_name, env, MAX(timestamp) AS last_heartbeat_at
+      FROM cron_logs
+      WHERE cron_name IN (${names.map(() => '?').join(',')})
+      GROUP BY cron_name, env
+    ) grouped
+      ON grouped.cron_name = latest.cron_name
+      AND grouped.env <=> latest.env
+      AND grouped.last_heartbeat_at = latest.timestamp
+  `, names);
+  const byCron = new Map();
+
+  for (const row of rows) {
+    const scopedKey = `${row.cron_name}:${String(row.env || '').toLowerCase()}`;
+
+    if (!byCron.has(scopedKey)) {
+      byCron.set(scopedKey, row);
+    }
+
+    if (!byCron.has(row.cron_name)) {
+      byCron.set(row.cron_name, row);
+    }
+  }
+
+  return byCron;
+}
+
+export async function evaluateHeartbeatSchedules({ persist = false, app } = {}) {
+  await ensureHeartbeatSchema();
+
+  const schedules = await listCronSchedules({ enabled: true });
+  const heartbeatByCron = await latestHeartbeats(schedules);
+  const now = new Date();
+  const health = [];
+
+  for (const schedule of schedules) {
+    try {
+      const runtime = scheduleRuntime(schedule, now);
+      const scheduleEnvKey = `${schedule.cron_name}:${String(schedule.environment || '').toLowerCase()}`;
+      const heartbeat = heartbeatByCron.get(scheduleEnvKey) || heartbeatByCron.get(schedule.cron_name);
+      const lastHeartbeatAt = toDate(heartbeat?.last_heartbeat_at);
+      const missing = runtime.activeWindow
+        && minutesBetween(now, runtime.previousDueAt) > runtime.graceMinutes
+        && (!lastHeartbeatAt || lastHeartbeatAt.getTime() < runtime.previousDueAt.getTime());
+      const heartbeatRestored = Boolean(lastHeartbeatAt && lastHeartbeatAt.getTime() >= runtime.previousDueAt.getTime());
+      const missingMinutes = lastHeartbeatAt
+        ? minutesBetween(now, lastHeartbeatAt)
+        : minutesBetween(now, runtime.previousDueAt);
+
+      health.push({
+        ...schedule,
+        heartbeat_status: missing ? 'missing' : runtime.activeWindow ? 'healthy' : 'outside_window',
+        last_heartbeat_at: formatWibDate(lastHeartbeatAt),
+        last_heartbeat_minutes_ago: lastHeartbeatAt ? minutesBetween(now, lastHeartbeatAt) : null,
+        expected_at: formatWibDate(runtime.previousDueAt),
+        next_expected_at: formatWibDate(runtime.nextDueAt),
+        cadence_minutes: runtime.cadenceMinutes,
+        missing_duration_minutes: missing ? missingMinutes : 0,
+        heartbeat_restored: heartbeatRestored,
+        server: heartbeat?.server || null,
+        env: heartbeat?.env || schedule.environment,
+        service_group: schedule.service_group || heartbeat?.service_group || null,
+        schedule_description: runtime.schedule_description
+      });
+    } catch (error) {
+      health.push({
+        ...schedule,
+        heartbeat_status: 'invalid_schedule',
+        error: error.message,
+        schedule_description: `${schedule.schedule_expression} (${schedule.timezone || DEFAULT_TIMEZONE})`
+      });
+    }
+  }
+
+  if (persist) {
+    await persistHeartbeatAlerts(app, health);
+  }
+
+  return health;
+}
+
+function missingAlertKey(rule, schedule) {
+  return `${rule.id}:missing_cron:${schedule.id}:${schedule.cron_name}:${schedule.environment}`;
+}
+
+function missingReason(item) {
+  const lastSeen = item.last_heartbeat_minutes_ago === null
+    ? 'no heartbeat recorded'
+    : `last seen ${humanMinutes(item.last_heartbeat_minutes_ago)} ago`;
+
+  return `${item.cron_name} missed expected heartbeat at ${item.expected_at || 'unknown'} WIB; ${lastSeen}`;
+}
+
+export function buildMissingCronTelegramMessage(alert, rule, lifecycle = 'triggered') {
+  if (lifecycle === 'resolved') {
+    return [
+      '✅ <b>NYX Cron Recovered</b>',
+      '',
+      `<b>Cron:</b>\n${escapeTelegramHtml(alert.cron_name || '-')}`,
+      '',
+      '<b>Status:</b>\nHeartbeat restored',
+      '',
+      `<b>Recovered at:</b>\n${escapeTelegramHtml(formatWibDate(new Date()))} WIB`
+    ].join('\n');
+  }
+
+  return [
+    '🚨 <b>NYX Missing Cron Alert</b>',
+    '',
+    `<b>Cron:</b>\n${escapeTelegramHtml(alert.cron_name || '-')}`,
+    '',
+    '<b>Issue:</b>\nExpected cron execution was not detected',
+    '',
+    `<b>Expected Schedule:</b>\n${escapeTelegramHtml(alert.schedule_description || rule.name || '-')}`,
+    '',
+    `<b>Last Seen:</b>\n${escapeTelegramHtml(alert.last_seen_label || '-')}`,
+    '',
+    `<b>Environment:</b>\n${escapeTelegramHtml(alert.env || '-')}`,
+    '',
+    `<b>Server:</b>\n${escapeTelegramHtml(alert.server || '-')}`
+  ].join('\n');
+}
+
+function escapeTelegramHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+}
+
+async function persistHeartbeatAlerts(app, health) {
+  const rule = await getMissingCronRule();
+
+  if (!rule) {
+    return;
+  }
+
+  const activeKeys = new Set();
+  const recoveredKeys = new Set(
+    health
+      .filter((item) => item.heartbeat_restored)
+      .map((item) => missingAlertKey(rule, item))
+  );
+  const missingItems = health.filter((item) => item.heartbeat_status === 'missing');
+
+  for (const item of missingItems) {
+    const key = missingAlertKey(rule, item);
+    activeKeys.add(key);
+
+    const [[existing]] = await query(
+      `SELECT id, state, severity, last_notified_at
+       FROM alert_events
+       WHERE alert_key = ?
+       LIMIT 1`,
+      [key]
+    );
+
+    const severity = item.severity || rule.severity || 'critical';
+    const env = item.environment || item.env || null;
+    const serviceGroup = item.service_group || null;
+    const reason = missingReason(item);
+    const alertPayload = {
+      cron_name: item.cron_name,
+      env,
+      service_group: serviceGroup,
+      server: item.server,
+      schedule_description: item.schedule_description,
+      last_seen_label: item.last_heartbeat_minutes_ago === null ? 'Never' : `${humanMinutes(item.last_heartbeat_minutes_ago)} ago`
+    };
+
+    if (!existing) {
+      const [result] = await query(`
+        INSERT INTO alert_events
+          (rule_id, alert_key, cron_name, env, service_group, type, severity, reason, state, triggered_at)
+        VALUES (?, ?, ?, ?, ?, 'missing_cron', ?, ?, 'active', UTC_TIMESTAMP())
+      `, [rule.id, key, item.cron_name, env, serviceGroup, severity, reason]);
+
+      await notifyMissingCron(app, { id: result.insertId, severity, ...alertPayload }, rule, null, 'triggered');
+      continue;
+    }
+
+    const reactivated = existing.state === 'resolved';
+
+    await query(`
+      UPDATE alert_events
+      SET reason = ?,
+        env = ?,
+        service_group = ?,
+        severity = ?,
+        state = CASE WHEN state = 'resolved' THEN 'active' ELSE state END,
+        triggered_at = CASE WHEN state = 'resolved' THEN UTC_TIMESTAMP() ELSE triggered_at END,
+        resolved_at = NULL,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `, [reason, env, serviceGroup, severity, existing.id]);
+
+    await notifyMissingCron(app, { id: existing.id, severity, ...alertPayload }, {
+      ...rule,
+      cooldown_minutes: item.cooldown_minutes || rule.cooldown_minutes
+    }, existing.last_notified_at, reactivated ? 'triggered' : 'triggered');
+  }
+
+  const [activeRows] = await query(
+    `SELECT id, alert_key, cron_name, env, service_group, severity, last_notified_at
+     FROM alert_events
+     WHERE state IN ('active', 'acknowledged')
+       AND rule_id = ?`,
+    [rule.id]
+  );
+  const resolvedRows = activeRows.filter((row) => !activeKeys.has(row.alert_key) && recoveredKeys.has(row.alert_key));
+
+  if (resolvedRows.length === 0) {
+    return;
+  }
+
+  const ids = resolvedRows.map((row) => row.id);
+
+  await query(
+    `UPDATE alert_events
+     SET state = 'resolved',
+       resolved_at = UTC_TIMESTAMP(),
+       updated_at = CURRENT_TIMESTAMP
+     WHERE id IN (${ids.map(() => '?').join(',')})`,
+    ids
+  );
+
+  for (const row of resolvedRows) {
+    await notifyMissingCron(app, row, rule, null, 'resolved');
+  }
+}
+
+async function notifyMissingCron(app, alert, rule, lastNotifiedAt, lifecycle) {
+  const cooldown = Number(rule.cooldown_minutes || DEFAULT_COOLDOWN_MINUTES) * 60 * 1000;
+  const last = lastNotifiedAt ? new Date(lastNotifiedAt).getTime() : 0;
+
+  if (lifecycle === 'triggered' && last && Date.now() - last < cooldown) {
+    return;
+  }
+
+  const channels = parseChannels(rule.channels);
+  const text = buildMissingCronTelegramMessage(alert, rule, lifecycle);
+  let delivered = false;
+  const errors = [];
+
+  await Promise.all(channels.map(async (channel) => {
+    try {
+      if (channel === 'telegram') {
+        const result = await sendTelegram(text, { severity: alert.severity });
+        delivered = delivered || Boolean(result.sent);
+        if (!result.sent && result.error) {
+          errors.push(result.error);
+        }
+      }
+    } catch (error) {
+      errors.push(`${channel}: ${error.message}`);
+      app?.log?.warn({ channel, alert_id: alert.id, error: error.message }, 'Missing cron notification failed');
+    }
+  }));
+
+  await query(`
+    UPDATE alert_events
+    SET last_notification_status = ?,
+      last_notification_error = ?,
+      last_notified_at = CASE WHEN ? = 'success' THEN UTC_TIMESTAMP() ELSE last_notified_at END,
+      notification_count = CASE WHEN ? = 'success' THEN notification_count + 1 ELSE notification_count END,
+      updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `, [
+    delivered ? 'success' : channels.length === 0 ? 'skipped' : 'failed',
+    errors.join('; ').slice(0, 1000) || null,
+    delivered ? 'success' : 'failed',
+    delivered ? 'success' : 'failed',
+    alert.id
+  ]);
+}
+
+function parseChannels(value) {
+  if (Array.isArray(value)) {
+    return value.filter(Boolean);
+  }
+
+  if (!value) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter(Boolean) : [];
+  } catch {
+    return String(value).split(',').map((item) => item.trim()).filter(Boolean);
+  }
+}
+
+function telegramChatIds() {
+  return String(process.env.TELEGRAM_CHAT_ID || '')
+    .split(',')
+    .map((chatId) => chatId.trim())
+    .filter(Boolean);
+}
+
+function normalizeTelegramTopicId(value) {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+
+  const topicId = Number(value);
+  return Number.isFinite(topicId) && topicId > 0 ? topicId : null;
+}
+
+function telegramTopicIdForSeverity(severity) {
+  const normalizedSeverity = String(severity || '').toUpperCase();
+  return normalizeTelegramTopicId(process.env[`TELEGRAM_${normalizedSeverity}_TOPIC_ID`])
+    || normalizeTelegramTopicId(process.env.TELEGRAM_TOPIC_ID)
+    || normalizeTelegramTopicId(process.env.TELEGRAM_MESSAGE_THREAD_ID);
+}
+
+async function sendTelegram(text, { severity } = {}) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatIds = telegramChatIds();
+  const topicId = telegramTopicIdForSeverity(severity);
+
+  if (!token || chatIds.length === 0) {
+    return { sent: false, error: 'Telegram credentials are not configured' };
+  }
+
+  await Promise.all(chatIds.map(async (chatId) => {
+    const basePayload = {
+      chat_id: chatId,
+      text,
+      parse_mode: 'HTML',
+      disable_web_page_preview: true
+    };
+    const payload = topicId ? { ...basePayload, message_thread_id: topicId } : basePayload;
+    let response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok && topicId) {
+      response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(basePayload)
+      });
+    }
+
+    if (!response.ok) {
+      const responseText = await response.text();
+      throw new Error(`Telegram API ${response.status}: ${responseText.slice(0, 300)}`);
+    }
+  }));
+
+  return { sent: true, count: chatIds.length, topic_id: topicId };
+}
+
+export async function heartbeatSummary({ env, service_group } = {}) {
+  const health = await evaluateHeartbeatSchedules();
+  const scoped = health.filter((item) => {
+    if (env && item.environment !== env && item.env !== env) return false;
+    if (service_group && item.service_group !== service_group) return false;
+    return true;
+  });
+  const missing = scoped.filter((item) => item.heartbeat_status === 'missing');
+  const healthy = scoped.filter((item) => item.heartbeat_status === 'healthy');
+  const outsideWindow = scoped.filter((item) => item.heartbeat_status === 'outside_window');
+  const invalid = scoped.filter((item) => item.heartbeat_status === 'invalid_schedule');
+
+  return {
+    summary: {
+      monitored_schedules: scoped.length,
+      healthy: healthy.length,
+      missing: missing.length,
+      outside_window: outsideWindow.length,
+      invalid_schedule: invalid.length
+    },
+    schedules: scoped.sort((left, right) => {
+      const rank = { missing: 0, invalid_schedule: 1, healthy: 2, outside_window: 3 };
+      return (rank[left.heartbeat_status] ?? 9) - (rank[right.heartbeat_status] ?? 9)
+        || String(left.cron_name).localeCompare(String(right.cron_name));
+    }),
+    now_wib: (await query(`SELECT ${JAKARTA_NOW_SQL} AS now_wib`))[0][0]?.now_wib || null
+  };
+}

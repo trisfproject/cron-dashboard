@@ -12,7 +12,8 @@ const RULE_TYPES = new Set([
   'success_rate_degradation',
   'duration_anomaly',
   'retry_storm',
-  'cron_silence'
+  'cron_silence',
+  'missing_cron'
 ]);
 
 const lastEvaluationFailureLogAt = new Map();
@@ -837,7 +838,7 @@ async function maybeNotify(app, alert, rule, lastNotifiedAt, lifecycle = 'trigge
 }
 
 export async function evaluateAlerts(app) {
-  const rules = (await listRules()).filter((rule) => rule.enabled);
+  const rules = (await listRules()).filter((rule) => rule.enabled && rule.type !== 'missing_cron');
   const activeKeys = new Set();
   const alerts = [];
 

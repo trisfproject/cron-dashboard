@@ -211,11 +211,15 @@ curl "https://api.cron-dashboard.example.com/logs?cron_name=daily-backup&server=
 - `GET /alerts?state=active|acknowledged|resolved|all`
 - `POST /alerts/evaluate`
 - `POST /alerts/:id/acknowledge`
+- `GET /heartbeat-health`
+- `GET /cron-schedules`
 - `GET /alert-rules`
 - `POST /alert-rules`
 - `PUT /alert-rules/:id`
 
-Alert rules support failed execution thresholds, warning thresholds, success-rate degradation, duration anomalies, retry storms, and cron silence detection. Notification secrets are never stored in the database; rules only store channel names such as `telegram`, `discord`, and `slack`.
+Alert rules support failed execution thresholds, warning thresholds, success-rate degradation, duration anomalies, retry storms, cron silence detection, and schedule-aware Missing Cron alerts. Missing Cron detection uses `cron_schedules` as the expected cadence registry and treats stored cron ingest rows as heartbeat signals. Notification secrets are never stored in the database; rules only store channel names such as `telegram`, `discord`, and `slack`.
+
+Seed `cron_schedules` only from production crontab entries wrapped by `cron_notify.sh`; plain crons are not heartbeat-aware yet and should remain out of the registry.
 
 ## Database
 

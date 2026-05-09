@@ -72,7 +72,8 @@ CREATE TABLE IF NOT EXISTS alert_rules (
     'success_rate_degradation',
     'duration_anomaly',
     'retry_storm',
-    'cron_silence'
+    'cron_silence',
+    'missing_cron'
   ) NOT NULL,
   cron_name VARCHAR(255) NULL,
   env VARCHAR(80) NULL,
@@ -147,3 +148,28 @@ INSERT INTO alert_rules
   (name, type, severity, threshold, timeframe_minutes, cooldown_minutes, channels, enabled)
 SELECT 'Retry storm detected', 'retry_storm', 'warning', 3, 5, 10, '["telegram"]', 1
 WHERE NOT EXISTS (SELECT 1 FROM alert_rules WHERE name = 'Retry storm detected');
+
+CREATE TABLE IF NOT EXISTS cron_schedules (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  cron_name VARCHAR(255) NOT NULL,
+  schedule_expression VARCHAR(120) NOT NULL,
+  timezone VARCHAR(80) NOT NULL DEFAULT 'Asia/Jakarta',
+  grace_period_minutes INT UNSIGNED NOT NULL DEFAULT 10,
+  cooldown_minutes INT UNSIGNED NOT NULL DEFAULT 30,
+  severity ENUM('info', 'warning', 'critical') NOT NULL DEFAULT 'critical',
+  enabled TINYINT(1) NOT NULL DEFAULT 1,
+  environment VARCHAR(80) NOT NULL DEFAULT 'Production',
+  service_group VARCHAR(120) NULL,
+  description TEXT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_cron_schedules_scope (cron_name, environment),
+  KEY idx_cron_schedules_enabled_env_service (enabled, environment, service_group),
+  KEY idx_cron_schedules_cron_name (cron_name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT INTO alert_rules
+  (name, type, severity, threshold, timeframe_minutes, cooldown_minutes, channels, enabled)
+SELECT 'Missing Cron Alert', 'missing_cron', 'critical', 1, 5, 30, '["telegram"]', 1
+WHERE NOT EXISTS (SELECT 1 FROM alert_rules WHERE name = 'Missing Cron Alert');

@@ -579,6 +579,11 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
   const timeline = Array.isArray(stats?.timeline) ? stats.timeline : [];
   const timelineInterval = stats?.interval || 'hour';
   const insights = stats?.insights && typeof stats.insights === 'object' ? stats.insights : {};
+  const heartbeat = stats?.heartbeat && typeof stats.heartbeat === 'object' ? stats.heartbeat : { summary: {}, schedules: [] };
+  const heartbeatSummary = heartbeat.summary || {};
+  const heartbeatSchedules = Array.isArray(heartbeat.schedules) ? heartbeat.schedules : [];
+  const missingHeartbeatSchedules = heartbeatSchedules.filter((schedule) => schedule.heartbeat_status === 'missing');
+  const visibleHeartbeatSchedules = heartbeatSchedules.slice(0, 6);
   const problematicJobs = Array.isArray(insights.problematic_jobs) ? insights.problematic_jobs : [];
   const rankedHealthJobs = rankCronHealthJobs(problematicJobs);
   const attentionHealthJobs = rankedHealthJobs.filter((job) => Number(job?.health?.score || 0) > 0);
@@ -709,6 +714,87 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
             </div>
           </div>
           <p className="mt-2 text-xs leading-snug text-slate-500 sm:mt-3 sm:text-sm">{healthContext}</p>
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-ink">Heartbeat Monitoring</h2>
+            <p className="mt-1 text-sm text-slate-500">Schedule-aware missing cron detection for monitored production entries.</p>
+          </div>
+          <div className="grid grid-cols-3 gap-2 text-center text-xs sm:min-w-[18rem]">
+            <div className="rounded-md bg-slate-50 p-2 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
+              <p className="font-semibold text-ink">{formatNumber(heartbeatSummary.monitored_schedules || 0)}</p>
+              <p className="text-slate-500">Monitored</p>
+            </div>
+            <div className="rounded-md bg-rose-50 p-2 text-rose-700 ring-1 ring-rose-200 dark:bg-rose-950/40 dark:text-rose-200 dark:ring-rose-900">
+              <p className="font-semibold">{formatNumber(heartbeatSummary.missing || 0)}</p>
+              <p>Missing</p>
+            </div>
+            <div className="rounded-md bg-emerald-50 p-2 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:ring-emerald-900">
+              <p className="font-semibold">{formatNumber(heartbeatSummary.healthy || 0)}</p>
+              <p>Healthy</p>
+            </div>
+          </div>
+        </div>
+
+        {missingHeartbeatSchedules.length > 0 ? (
+          <div className="mb-4 rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200">
+            {formatNumber(missingHeartbeatSchedules.length)} cron schedule{missingHeartbeatSchedules.length === 1 ? '' : 's'} missing expected heartbeat.
+          </div>
+        ) : null}
+
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-800">
+            <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500 dark:bg-slate-900">
+              <tr>
+                <th className="px-3 py-2">Cron</th>
+                <th className="px-3 py-2">Status</th>
+                <th className="px-3 py-2">Last heartbeat</th>
+                <th className="px-3 py-2">Expected</th>
+                <th className="px-3 py-2">Schedule</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+              {visibleHeartbeatSchedules.map((schedule) => {
+                const statusStyle = {
+                  missing: 'bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-950/50 dark:text-rose-200 dark:ring-rose-900',
+                  healthy: 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-200 dark:ring-emerald-900',
+                  outside_window: 'bg-slate-100 text-slate-600 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-800',
+                  invalid_schedule: 'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-950/50 dark:text-amber-200 dark:ring-amber-900'
+                }[schedule.heartbeat_status] || 'bg-slate-100 text-slate-600 ring-slate-200';
+                const statusLabel = {
+                  missing: 'Missing',
+                  healthy: 'Healthy',
+                  outside_window: 'Outside window',
+                  invalid_schedule: 'Invalid'
+                }[schedule.heartbeat_status] || schedule.heartbeat_status;
+
+                return (
+                  <tr key={schedule.id || schedule.cron_name} className="align-top">
+                    <td className="max-w-[18rem] px-3 py-2">
+                      <p className="truncate font-medium text-ink">{schedule.cron_name}</p>
+                      <p className="mt-1 text-xs text-slate-500">{schedule.environment || schedule.env || '-'}</p>
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2">
+                      <span className={`inline-flex rounded-md px-2 py-1 text-xs font-medium ring-1 ${statusStyle}`}>{statusLabel}</span>
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2 text-slate-600 dark:text-slate-300">
+                      {schedule.last_heartbeat_at ? `${formatRelativeTime(schedule.last_heartbeat_at)} (${schedule.last_heartbeat_at} WIB)` : 'No heartbeat'}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2 text-slate-600 dark:text-slate-300">{schedule.expected_at || '-'}</td>
+                    <td className="min-w-[16rem] px-3 py-2 text-slate-600 dark:text-slate-300">{schedule.schedule_description || schedule.schedule_expression}</td>
+                  </tr>
+                );
+              })}
+              {visibleHeartbeatSchedules.length === 0 ? (
+                <tr>
+                  <td className="px-3 py-8 text-center text-slate-500" colSpan={5}>No heartbeat schedules registered yet.</td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
         </div>
       </section>
 

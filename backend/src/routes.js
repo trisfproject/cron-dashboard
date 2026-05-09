@@ -26,6 +26,11 @@ import {
   sendTestTelegramNotification,
   updateAlertRule
 } from './alerting.js';
+import {
+  evaluateHeartbeatSchedules,
+  heartbeatSummary,
+  listCronSchedules
+} from './heartbeat.js';
 import { normalizeTimelineBuckets, resolveDateFilter } from './utils/range-filter.js';
 
 const ingestBodySchema = {
@@ -214,7 +219,7 @@ export async function registerRoutes(app) {
       return;
     }
 
-    const adminRoutePrefixes = ['/alerts', '/alert-rules', '/users', '/audit-logs', '/audit'];
+    const adminRoutePrefixes = ['/alerts', '/alert-rules', '/cron-schedules', '/users', '/audit-logs', '/audit'];
     const routePath = request.url.split('?')[0];
 
     if (adminRoutePrefixes.some((prefix) => routePath === prefix || routePath.startsWith(`${prefix}/`))) {
@@ -281,6 +286,9 @@ export async function registerRoutes(app) {
         evaluateAlertsSafely(request.server, {
           endpoint: endpointLabel(request),
           phase: 'post_ingest_alert_evaluation'
+        });
+        evaluateHeartbeatSchedules({ persist: true, app: request.server }).catch((error) => {
+          request.log.warn({ err: error, error: error.message }, 'Post-ingest heartbeat evaluation failed');
         });
         return reply.code(201).send({ id: result.insertId, hash, duplicate: false });
       } catch (error) {
@@ -442,6 +450,10 @@ export async function registerRoutes(app) {
           problematic_jobs: problematicJobs,
           slowest_jobs: slowestJobs
         },
+        heartbeat: await heartbeatSummary({
+          env: request.query.env,
+          service_group: request.query.service_group
+        }),
         mode: dateFilter.mode,
         window: dateFilter.window,
         range: dateFilter.range,
@@ -688,12 +700,59 @@ export async function registerRoutes(app) {
   app.post('/alerts/evaluate', async (request) => {
     try {
       const alerts = await evaluateAlerts(request.server);
-      return { evaluated: true, active_triggers: alerts.length };
+      const heartbeat = await evaluateHeartbeatSchedules({ persist: true, app: request.server });
+      return {
+        evaluated: true,
+        active_triggers: alerts.length,
+        missing_cron_triggers: heartbeat.filter((item) => item.heartbeat_status === 'missing').length
+      };
     } catch (error) {
       logEndpointError(request, error, 'Manual alert evaluation endpoint failed');
       throw error;
     }
   });
+
+  app.get(
+    '/heartbeat-health',
+    {
+      schema: {
+        querystring: {
+          type: 'object',
+          properties: {
+            env: { type: 'string' },
+            service_group: { type: 'string' }
+          }
+        }
+      }
+    },
+    async (request) => heartbeatSummary({
+      env: request.query.env,
+      service_group: request.query.service_group
+    })
+  );
+
+  app.get(
+    '/cron-schedules',
+    {
+      schema: {
+        querystring: {
+          type: 'object',
+          properties: {
+            enabled: { type: 'boolean' },
+            env: { type: 'string' },
+            service_group: { type: 'string' }
+          }
+        }
+      }
+    },
+    async (request) => ({
+      schedules: await listCronSchedules({
+        enabled: request.query.enabled,
+        env: request.query.env,
+        service_group: request.query.service_group
+      })
+    })
+  );
 
   app.post('/alerts/test-telegram', async (request, reply) => {
     try {
@@ -755,7 +814,7 @@ export async function registerRoutes(app) {
           additionalProperties: true,
           properties: {
             name: { type: 'string', minLength: 1, maxLength: 255 },
-            type: { type: 'string', enum: ['failed_threshold', 'warning_threshold', 'success_rate_degradation', 'duration_anomaly', 'retry_storm', 'cron_silence'] },
+            type: { type: 'string', enum: ['failed_threshold', 'warning_threshold', 'success_rate_degradation', 'duration_anomaly', 'retry_storm', 'cron_silence', 'missing_cron'] },
             cron_name: { type: 'string' },
             env: { type: 'string' },
             service_group: { type: 'string' },
@@ -807,7 +866,7 @@ export async function registerRoutes(app) {
           additionalProperties: true,
           properties: {
             name: { type: 'string', minLength: 1, maxLength: 255 },
-            type: { type: 'string', enum: ['failed_threshold', 'warning_threshold', 'success_rate_degradation', 'duration_anomaly', 'retry_storm', 'cron_silence'] },
+            type: { type: 'string', enum: ['failed_threshold', 'warning_threshold', 'success_rate_degradation', 'duration_anomaly', 'retry_storm', 'cron_silence', 'missing_cron'] },
             cron_name: { type: 'string' },
             env: { type: 'string' },
             service_group: { type: 'string' },

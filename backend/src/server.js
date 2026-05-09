@@ -4,6 +4,7 @@ import { evaluateAlertsSafely } from './alerting.js';
 import { bootstrapAdminUser, ensureAuthSchema } from './auth.js';
 import { config } from './config.js';
 import { pool, waitForDatabase } from './db.js';
+import { ensureHeartbeatSchema, evaluateHeartbeatSchedules } from './heartbeat.js';
 import { registerRoutes } from './routes.js';
 
 const app = Fastify({
@@ -21,11 +22,20 @@ await app.register(cors, {
 await registerRoutes(app);
 await waitForDatabase(app.log);
 await ensureAuthSchema();
+await ensureHeartbeatSchema();
 await bootstrapAdminUser(config, app.log);
 evaluateAlertsSafely(app);
+evaluateHeartbeatSchedules({ persist: true, app }).catch((error) => {
+  app.log.warn({ err: error, error: error.message }, 'Heartbeat evaluation failed');
+});
 
 const alertEvaluationTimer = config.alertEvaluationIntervalMs > 0
-  ? setInterval(() => evaluateAlertsSafely(app), config.alertEvaluationIntervalMs)
+  ? setInterval(() => {
+      evaluateAlertsSafely(app);
+      evaluateHeartbeatSchedules({ persist: true, app }).catch((error) => {
+        app.log.warn({ err: error, error: error.message }, 'Heartbeat evaluation failed');
+      });
+    }, config.alertEvaluationIntervalMs)
   : null;
 
 app.addHook('onClose', async () => {
