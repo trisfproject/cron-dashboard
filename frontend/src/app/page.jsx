@@ -608,7 +608,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
 
       return runResource(
         'alerts',
-        (signal) => getAlerts({ state: 'active', limit: 5, ...scopeParams }, { signal }),
+        (signal) => getAlerts({ state: 'open', limit: 5, ...scopeParams }, { signal }),
         (alertsData) => setAlerts(Array.isArray(alertsData?.alerts) ? alertsData.alerts : [])
       );
     }
@@ -1153,6 +1153,9 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
                 <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
                   <AlertStateBadge state={alert.state} />
                   <span>{alert.triggered_at || '-'}</span>
+                  {alert.acknowledged_at ? (
+                    <span>Acknowledged by {alert.acknowledged_by_name || alert.acknowledged_by_email || 'operator'} at {alert.acknowledged_at}</span>
+                  ) : null}
                 </div>
               </article>
             ))}
@@ -1170,6 +1173,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
                   <th className="px-3 py-2">Reason</th>
                   <th className="px-3 py-2">Triggered</th>
                   <th className="px-3 py-2">State</th>
+                  <th className="px-3 py-2">Owner</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -1186,11 +1190,16 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
                     <td className="min-w-[24rem] px-3 py-2 text-slate-600 dark:text-slate-300">{alert.reason}</td>
                     <td className="whitespace-nowrap px-3 py-2 text-slate-600 dark:text-slate-300">{alert.triggered_at || '-'}</td>
                     <td className="whitespace-nowrap px-3 py-2"><AlertStateBadge state={alert.state} /></td>
+                    <td className="whitespace-nowrap px-3 py-2 text-slate-600 dark:text-slate-300">
+                      {alert.acknowledged_at ? (
+                        <span>{alert.acknowledged_by_name || alert.acknowledged_by_email || 'operator'} · {alert.acknowledged_at}</span>
+                      ) : '-'}
+                    </td>
                   </tr>
                 ))}
                 {activeAlerts.length === 0 ? (
                   <tr>
-                    <td className="px-3 py-8 text-center text-emerald-700 dark:text-emerald-200" colSpan={6}>No active alerts. Cron monitoring is quiet.</td>
+                    <td className="px-3 py-8 text-center text-emerald-700 dark:text-emerald-200" colSpan={7}>No active alerts. Cron monitoring is quiet.</td>
                   </tr>
                 ) : null}
               </tbody>

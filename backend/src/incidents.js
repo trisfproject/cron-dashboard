@@ -93,7 +93,9 @@ function eventTitle(type, fallback) {
     heartbeat_recovered: 'Heartbeat recovered',
     maintenance_enabled: 'Maintenance enabled',
     maintenance_disabled: 'Maintenance disabled',
-    maintenance_expired: 'Maintenance expired'
+    maintenance_expired: 'Maintenance expired',
+    incident_acknowledged: 'Incident acknowledged',
+    incident_note_added: 'Incident note added'
   }[type] || String(type || 'Incident event').replaceAll('_', ' ');
 }
 
@@ -160,17 +162,17 @@ export async function listIncidentEvents({ cron, env, service_group, limit = 20,
   const safeOffset = Math.max(Number(offset || 0), 0);
 
   if (cron) {
-    filters.push('cron_name = ?');
+    filters.push('incident_events.cron_name = ?');
     values.push(cron);
   }
 
   if (env) {
-    filters.push('env = ?');
+    filters.push('incident_events.env = ?');
     values.push(env);
   }
 
   if (service_group) {
-    filters.push('service_group = ?');
+    filters.push('incident_events.service_group = ?');
     values.push(service_group);
   }
 
@@ -178,13 +180,21 @@ export async function listIncidentEvents({ cron, env, service_group, limit = 20,
   values.push(safeLimit + 1, safeOffset);
 
   const [rows] = await query(`
-    SELECT id, alert_event_id, rule_id, alert_key, cron_name, server, env, service_group, severity,
-      type, title, reason, downtime_minutes, metadata_json,
-      DATE_FORMAT(CONVERT_TZ(occurred_at, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s') AS occurred_at,
-      DATE_FORMAT(CONVERT_TZ(created_at, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s') AS created_at
+    SELECT incident_events.id, incident_events.alert_event_id, incident_events.rule_id, incident_events.alert_key,
+      incident_events.cron_name, incident_events.server, incident_events.env, incident_events.service_group,
+      incident_events.severity, incident_events.type, incident_events.title, incident_events.reason,
+      incident_events.downtime_minutes, incident_events.metadata_json,
+      alert_events.state AS alert_state,
+      alert_events.acknowledged_by_name,
+      alert_events.acknowledged_by_email,
+      alert_events.acknowledgement_note,
+      DATE_FORMAT(CONVERT_TZ(alert_events.acknowledged_at, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s') AS acknowledged_at,
+      DATE_FORMAT(CONVERT_TZ(incident_events.occurred_at, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s') AS occurred_at,
+      DATE_FORMAT(CONVERT_TZ(incident_events.created_at, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s') AS created_at
     FROM incident_events
+    LEFT JOIN alert_events ON alert_events.id = incident_events.alert_event_id
     ${where}
-    ORDER BY occurred_at DESC, id DESC
+    ORDER BY incident_events.occurred_at DESC, incident_events.id DESC
     LIMIT ? OFFSET ?
   `, values);
 

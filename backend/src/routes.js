@@ -205,6 +205,10 @@ function requireApiKey(request, reply, done) {
   done();
 }
 
+function canAcknowledgeIncidents(user) {
+  return ['admin', 'operator', 'user'].includes(user?.role);
+}
+
 export async function registerRoutes(app) {
   app.get('/health', async () => ({ ok: true }));
   await registerAuthRoutes(app);
@@ -712,7 +716,7 @@ export async function registerRoutes(app) {
         querystring: {
           type: 'object',
           properties: {
-            state: { type: 'string', enum: ['active', 'acknowledged', 'resolved', 'all'], default: 'active' },
+            state: { type: 'string', enum: ['active', 'acknowledged', 'resolved', 'open', 'all'], default: 'active' },
             env: { type: 'string' },
             service_group: { type: 'string' },
             limit: { type: 'integer', minimum: 1, maximum: 500, default: 20 },
@@ -775,6 +779,59 @@ export async function registerRoutes(app) {
         });
       } catch (error) {
         logEndpointError(request, error, 'Incident timeline endpoint failed');
+        throw error;
+      }
+    }
+  );
+
+  app.post(
+    '/incidents/:id/acknowledge',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          properties: {
+            id: { type: 'integer' }
+          },
+          required: ['id']
+        },
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            note: { type: 'string', maxLength: 1000 }
+          }
+        }
+      }
+    },
+    async (request, reply) => {
+      try {
+        if (!canAcknowledgeIncidents(request.user)) {
+          return reply.code(403).send({ error: 'Incident acknowledgement requires operator access' });
+        }
+
+        const result = await acknowledgeAlert(Number(request.params.id), request.user, request.body?.note);
+
+        if (!result.acknowledged) {
+          return reply.code(409).send({
+            error: 'Incident cannot be acknowledged',
+            state: result.alert?.state || null
+          });
+        }
+
+        await logAudit({
+          user: request.user,
+          action: 'incident_acknowledged',
+          targetType: 'incident',
+          targetId: request.params.id,
+          targetLabel: result.alert?.cron_name,
+          request,
+          metadata: { note: request.body?.note || null }
+        });
+
+        return result;
+      } catch (error) {
+        logEndpointError(request, error, 'Incident acknowledge endpoint failed');
         throw error;
       }
     }
@@ -1101,20 +1158,28 @@ export async function registerRoutes(app) {
             id: { type: 'integer' }
           },
           required: ['id']
+        },
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            note: { type: 'string', maxLength: 1000 }
+          }
         }
       }
     },
     async (request) => {
       try {
-        await acknowledgeAlert(Number(request.params.id));
+        const result = await acknowledgeAlert(Number(request.params.id), request.user, request.body?.note);
         await logAudit({
           user: request.user,
           action: 'alert_acknowledged',
           targetType: 'alert',
           targetId: request.params.id,
+          targetLabel: result.alert?.cron_name,
           request
         });
-        return { acknowledged: true };
+        return result;
       } catch (error) {
         logEndpointError(request, error, 'Alert acknowledge endpoint failed');
         throw error;

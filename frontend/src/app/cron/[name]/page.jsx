@@ -2,13 +2,13 @@
 
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
-import { Activity, AlertTriangle, BarChart3, Bell, CheckCircle2, Clock3, Gauge, Radio, RotateCcw, ShieldCheck, Timer, Wrench, Zap } from 'lucide-react';
+import { Activity, AlertTriangle, BarChart3, Bell, CheckCircle2, Clock3, Eye, Gauge, Radio, RotateCcw, ShieldCheck, Timer, Wrench, Zap } from 'lucide-react';
 import { FailureWarningChart, DurationChart, ThroughputChart, TimelineChart } from '@/components/TimelineChart';
 import { InteractiveLogsTable } from '@/components/InteractiveLogsTable';
 import { EnvironmentBadge, ServiceGroupBadge } from '@/components/EnvironmentBadge';
 import { MetricCard } from '@/components/MetricCard';
 import { TimeRangeFilter } from '@/components/TimeRangeFilter';
-import { createMaintenanceWindow, disableMaintenanceWindow, getCurrentUser, getIncidents, getLogs, getMaintenanceWindows, getStats } from '@/lib/api';
+import { acknowledgeIncident, createMaintenanceWindow, disableMaintenanceWindow, getCurrentUser, getIncidents, getLogs, getMaintenanceWindows, getStats } from '@/lib/api';
 import { formatDate, formatDuration, formatNumber, formatPercent } from '@/lib/format';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -133,6 +133,16 @@ function incidentStyle(type) {
       icon: Wrench,
       label: 'Maintenance expired',
       className: 'bg-slate-100 text-slate-700 ring-slate-200 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-800'
+    },
+    incident_acknowledged: {
+      icon: Eye,
+      label: 'Acknowledged',
+      className: 'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-950/50 dark:text-amber-200 dark:ring-amber-900'
+    },
+    incident_note_added: {
+      icon: Bell,
+      label: 'Note added',
+      className: 'bg-blue-50 text-blue-700 ring-blue-200 dark:bg-blue-950/50 dark:text-blue-200 dark:ring-blue-900'
     }
   }[type] || {
     icon: Activity,
@@ -207,6 +217,9 @@ function CronDetailContent() {
   const [hasMoreIncidents, setHasMoreIncidents] = useState(false);
   const [nextIncidentOffset, setNextIncidentOffset] = useState(0);
   const [incidentRefreshTick, setIncidentRefreshTick] = useState(0);
+  const [ackNotes, setAckNotes] = useState({});
+  const [ackSavingId, setAckSavingId] = useState(null);
+  const [ackError, setAckError] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
   const [maintenanceWindows, setMaintenanceWindows] = useState([]);
   const [maintenanceDuration, setMaintenanceDuration] = useState(60);
@@ -408,6 +421,7 @@ function CronDetailContent() {
   const isCustom = filter.type === 'custom';
   const activeMaintenance = maintenanceWindows[0] || null;
   const isAdmin = currentUser?.role === 'admin';
+  const canAcknowledge = ['admin', 'user', 'operator'].includes(currentUser?.role);
 
   function applyCustomRange(nextCustomRange) {
     if (isValidCustomRange(nextCustomRange)) {
@@ -495,6 +509,29 @@ function CronDetailContent() {
       setMaintenanceError(disableError?.message || 'Failed to disable maintenance');
     } finally {
       setMaintenanceSaving(false);
+    }
+  }
+
+  async function acknowledgeTimelineIncident(alertEventId) {
+    if (!alertEventId || ackSavingId) {
+      return;
+    }
+
+    setAckSavingId(alertEventId);
+    setAckError(null);
+
+    try {
+      await acknowledgeIncident(alertEventId, ackNotes[alertEventId] || '');
+      setAckNotes((current) => {
+        const next = { ...current };
+        delete next[alertEventId];
+        return next;
+      });
+      setIncidentRefreshTick((value) => value + 1);
+    } catch (acknowledgeError) {
+      setAckError(acknowledgeError?.message || 'Failed to acknowledge incident');
+    } finally {
+      setAckSavingId(null);
     }
   }
 
@@ -717,6 +754,12 @@ function CronDetailContent() {
           </div>
         ) : null}
 
+        {ackError ? (
+          <div className="mb-4 rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200">
+            {ackError}
+          </div>
+        ) : null}
+
         {incidentsLoading && incidents.length === 0 ? (
           <div className="py-8 text-center text-sm text-slate-500">Loading incident timeline...</div>
         ) : null}
@@ -727,13 +770,20 @@ function CronDetailContent() {
 
         {incidents.length > 0 ? (
           <ol className="relative space-y-3 border-l border-slate-200 pl-4 dark:border-slate-800">
-            {incidents.map((incident) => {
+            {incidents.map((incident, index) => {
               const style = incidentStyle(incident.type);
               const Icon = style.icon;
               const downtime = incident.downtime_minutes !== null && incident.downtime_minutes !== undefined
                 ? `downtime ${incident.downtime_minutes}m`
                 : null;
               const schedule = incident.metadata?.schedule;
+              const acknowledgedBy = incident.acknowledged_by_name || incident.acknowledged_by_email;
+              const ackDraft = ackNotes[incident.alert_event_id] || '';
+              const isAcknowledgedIncident = incident.alert_state === 'acknowledged';
+              const canAcknowledgeIncident = canAcknowledge
+                && incident.alert_event_id
+                && ['active', 'acknowledged'].includes(incident.alert_state)
+                && incidents.findIndex((item) => item.alert_event_id === incident.alert_event_id) === index;
 
               return (
                 <li key={incident.id} className="relative">
@@ -757,6 +807,31 @@ function CronDetailContent() {
                         <p className="mt-1 text-xs text-slate-500">
                           {[downtime, schedule].filter(Boolean).join(' · ')}
                         </p>
+                      ) : null}
+                      {incident.alert_state === 'acknowledged' && acknowledgedBy ? (
+                        <p className="mt-2 text-xs text-amber-700 dark:text-amber-200">
+                          Acknowledged by {acknowledgedBy}{incident.acknowledged_at ? ` at ${incident.acknowledged_at} WIB` : ''}
+                          {incident.acknowledgement_note ? ` · ${incident.acknowledgement_note}` : ''}
+                        </p>
+                      ) : null}
+                      {canAcknowledgeIncident ? (
+                        <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                          <input
+                            type="text"
+                            value={ackDraft}
+                            onChange={(event) => setAckNotes((current) => ({ ...current, [incident.alert_event_id]: event.target.value }))}
+                            placeholder={isAcknowledgedIncident ? 'Add handling note' : 'Optional note'}
+                            className="min-h-10 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100 dark:border-slate-800 dark:bg-slate-950"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => acknowledgeTimelineIncident(incident.alert_event_id)}
+                            disabled={ackSavingId === incident.alert_event_id || (isAcknowledgedIncident && !ackDraft.trim())}
+                            className="inline-flex min-h-10 items-center justify-center rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-amber-900 dark:bg-amber-950/50 dark:text-amber-200"
+                          >
+                            {ackSavingId === incident.alert_event_id ? 'Saving...' : isAcknowledgedIncident ? 'Add Note' : 'Acknowledge'}
+                          </button>
+                        </div>
                       ) : null}
                     </div>
                     <span className="shrink-0 text-xs text-slate-500">{incident.occurred_at} WIB</span>

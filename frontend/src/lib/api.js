@@ -316,10 +316,17 @@ export function sendTestTelegramNotification() {
   });
 }
 
-export function acknowledgeAlert(id) {
+export function acknowledgeAlert(id, note = '') {
   return request(`/alerts/${id}/acknowledge`, {
     method: 'POST',
-    body: JSON.stringify({})
+    body: JSON.stringify(note ? { note } : {})
+  });
+}
+
+export function acknowledgeIncident(id, note = '') {
+  return request(`/incidents/${id}/acknowledge`, {
+    method: 'POST',
+    body: JSON.stringify(note ? { note } : {})
   });
 }
 

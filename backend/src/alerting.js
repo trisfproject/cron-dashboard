@@ -127,6 +127,10 @@ async function ensureAlertSchema() {
       await ensureColumn('alert_rules', alertRuleColumns, 'service_group', 'VARCHAR(120) NULL');
       await ensureColumn('alert_events', alertEventColumns, 'env', 'VARCHAR(80) NULL');
       await ensureColumn('alert_events', alertEventColumns, 'service_group', 'VARCHAR(120) NULL');
+      await ensureColumn('alert_events', alertEventColumns, 'acknowledged_by_user_id', 'BIGINT UNSIGNED NULL');
+      await ensureColumn('alert_events', alertEventColumns, 'acknowledged_by_name', 'VARCHAR(255) NULL');
+      await ensureColumn('alert_events', alertEventColumns, 'acknowledged_by_email', 'VARCHAR(255) NULL');
+      await ensureColumn('alert_events', alertEventColumns, 'acknowledgement_note', 'TEXT NULL');
 
       const cronLogIndexes = await tableIndexSet('cron_logs');
       const alertRuleIndexes = await tableIndexSet('alert_rules');
@@ -1184,7 +1188,9 @@ export async function listAlerts({ state = 'active', env, service_group, limit =
   const safeLimit = Math.min(Math.max(Number(limit || 50), 1), 501);
   const safeOffset = Math.max(Number(offset || 0), 0);
 
-  if (state && state !== 'all') {
+  if (state === 'open') {
+    filters.push("alert_events.state IN ('active', 'acknowledged')");
+  } else if (state && state !== 'all') {
     filters.push('alert_events.state = ?');
     values.push(state);
   }
@@ -1209,6 +1215,10 @@ export async function listAlerts({ state = 'active', env, service_group, limit =
       alert_events.reason, alert_events.state,
       DATE_FORMAT(CONVERT_TZ(alert_events.triggered_at, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s') AS triggered_at,
       DATE_FORMAT(CONVERT_TZ(alert_events.acknowledged_at, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s') AS acknowledged_at,
+      alert_events.acknowledged_by_user_id,
+      alert_events.acknowledged_by_name,
+      alert_events.acknowledged_by_email,
+      alert_events.acknowledgement_note,
       DATE_FORMAT(CONVERT_TZ(alert_events.resolved_at, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s') AS resolved_at,
       DATE_FORMAT(CONVERT_TZ(alert_events.last_notified_at, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s') AS last_notified_at,
       alert_events.notification_count,
@@ -1225,16 +1235,62 @@ export async function listAlerts({ state = 'active', env, service_group, limit =
   return rows;
 }
 
-export async function acknowledgeAlert(id) {
+export async function acknowledgeAlert(id, user = {}, note = '') {
   await ensureAlertSchema();
 
-  await alertQuery({ operation: 'acknowledge_alert_event', table: 'alert_events', alert_id: id }, `
+  const cleanNote = String(note || '').trim() || null;
+  const [[alert]] = await alertQuery({ operation: 'load_alert_for_acknowledgement', table: 'alert_events', alert_id: id }, `
+    SELECT id, rule_id, alert_key, cron_name, env, service_group, type, severity, reason, state
+    FROM alert_events
+    WHERE id = ?
+    LIMIT 1
+  `, [id]);
+
+  if (!alert || !['active', 'acknowledged'].includes(alert.state)) {
+    return { acknowledged: false, alert: alert || null };
+  }
+
+  const isNoteUpdate = alert.state === 'acknowledged';
+  const [updateResult] = await alertQuery({ operation: 'acknowledge_alert_event', table: 'alert_events', alert_id: id }, `
     UPDATE alert_events
     SET state = 'acknowledged',
-      acknowledged_at = UTC_TIMESTAMP(),
+      acknowledged_at = COALESCE(acknowledged_at, UTC_TIMESTAMP()),
+      acknowledged_by_user_id = ?,
+      acknowledged_by_name = ?,
+      acknowledged_by_email = ?,
+      acknowledgement_note = COALESCE(?, acknowledgement_note),
       updated_at = CURRENT_TIMESTAMP
-    WHERE id = ? AND state = 'active'
-  `, [id]);
+    WHERE id = ? AND state = ?
+  `, [user.id || null, user.name || null, user.email || null, cleanNote, id, isNoteUpdate ? 'acknowledged' : 'active']);
+
+  if (!updateResult.affectedRows) {
+    return { acknowledged: false, alert };
+  }
+
+  if (isNoteUpdate && !cleanNote) {
+    return { acknowledged: true, alert: { ...alert, state: 'acknowledged' } };
+  }
+
+  await recordIncidentEvent({
+    event_key: `${id}:${isNoteUpdate ? 'incident_note_added' : 'incident_acknowledged'}:${Date.now()}`,
+    alert_event_id: id,
+    rule_id: alert.rule_id,
+    alert_key: alert.alert_key,
+    cron_name: alert.cron_name,
+    env: alert.env,
+    service_group: alert.service_group,
+    severity: alert.severity,
+    type: isNoteUpdate ? 'incident_note_added' : 'incident_acknowledged',
+    title: isNoteUpdate ? 'Incident note added' : 'Incident acknowledged',
+    reason: cleanNote || `Acknowledged by ${user.name || user.email || 'operator'}`,
+    metadata: {
+      alert_type: alert.type,
+      acknowledged_by: user.email || null,
+      note: cleanNote
+    }
+  });
+
+  return { acknowledged: true, alert: { ...alert, state: 'acknowledged' } };
 }
 
 export async function sendTestTelegramNotification(app) {
