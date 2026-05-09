@@ -16,9 +16,9 @@ const RELEASES = [
         title: 'Core Platform',
         items: [
           'Added environment and service-group scoping across dashboard metrics, cron lists, logs, alerts, and alert rules.',
-          'Introduced rolling windows, Today, 7D, 30D, and custom WIB time windows with chart zoom, pan, reset, and live refresh controls.',
+          'Refined time-window analysis with custom WIB ranges, chart zoom, pan, reset, and live refresh controls.',
           'Added scoped option discovery for environments and services so filters reflect ingested operational data.',
-          'Expanded dashboard insights with system health state, ingest freshness, throughput, problematic cron jobs, and slowest cron analytics.'
+          'Expanded dashboard operations with scoped health context, ingest freshness, throughput, problematic cron ranking, and slowest cron analytics.'
         ]
       },
       {
@@ -42,17 +42,17 @@ const RELEASES = [
       {
         title: 'Alerting',
         items: [
-          'Added alert rules for failed thresholds, warning thresholds, success-rate degradation, duration anomalies, retry storms, and cron silence.',
-          'Introduced alert lifecycle states for active, acknowledged, and resolved events with manual evaluation and acknowledgement workflows.',
-          'Added environment and service scopes for alert rules and alert history, including quieter runtime policy defaults for staging and development.',
-          'Added Telegram, Discord, and Slack notification channels, Telegram test delivery, forum-topic support, notification cooldowns, delivery counts, and last notification status.'
+          'Enhanced alert configuration with monitoring profiles, cron behavior context, scoped rule targeting, and quieter runtime defaults for staging and development.',
+          'Added alert history pagination, load-more behavior, scoped filtering, manual evaluation refresh, and acknowledgement UX refinements.',
+          'Added notification delivery tracking with cooldown-aware delivery counts, last notification status, and error visibility.',
+          'Added Telegram test delivery and severity-specific forum-topic routing while keeping notification secrets in backend environment variables.'
         ]
       },
       {
         title: 'Audit & Operations',
         items: [
-          'Added admin audit logs for login, logout, failed login, alert rule changes, alert acknowledgements, password resets, user lifecycle changes, and forced logout.',
-          'Added account-level authentication activity so users can review recent security events from their session security page.',
+          'Expanded audit coverage for password resets, user lifecycle changes, archive and restore actions, forced logout, and password reminder visibility.',
+          'Expanded session security views with account-level authentication activity for recent security event review.',
           'Added audit filtering by action, user, start date, and end date with load-more pagination for operational investigations.',
           'Added dashboard activity feed for recent administrative and incident-management events.'
         ]
@@ -63,13 +63,13 @@ const RELEASES = [
           'Refined responsive navigation with desktop links, mobile drawer navigation, safe-area spacing, account identity, role badges, theme controls, and logout actions.',
           'Added mobile/tablet card layouts for alerts, audit logs, users, cron jobs, health insights, slowest jobs, and execution history while preserving dense desktop tables.',
           'Added execution output inspection with detected issue type, stdout, stderr, warnings, exceptions, retry logs, timeout details, copy actions, and full-output expansion.',
-          'Added dark and light mode polish, scoped badges, compact controls, loading states, empty states, and footer version metadata.'
+          'Refined dark and light mode polish, scoped badges, compact controls, loading states, empty states, and footer version metadata.'
         ]
       },
       {
         title: 'Reliability & Stability',
         items: [
-          'Added idempotent, schema-aware migrations for partial deployments and older MySQL or MariaDB compatibility.',
+          'Hardened migrations with schema-aware column and index checks for partial deployments and older MySQL or MariaDB compatibility.',
           'Added post-ingest and scheduled alert evaluation with throttled failure logging so alert engine errors do not disrupt cron ingest.',
           'Added pagination and duplicate merging for dashboard logs, cron lists, alert history, and audit logs.',
           'Improved query performance with indexes for time ranges, status, server, environment, service group, alert scope, audit queries, and archived users.'
@@ -97,7 +97,7 @@ const RELEASES = [
         items: [
           'Delivered the cron ingest API with API-key authentication, request validation, timestamp normalization, SHA-256 deduplication, and duplicate-safe responses.',
           'Created durable MySQL storage for cron name, command, server, environment, status, duration, timestamp, hash, and ingest timestamps.',
-          'Added the primary dashboard for total jobs, total runs, success rate, failure count, warning count, average duration, and timeline trends.',
+          'Added the primary dashboard for total jobs, total runs, success rate, failure count, warning count, average duration, time-range filtering, and timeline trends.',
           'Added cron list and cron detail views for moving from fleet-level status into job-level execution history.'
         ]
       },
@@ -120,15 +120,17 @@ const RELEASES = [
       {
         title: 'Alerting',
         items: [
-          'Prepared the platform for operational alerting by exposing alert history and rule-management surfaces behind admin-only access.',
-          'Established the initial notification configuration model where secrets remain in backend environment variables.'
+          'Introduced the alert engine with rules for failed thresholds, warning thresholds, success-rate degradation, duration anomalies, retry storms, and cron silence.',
+          'Added alert lifecycle events for active, acknowledged, and resolved alerts with admin-only history and configuration pages.',
+          'Established Telegram, Discord, and Slack notification channel support with webhook secrets kept in backend environment variables.'
         ]
       },
       {
         title: 'Audit & Operations',
         items: [
+          'Added the audit log foundation for login, logout, failed login, alert rule changes, alert acknowledgements, role changes, and user administration.',
           'Added health-check endpoints and operational deployment documentation for local service verification.',
-          'Established the operational dashboard as the primary place to review live cron execution status and recent activity.'
+          'Established the dashboard as the primary place to review live cron execution status and recent operational activity.'
         ]
       },
       {
