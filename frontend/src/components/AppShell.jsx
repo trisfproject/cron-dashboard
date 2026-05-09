@@ -192,9 +192,9 @@ export function AppShell({ children }) {
   return (
     <div className="flex min-h-screen flex-col bg-surface">
       <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/85 dark:border-slate-800 dark:bg-slate-950/95 dark:supports-[backdrop-filter]:bg-slate-950/85">
-        <div className="mx-auto flex min-h-[4rem] max-w-7xl items-center justify-between gap-3 px-4 py-3 pt-[calc(0.75rem+env(safe-area-inset-top))] sm:px-6 lg:min-h-[4.5rem] lg:px-8">
-          <Link href="/" className="flex min-h-11 min-w-0 items-center rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-slate-950">
-            <BrandMark />
+        <div className="mx-auto flex min-h-[4rem] max-w-7xl items-center justify-between gap-3 px-4 py-3 pt-[calc(0.75rem+env(safe-area-inset-top))] sm:px-6 lg:min-h-[4.5rem] lg:gap-5 lg:px-8">
+          <Link href="/" className="mr-1 flex min-h-11 min-w-0 items-center rounded-md pr-1 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-slate-950 lg:mr-2 lg:pr-3">
+            <BrandMark variant="navbar" />
           </Link>
           <div className="hidden min-w-0 items-center justify-end gap-3 lg:flex">
             <nav className="flex min-w-0 items-center gap-1 text-sm font-medium text-slate-600 dark:text-slate-300">
@@ -281,8 +281,8 @@ export function AppShell({ children }) {
           aria-label="Navigation menu"
         >
           <div className="flex min-h-[4rem] items-center justify-between gap-3 border-b border-slate-200 px-4 pt-[env(safe-area-inset-top)] dark:border-slate-800">
-            <Link href="/" className="min-w-0 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-slate-950">
-              <BrandMark />
+            <Link href="/" className="min-w-0 rounded-md pr-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-slate-950">
+              <BrandMark variant="navbar" />
             </Link>
             <button
               type="button"
