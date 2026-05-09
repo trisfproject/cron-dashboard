@@ -90,6 +90,8 @@ export function TimeRangeFilter({
   showRefreshControl = true,
   defaultFilter = { type: 'window', value: '30m' },
   customDescription = 'Select start and end in WIB. Custom ranges override live windows.',
+  align = 'end',
+  className = '',
   onFilterChange,
   onCustomRangeChange,
   onRefreshIntervalChange
@@ -147,7 +149,7 @@ export function TimeRangeFilter({
   }
 
   return (
-    <div className="relative flex w-full min-w-0 flex-col items-start gap-2 sm:w-auto sm:items-end" ref={popoverRef}>
+    <div className={`relative flex w-full min-w-0 flex-col items-start gap-2 sm:w-auto ${align === 'start' ? 'sm:items-start' : 'sm:items-end'} ${className}`} ref={popoverRef}>
       <div className="flex w-full min-w-0 items-center gap-2 overflow-x-auto pb-1 sm:w-auto sm:overflow-visible sm:pb-0">
         <div className="flex shrink-0 gap-1 rounded-md bg-slate-100 p-1 dark:bg-slate-800/70">
           {options.map((option) => {

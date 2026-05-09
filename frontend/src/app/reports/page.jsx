@@ -10,7 +10,7 @@ import { formatNumber, formatPercent } from '@/lib/format';
 const VALID_RANGES = new Set(['today', '7d', '30d']);
 const VALID_SORTS = new Set(['downtime', 'incidents']);
 const REPORT_TIME_PATTERN = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$/;
-const selectClass = 'h-11 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200';
+const selectClass = 'h-12 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 sm:w-44 lg:w-48 xl:w-52';
 const REPORT_TIME_OPTIONS = [
   { type: 'range', value: 'today', label: 'Today' },
   { type: 'range', value: '7d', label: '7D' },
@@ -243,10 +243,10 @@ function ReportsContent() {
 
       <form
         key={`${filters.range}:${filters.start}:${filters.end}:${filters.env}:${filters.service_group}:${filters.sort}`}
-        className="grid grid-cols-1 gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950 sm:grid-cols-2 xl:grid-cols-[repeat(12,minmax(0,1fr))]"
+        className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950 sm:flex-row sm:flex-wrap sm:items-start sm:p-4"
         onSubmit={applyFilters}
       >
-        <div className="sm:col-span-2 xl:col-span-4">
+        <div className="min-w-0 sm:shrink-0">
           <TimeRangeFilter
             selectedFilter={selectedFilter}
             customRange={customRange}
@@ -254,23 +254,24 @@ function ReportsContent() {
             showRefreshControl={false}
             defaultFilter={DEFAULT_REPORT_FILTER}
             customDescription="Select start and end in WIB. Custom ranges override report presets."
+            align="start"
             onFilterChange={applyTimeFilter}
             onCustomRangeChange={applyCustomRange}
           />
         </div>
-        <select className={`${selectClass} xl:col-span-2`} name="env" defaultValue={filters.env}>
+        <select className={selectClass} name="env" defaultValue={filters.env}>
           <option value="">All environments</option>
           {scopeOptions.environments.map((option) => <option key={option.value} value={option.value}>{option.value}</option>)}
         </select>
-        <select className={`${selectClass} xl:col-span-2`} name="service_group" defaultValue={filters.service_group}>
+        <select className={selectClass} name="service_group" defaultValue={filters.service_group}>
           <option value="">All services</option>
           {scopeOptions.service_groups.map((option) => <option key={option.value} value={option.value}>{option.value}</option>)}
         </select>
-        <select className={`${selectClass} xl:col-span-2`} name="sort" defaultValue={filters.sort}>
+        <select className={selectClass} name="sort" defaultValue={filters.sort}>
           <option value="downtime">Sort by downtime</option>
           <option value="incidents">Sort by incidents</option>
         </select>
-        <button className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-ink px-4 text-sm font-semibold text-white transition hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:bg-blue-600 dark:hover:bg-blue-500 dark:focus:ring-offset-slate-950 sm:col-span-2 xl:col-span-1" type="submit">
+        <button className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-md bg-ink px-5 text-sm font-semibold text-white transition hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:bg-blue-600 dark:hover:bg-blue-500 dark:focus:ring-offset-slate-950 sm:w-auto" type="submit">
           <Search className="h-4 w-4" aria-hidden="true" />
           <span>Apply</span>
         </button>
