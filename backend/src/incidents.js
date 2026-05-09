@@ -6,6 +6,9 @@ const JAKARTA_SQL_TIMEZONE = '+07:00';
 const JAKARTA_OFFSET_MS = 7 * 60 * 60 * 1000;
 const INCIDENT_TYPES = ['alert_triggered', 'missing_detected'];
 const RECOVERY_TYPES = ['alert_resolved', 'heartbeat_recovered'];
+const VALID_IMPACT_TYPES = new Set(['outage', 'degraded', 'informational']);
+const OUTAGE_INCIDENT_TYPES = new Set(['missing_cron', 'failed_threshold', 'cron_silence']);
+const DEGRADED_INCIDENT_TYPES = new Set(['success_rate_degradation', 'retry_storm', 'duration_anomaly', 'warning_threshold']);
 
 let incidentSchemaReadyPromise;
 let reportTimeIndexesReadyPromise;
@@ -88,6 +91,7 @@ async function ensureIncidentSchema() {
           type VARCHAR(40) NOT NULL,
           incident_type VARCHAR(40) NULL,
           incident_status VARCHAR(40) NULL,
+          impact_type VARCHAR(40) NULL,
           title VARCHAR(255) NOT NULL,
           reason TEXT NULL,
           started_at TIMESTAMP NULL,
@@ -110,6 +114,7 @@ async function ensureIncidentSchema() {
       await ensureColumn('incident_events', columns, 'server', 'VARCHAR(255) NULL');
       await ensureColumn('incident_events', columns, 'incident_type', 'VARCHAR(40) NULL');
       await ensureColumn('incident_events', columns, 'incident_status', 'VARCHAR(40) NULL');
+      await ensureColumn('incident_events', columns, 'impact_type', 'VARCHAR(40) NULL');
       await ensureColumn('incident_events', columns, 'started_at', 'TIMESTAMP NULL');
       await ensureColumn('incident_events', columns, 'resolved_at', 'TIMESTAMP NULL');
       await ensureColumn('incident_events', columns, 'downtime_seconds', 'INT UNSIGNED NULL');
@@ -117,6 +122,7 @@ async function ensureIncidentSchema() {
 
       const indexes = await tableIndexSet('incident_events');
       await ensureIndex('incident_events', indexes, 'idx_incident_events_occurred_at', '(occurred_at)');
+      await ensureIndex('incident_events', indexes, 'idx_incident_events_impact_time', '(impact_type, occurred_at)');
     })().catch((error) => {
       incidentSchemaReadyPromise = null;
       throw error;
@@ -172,6 +178,38 @@ function eventKeyFor(event) {
   return event.event_key || base.slice(0, 255);
 }
 
+function inferImpactType(event = {}) {
+  if (VALID_IMPACT_TYPES.has(event.impact_type)) {
+    return event.impact_type;
+  }
+
+  const incidentType = String(event.incident_type || event.type || '').toLowerCase();
+  const type = String(event.type || '').toLowerCase();
+  const severity = String(event.severity || '').toLowerCase();
+
+  if (OUTAGE_INCIDENT_TYPES.has(incidentType) || type === 'missing_detected' || type === 'heartbeat_recovered') {
+    return 'outage';
+  }
+
+  if (DEGRADED_INCIDENT_TYPES.has(incidentType)) {
+    return 'degraded';
+  }
+
+  if (['incident_acknowledged', 'incident_note_added', 'maintenance_enabled', 'maintenance_disabled', 'maintenance_expired', 'reminder_sent'].includes(type)) {
+    return 'informational';
+  }
+
+  if (severity === 'critical') {
+    return 'outage';
+  }
+
+  if (severity === 'warning') {
+    return 'degraded';
+  }
+
+  return 'informational';
+}
+
 export async function recordIncidentEvent(event = {}) {
   if (!event.cron_name || !event.type) {
     return null;
@@ -203,6 +241,7 @@ export async function recordIncidentEvent(event = {}) {
     event.type,
     event.incident_type || event.type,
     event.incident_status || null,
+    inferImpactType(event),
     eventTitle(event.type, event.title),
     event.reason || null,
     event.started_at || null,
@@ -219,9 +258,9 @@ export async function recordIncidentEvent(event = {}) {
   const [result] = await query(`
     INSERT IGNORE INTO incident_events
       (event_key, alert_event_id, rule_id, alert_key, cron_name, server, env, service_group, severity,
-       type, incident_type, incident_status, title, reason, started_at, resolved_at, downtime_seconds,
+       type, incident_type, incident_status, impact_type, title, reason, started_at, resolved_at, downtime_seconds,
        downtime_minutes, metadata_json${occurredAtColumns})
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${occurredAtPlaceholder})
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${occurredAtPlaceholder})
   `, values);
 
   return result.insertId || null;
@@ -257,6 +296,7 @@ export async function listIncidentEvents({ cron, env, service_group, limit = 20,
     SELECT incident_events.id, incident_events.alert_event_id, incident_events.rule_id, incident_events.alert_key,
       incident_events.cron_name, incident_events.server, incident_events.env, incident_events.service_group,
       incident_events.severity, incident_events.type, incident_events.incident_type, incident_events.incident_status,
+      ${incidentImpactSql()} AS impact_type,
       incident_events.title, incident_events.reason,
       incident_events.downtime_seconds, incident_events.downtime_minutes, incident_events.metadata_json,
       DATE_FORMAT(CONVERT_TZ(incident_events.started_at, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s') AS started_at,
@@ -319,6 +359,26 @@ function incidentPlaceholders(values) {
   return values.map(() => '?').join(', ');
 }
 
+function incidentImpactSql() {
+  return `COALESCE(
+    incident_events.impact_type,
+    CASE
+      WHEN incident_events.incident_type IN ('missing_cron', 'failed_threshold', 'cron_silence')
+        OR incident_events.type IN ('missing_detected', 'heartbeat_recovered')
+        THEN 'outage'
+      WHEN incident_events.incident_type IN ('success_rate_degradation', 'retry_storm', 'duration_anomaly', 'warning_threshold')
+        THEN 'degraded'
+      WHEN incident_events.type IN ('incident_acknowledged', 'incident_note_added', 'maintenance_enabled', 'maintenance_disabled', 'maintenance_expired', 'reminder_sent')
+        THEN 'informational'
+      WHEN incident_events.severity = 'critical'
+        THEN 'outage'
+      WHEN incident_events.severity = 'warning'
+        THEN 'degraded'
+      ELSE 'informational'
+    END
+  )`;
+}
+
 function availabilityPercent(totalDowntimeMinutes, periodMinutes) {
   if (!periodMinutes || periodMinutes <= 0) {
     return 100;
@@ -344,6 +404,8 @@ function normalizeDailyTrend(rows, startDate, endDate) {
     days.push({
       day,
       incidents: Number(row?.incidents || 0),
+      outage_incidents: Number(row?.outage_incidents || 0),
+      degraded_incidents: Number(row?.degraded_incidents || 0),
       recoveries: Number(row?.recoveries || 0)
     });
     cursor.setUTCDate(cursor.getUTCDate() + 1);
@@ -363,20 +425,29 @@ export async function getReliabilityReport({ range = '7d', start, end, env, serv
   addReportScopeFilters(filters, values, { env, service_group });
   const where = filters.join(' AND ');
   const eventTypes = [...INCIDENT_TYPES, ...RECOVERY_TYPES];
+  const impactSql = incidentImpactSql();
   const periodMinutes = Math.max(1, Math.ceil((dateFilter.endDate.getTime() - dateFilter.startDate.getTime()) / 60000));
 
   const [[summary]] = await query(`
     SELECT
       SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) THEN 1 ELSE 0 END) AS total_incidents,
+      SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) AND ${impactSql} = 'outage' THEN 1 ELSE 0 END) AS outage_incidents,
+      SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) AND ${impactSql} = 'degraded' THEN 1 ELSE 0 END) AS degraded_incidents,
+      SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) AND ${impactSql} = 'informational' THEN 1 ELSE 0 END) AS informational_incidents,
       SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(RECOVERY_TYPES)}) THEN 1 ELSE 0 END) AS total_recoveries,
-      COALESCE(SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(RECOVERY_TYPES)}) THEN COALESCE(incident_events.downtime_seconds, incident_events.downtime_minutes * 60, 0) ELSE 0 END), 0) AS total_downtime_seconds,
-      COALESCE(AVG(CASE WHEN incident_events.type IN (${incidentPlaceholders(RECOVERY_TYPES)}) AND COALESCE(incident_events.downtime_seconds, incident_events.downtime_minutes * 60) IS NOT NULL THEN COALESCE(incident_events.downtime_seconds, incident_events.downtime_minutes * 60) END), 0) AS mttr_seconds,
+      SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(RECOVERY_TYPES)}) AND ${impactSql} = 'outage' THEN 1 ELSE 0 END) AS outage_recoveries,
+      COALESCE(SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(RECOVERY_TYPES)}) AND ${impactSql} = 'outage' THEN COALESCE(incident_events.downtime_seconds, incident_events.downtime_minutes * 60, 0) ELSE 0 END), 0) AS total_downtime_seconds,
+      COALESCE(AVG(CASE WHEN incident_events.type IN (${incidentPlaceholders(RECOVERY_TYPES)}) AND ${impactSql} = 'outage' AND COALESCE(incident_events.downtime_seconds, incident_events.downtime_minutes * 60) IS NOT NULL THEN COALESCE(incident_events.downtime_seconds, incident_events.downtime_minutes * 60) END), 0) AS mttr_seconds,
       COUNT(*) AS total_events
     FROM incident_events
     WHERE ${where}
       AND incident_events.type IN (${incidentPlaceholders(eventTypes)})
   `, [
     ...INCIDENT_TYPES,
+    ...INCIDENT_TYPES,
+    ...INCIDENT_TYPES,
+    ...INCIDENT_TYPES,
+    ...RECOVERY_TYPES,
     ...RECOVERY_TYPES,
     ...RECOVERY_TYPES,
     ...RECOVERY_TYPES,
@@ -406,8 +477,10 @@ export async function getReliabilityReport({ range = '7d', start, end, env, serv
       MAX(incident_events.env) AS env,
       MAX(incident_events.service_group) AS service_group,
       SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) THEN 1 ELSE 0 END) AS incident_count,
-      COALESCE(SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(RECOVERY_TYPES)}) THEN COALESCE(incident_events.downtime_seconds, incident_events.downtime_minutes * 60, 0) ELSE 0 END), 0) AS total_downtime_seconds,
-      COALESCE(AVG(CASE WHEN incident_events.type IN (${incidentPlaceholders(RECOVERY_TYPES)}) AND COALESCE(incident_events.downtime_seconds, incident_events.downtime_minutes * 60) IS NOT NULL THEN COALESCE(incident_events.downtime_seconds, incident_events.downtime_minutes * 60) END), 0) AS avg_recovery_seconds,
+      SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) AND ${impactSql} = 'outage' THEN 1 ELSE 0 END) AS outage_incident_count,
+      SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) AND ${impactSql} = 'degraded' THEN 1 ELSE 0 END) AS degraded_incident_count,
+      COALESCE(SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(RECOVERY_TYPES)}) AND ${impactSql} = 'outage' THEN COALESCE(incident_events.downtime_seconds, incident_events.downtime_minutes * 60, 0) ELSE 0 END), 0) AS total_downtime_seconds,
+      COALESCE(AVG(CASE WHEN incident_events.type IN (${incidentPlaceholders(RECOVERY_TYPES)}) AND ${impactSql} = 'outage' AND COALESCE(incident_events.downtime_seconds, incident_events.downtime_minutes * 60) IS NOT NULL THEN COALESCE(incident_events.downtime_seconds, incident_events.downtime_minutes * 60) END), 0) AS avg_recovery_seconds,
       MAX(incident_events.occurred_at) AS latest_event
     FROM incident_events
     WHERE ${where}
@@ -417,6 +490,8 @@ export async function getReliabilityReport({ range = '7d', start, end, env, serv
     ORDER BY ${sort === 'incidents' ? 'incident_count DESC, total_downtime_seconds DESC' : 'total_downtime_seconds DESC, incident_count DESC'}, latest_event DESC
     LIMIT 10
   `, [
+    ...INCIDENT_TYPES,
+    ...INCIDENT_TYPES,
     ...INCIDENT_TYPES,
     ...RECOVERY_TYPES,
     ...RECOVERY_TYPES,
@@ -428,6 +503,8 @@ export async function getReliabilityReport({ range = '7d', start, end, env, serv
     SELECT
       DATE_FORMAT(CONVERT_TZ(incident_events.occurred_at, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d') AS day,
       SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) THEN 1 ELSE 0 END) AS incidents,
+      SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) AND ${impactSql} = 'outage' THEN 1 ELSE 0 END) AS outage_incidents,
+      SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) AND ${impactSql} = 'degraded' THEN 1 ELSE 0 END) AS degraded_incidents,
       SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(RECOVERY_TYPES)}) THEN 1 ELSE 0 END) AS recoveries
     FROM incident_events
     WHERE ${where}
@@ -436,6 +513,8 @@ export async function getReliabilityReport({ range = '7d', start, end, env, serv
     ORDER BY day ASC
   `, [
     ...INCIDENT_TYPES,
+    ...INCIDENT_TYPES,
+    ...INCIDENT_TYPES,
     ...RECOVERY_TYPES,
     ...values,
     ...eventTypes
@@ -443,16 +522,21 @@ export async function getReliabilityReport({ range = '7d', start, end, env, serv
 
   const totalDowntimeMinutes = Math.round((Number(summary?.total_downtime_seconds || 0) / 60) * 100) / 100;
   const totalIncidents = Number(summary?.total_incidents || 0);
+  const outageIncidents = Number(summary?.outage_incidents || 0);
   const uptimeMinutes = Math.max(periodMinutes - totalDowntimeMinutes, 0);
 
   return {
     summary: {
       availability_percent: availabilityPercent(totalDowntimeMinutes, periodMinutes),
       total_incidents: totalIncidents,
+      outage_incidents: outageIncidents,
+      degraded_incidents: Number(summary?.degraded_incidents || 0),
+      informational_incidents: Number(summary?.informational_incidents || 0),
       total_recoveries: Number(summary?.total_recoveries || 0),
+      outage_recoveries: Number(summary?.outage_recoveries || 0),
       total_downtime_minutes: totalDowntimeMinutes,
       mttr_minutes: Math.round((Number(summary?.mttr_seconds || 0) / 60) * 100) / 100,
-      mtbf_minutes: totalIncidents > 0 ? Math.round((uptimeMinutes / totalIncidents) * 100) / 100 : periodMinutes,
+      mtbf_minutes: outageIncidents > 0 ? Math.round((uptimeMinutes / outageIncidents) * 100) / 100 : periodMinutes,
       total_alerts: Number(alertSummary?.total_alerts || 0)
     },
     problematic_crons: problematicRows.map((row) => ({
@@ -460,6 +544,8 @@ export async function getReliabilityReport({ range = '7d', start, end, env, serv
       env: row.env,
       service_group: row.service_group,
       incident_count: Number(row.incident_count || 0),
+      outage_incident_count: Number(row.outage_incident_count || 0),
+      degraded_incident_count: Number(row.degraded_incident_count || 0),
       total_downtime_minutes: Math.round((Number(row.total_downtime_seconds || 0) / 60) * 100) / 100,
       avg_recovery_minutes: Math.round((Number(row.avg_recovery_seconds || 0) / 60) * 100) / 100
     })),
