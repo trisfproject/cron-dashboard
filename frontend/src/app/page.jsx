@@ -10,7 +10,7 @@ import { MetricCard } from '@/components/MetricCard';
 import { TimelineChart } from '@/components/TimelineChart';
 import { LogsTable } from '@/components/LogsTable';
 import { TimeRangeFilter } from '@/components/TimeRangeFilter';
-import { getAlerts, getAuditLogs, getCurrentUser, getLogs, getMaintenanceWindows, getScopeOptions, getStats } from '@/lib/api';
+import { getAlerts, getCurrentUser, getLogs, getMaintenanceWindows, getScopeOptions, getStats } from '@/lib/api';
 import { formatDuration, formatNumber, formatPercent } from '@/lib/format';
 
 const emptyStats = {
@@ -36,7 +36,6 @@ const POLL_INTERVALS = {
   stats: 10000,
   alerts: 10000,
   logs: 30000,
-  audit: 60000,
   auth: 60000,
   maintenance: 60000
 };
@@ -63,7 +62,6 @@ function resourceLabel(resource) {
     stats: 'Stats',
     alerts: 'Alerts',
     logs: 'Timeline',
-    audit: 'Audit feed',
     auth: 'Session',
     maintenance: 'Maintenance status'
   }[resource] || 'Dashboard data';
@@ -255,67 +253,6 @@ function getSystemHealthContext(summary, healthLabel) {
   return 'No active health degradation';
 }
 
-function getCronHealthSeverity(job) {
-  const failed = Number(job?.failed_count || 0);
-  const warnings = Number(job?.warning_count || 0);
-  const successRate = Number(job?.success_rate || 0);
-
-  if (failed > 0 || successRate < 90) {
-    return { label: 'Critical', score: 3, className: 'bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-950/50 dark:text-rose-200 dark:ring-rose-900' };
-  }
-
-  if (successRate < 98) {
-    return { label: 'Degraded', score: 2, className: 'bg-orange-50 text-orange-700 ring-orange-200 dark:bg-orange-950/50 dark:text-orange-200 dark:ring-orange-900' };
-  }
-
-  if (warnings > 0) {
-    return { label: 'Warning', score: 1, className: 'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-950/50 dark:text-amber-200 dark:ring-amber-900' };
-  }
-
-  return { label: 'Healthy', score: 0, className: 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-200 dark:ring-emerald-900' };
-}
-
-function rankCronHealthJobs(jobs) {
-  return [...jobs]
-    .map((job) => ({ ...job, health: getCronHealthSeverity(job) }))
-    .sort((left, right) => {
-      const healthDelta = right.health.score - left.health.score;
-
-      if (healthDelta !== 0) {
-        return healthDelta;
-      }
-
-      const failureDelta = Number(right.failed_count || 0) - Number(left.failed_count || 0);
-
-      if (failureDelta !== 0) {
-        return failureDelta;
-      }
-
-      const warningDelta = Number(right.warning_count || 0) - Number(left.warning_count || 0);
-
-      if (warningDelta !== 0) {
-        return warningDelta;
-      }
-
-      return Number(left.success_rate || 0) - Number(right.success_rate || 0);
-    });
-}
-
-function getPerformanceSeverity(job) {
-  const avgDuration = Number(job?.avg_duration || 0);
-  const maxDuration = Number(job?.max_duration || 0);
-
-  if (avgDuration >= 60000 || maxDuration >= 120000) {
-    return { label: 'Slow', className: 'bg-rose-50 text-rose-700 ring-rose-200' };
-  }
-
-  if (avgDuration >= 10000 || maxDuration >= 30000) {
-    return { label: 'Elevated', className: 'bg-amber-50 text-amber-700 ring-amber-200' };
-  }
-
-  return { label: 'Normal', className: 'bg-emerald-50 text-emerald-700 ring-emerald-200' };
-}
-
 function normalizeStatsResponse(data, range) {
   const source = data?.data && typeof data.data === 'object' ? data.data : data;
 
@@ -358,7 +295,6 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
   const [stats, setStats] = useState(emptyStats);
   const [logs, setLogs] = useState([]);
   const [alerts, setAlerts] = useState([]);
-  const [auditFeed, setAuditFeed] = useState([]);
   const [maintenanceWindows, setMaintenanceWindows] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
   const [scope, setScope] = useState(initialScope);
@@ -592,7 +528,6 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
 
           if (user?.role !== 'admin') {
             setAlerts([]);
-            setAuditFeed([]);
           }
         }
       );
@@ -610,19 +545,6 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
         'alerts',
         (signal) => getAlerts({ state: 'open', limit: 5, ...scopeParams }, { signal }),
         (alertsData) => setAlerts(Array.isArray(alertsData?.alerts) ? alertsData.alerts : [])
-      );
-    }
-
-    function runAudit() {
-      if (currentUserRef.current?.role !== 'admin') {
-        setAuditFeed([]);
-        return Promise.resolve();
-      }
-
-      return runResource(
-        'audit',
-        (signal) => getAuditLogs({ limit: 5 }, { signal }),
-        (auditData) => setAuditFeed(Array.isArray(auditData?.audit_logs) ? auditData.audit_logs : [])
       );
     }
 
@@ -661,7 +583,6 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
       schedule('stats', runStats);
       schedule('alerts', runAlerts);
       schedule('logs', runLogs);
-      schedule('audit', runAudit);
       schedule('auth', runAuth);
       schedule('maintenance', runMaintenance);
     }
@@ -671,7 +592,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
       setPollWarnings({});
 
       await Promise.all([runAuth(), runStats(), runLogs(), runMaintenance()]);
-      await Promise.all([runAlerts(), runAudit()]);
+      await runAlerts();
 
       if (!cancelled) {
         setLoading(false);
@@ -687,7 +608,6 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
       runAlerts();
       runLogs();
       runAuth();
-      runAudit();
       runMaintenance();
       scheduleAll();
     };
@@ -819,7 +739,6 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
   const summary = stats?.summary ?? {};
   const timeline = Array.isArray(stats?.timeline) ? stats.timeline : [];
   const timelineInterval = stats?.interval || 'hour';
-  const insights = stats?.insights && typeof stats.insights === 'object' ? stats.insights : {};
   const heartbeat = stats?.heartbeat && typeof stats.heartbeat === 'object' ? stats.heartbeat : { summary: {}, schedules: [] };
   const heartbeatSummary = heartbeat.summary || {};
   const heartbeatSchedules = Array.isArray(heartbeat.schedules) ? heartbeat.schedules : [];
@@ -827,10 +746,6 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
   const pollWarningMessages = Object.values(pollWarnings).filter(Boolean);
   const activeMaintenance = maintenanceWindows[0] || null;
   const visibleHeartbeatSchedules = heartbeatSchedules.slice(0, 6);
-  const problematicJobs = Array.isArray(insights.problematic_jobs) ? insights.problematic_jobs : [];
-  const rankedHealthJobs = rankCronHealthJobs(problematicJobs);
-  const attentionHealthJobs = rankedHealthJobs.filter((job) => Number(job?.health?.score || 0) > 0);
-  const slowestJobs = Array.isArray(insights.slowest_jobs) ? insights.slowest_jobs : [];
   const logsArray = Array.isArray(logs) ? logs : [];
   const activeAlerts = Array.isArray(alerts) ? alerts : [];
   const isCustom = filter.type === 'custom';
@@ -1210,170 +1125,6 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
         </div>
         ) : null}
 
-        {currentUser?.role === 'admin' ? (
-        <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:p-5 xl:col-span-2">
-          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="min-w-0">
-              <h2 className="text-base font-semibold text-ink">Operational Activity</h2>
-              <p className="mt-1 text-sm text-slate-500">Recent administrative and incident-management events.</p>
-            </div>
-            <Link href="/audit" className="inline-flex min-h-10 w-full shrink-0 items-center justify-center rounded-md border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900 sm:w-auto">
-              Audit log
-            </Link>
-          </div>
-          <div className="divide-y divide-slate-100 dark:divide-slate-800">
-            {auditFeed.map((event) => (
-              <div key={event.id} className="grid min-w-0 gap-1 py-3 text-sm sm:grid-cols-[minmax(0,12rem)_minmax(0,1fr)_minmax(8rem,auto)] sm:items-center sm:gap-3">
-                <p className="min-w-0 break-words font-medium text-ink">{event.action}</p>
-                <p className="min-w-0 break-words text-slate-500">{event.user_email || 'System'} / {event.target_label || event.target_type || 'NYX'}</p>
-                <p className="text-xs text-slate-500 sm:text-right">{event.created_at}</p>
-              </div>
-            ))}
-            {auditFeed.length === 0 ? <div className="py-8 text-center text-sm text-slate-500">No recent operational activity.</div> : null}
-          </div>
-        </div>
-        ) : null}
-
-        <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-          <div className="mb-4">
-            <h2 className="text-base font-semibold text-ink">Cron Health Overview</h2>
-            <p className="mt-1 text-sm text-slate-500">Operational reliability across monitored cron jobs.</p>
-          </div>
-          <div className="space-y-3 md:hidden">
-            {attentionHealthJobs.map((job, index) => (
-              <article key={`${job?.cron_name ?? 'cron'}-${index}-mobile`} className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
-                <div className="flex flex-col gap-2 min-[420px]:flex-row min-[420px]:items-start min-[420px]:justify-between">
-                  <p className="min-w-0 break-words text-sm font-semibold text-ink">{job?.cron_name ?? '-'}</p>
-                  <span className={`shrink-0 rounded-md px-2 py-1 text-xs font-medium ring-1 ${job.health.className}`}>{job.health.label}</span>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {job?.env ? <EnvironmentBadge env={job.env} /> : null}
-                  <ServiceGroupBadge serviceGroup={job?.service_group} />
-                </div>
-                <div className="grid grid-cols-1 gap-2 text-sm min-[420px]:grid-cols-3">
-                  <div className="rounded-md bg-white p-2 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
-                    <p className="text-xs text-slate-500">Success rate</p>
-                    <p className="mt-1 font-medium text-slate-700 dark:text-slate-200">{formatPercent(job?.success_rate ?? 0)}</p>
-                  </div>
-                  <div className="rounded-md bg-white p-2 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
-                    <p className="text-xs text-slate-500">Warnings</p>
-                    <p className="mt-1 font-medium text-slate-700 dark:text-slate-200">{formatNumber(job?.warning_count ?? 0)}</p>
-                  </div>
-                  <div className="rounded-md bg-white p-2 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
-                    <p className="text-xs text-slate-500">Failed</p>
-                    <p className="mt-1 font-medium text-slate-700 dark:text-slate-200">{formatNumber(job?.failed_count ?? 0)}</p>
-                  </div>
-                </div>
-              </article>
-            ))}
-            {attentionHealthJobs.length === 0 ? (
-              <div className="rounded-lg bg-emerald-50 px-3 py-8 text-center text-sm text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:ring-emerald-900">All monitored cron jobs are healthy.</div>
-            ) : null}
-          </div>
-          <div className="hidden min-w-0 overflow-x-auto rounded-md md:block">
-            <table className="min-w-[48rem] divide-y divide-slate-200 text-sm dark:divide-slate-800">
-              <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
-                <tr>
-                  <th className="px-3 py-2">Cron</th>
-                  <th className="px-3 py-2">Health</th>
-                  <th className="px-3 py-2">Scope</th>
-                  <th className="px-3 py-2">Success</th>
-                  <th className="px-3 py-2">Warnings</th>
-                  <th className="px-3 py-2">Failed</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {attentionHealthJobs.map((job, index) => (
-                  <tr key={`${job?.cron_name ?? 'cron'}-${index}`}>
-                    <td className="max-w-[18rem] truncate px-3 py-2 font-medium text-ink">{job?.cron_name ?? '-'}</td>
-                    <td className="whitespace-nowrap px-3 py-2">
-                      <span className={`rounded-md px-2 py-1 text-xs font-medium ring-1 ${job.health.className}`}>{job.health.label}</span>
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-2">
-                      <div className="flex flex-wrap gap-1.5">
-                        {job?.env ? <EnvironmentBadge env={job.env} /> : null}
-                        <ServiceGroupBadge serviceGroup={job?.service_group} />
-                      </div>
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-2 text-slate-600 dark:text-slate-300">{formatPercent(job?.success_rate ?? 0)}</td>
-                    <td className="whitespace-nowrap px-3 py-2 text-slate-600 dark:text-slate-300">{formatNumber(job?.warning_count ?? 0)}</td>
-                    <td className="whitespace-nowrap px-3 py-2 text-slate-600 dark:text-slate-300">{formatNumber(job?.failed_count ?? 0)}</td>
-                  </tr>
-                ))}
-                {attentionHealthJobs.length === 0 ? (
-                  <tr>
-                    <td className="px-3 py-8 text-center text-emerald-700 dark:text-emerald-200" colSpan={6}>All monitored cron jobs are healthy.</td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-          <div className="mb-4">
-            <h2 className="text-base font-semibold text-ink">Slowest cron jobs</h2>
-            <p className="mt-1 text-sm text-slate-500">Highest average duration in the selected timeframe.</p>
-          </div>
-          <div className="space-y-3 md:hidden">
-            {slowestJobs.map((job, index) => {
-              const severity = getPerformanceSeverity(job);
-
-              return (
-                <article key={`${job?.cron_name ?? 'cron'}-${index}-mobile`} className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
-                  <div className="flex flex-col gap-2 min-[420px]:flex-row min-[420px]:items-start min-[420px]:justify-between">
-                    <p className="min-w-0 break-words text-sm font-semibold text-ink">{job?.cron_name ?? '-'}</p>
-                    <span className={`shrink-0 rounded-md px-2 py-1 text-xs font-medium ring-1 ${severity.className}`}>{severity.label}</span>
-                  </div>
-                  <div className="grid grid-cols-1 gap-2 text-sm min-[420px]:grid-cols-3">
-                    <div className="min-w-0">
-                      <p className="text-xs text-slate-500">Avg</p>
-                      <p className="mt-1 break-words font-medium text-slate-700 dark:text-slate-200">{formatDuration(job?.avg_duration ?? 0)}</p>
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-xs text-slate-500">Max</p>
-                      <p className="mt-1 break-words font-medium text-slate-700 dark:text-slate-200">{formatDuration(job?.max_duration ?? 0)}</p>
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-xs text-slate-500">Runs</p>
-                      <p className="mt-1 break-words font-medium text-slate-700 dark:text-slate-200">{formatNumber(job?.total_runs ?? 0)}</p>
-                    </div>
-                  </div>
-                </article>
-              );
-            })}
-            {slowestJobs.length === 0 ? (
-              <div className="rounded-lg bg-slate-50 px-3 py-8 text-center text-sm text-slate-500 dark:bg-slate-950">No duration data in this timeframe.</div>
-            ) : null}
-          </div>
-          <div className="hidden min-w-0 overflow-x-auto rounded-md md:block">
-            <table className="min-w-[42rem] divide-y divide-slate-200 text-sm dark:divide-slate-800">
-              <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
-                <tr>
-                  <th className="px-3 py-2">Cron</th>
-                  <th className="px-3 py-2">Avg duration</th>
-                  <th className="px-3 py-2">Max duration</th>
-                  <th className="px-3 py-2">Runs</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {slowestJobs.map((job, index) => (
-                  <tr key={`${job?.cron_name ?? 'cron'}-${index}`}>
-                    <td className="max-w-[18rem] truncate px-3 py-2 font-medium text-ink">{job?.cron_name ?? '-'}</td>
-                    <td className="whitespace-nowrap px-3 py-2 text-slate-600 dark:text-slate-300">{formatDuration(job?.avg_duration ?? 0)}</td>
-                    <td className="whitespace-nowrap px-3 py-2 text-slate-600 dark:text-slate-300">{formatDuration(job?.max_duration ?? 0)}</td>
-                    <td className="whitespace-nowrap px-3 py-2 text-slate-600 dark:text-slate-300">{formatNumber(job?.total_runs ?? 0)}</td>
-                  </tr>
-                ))}
-                {slowestJobs.length === 0 ? (
-                  <tr>
-                    <td className="px-3 py-8 text-center text-slate-500" colSpan={4}>No duration data in this timeframe.</td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
-        </div>
       </section>
 
       <section className="space-y-4">
