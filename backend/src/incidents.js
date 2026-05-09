@@ -199,14 +199,17 @@ function inferImpactType(event = {}) {
 
   const type = String(event.type || '').toLowerCase();
 
+  // PRIORITY 1: Lifecycle/Audit Events - ALWAYS informational
   if (LIFECYCLE_EVENT_TYPES.has(type)) {
     return 'informational';
   }
 
+  // PRIORITY 2: Root Incident Semantics
   if (type === 'missing_detected' || type === 'heartbeat_recovered') {
     return 'outage';
   }
 
+  // Default to informational
   return 'informational';
 }
 
@@ -215,22 +218,27 @@ function inferReliabilityClass(event = {}) {
     return event.reliability_class;
   }
 
-  const incidentType = String(event.incident_type || event.type || '').toLowerCase();
   const type = String(event.type || '').toLowerCase();
+  const incidentType = String(event.incident_type || event.type || '').toLowerCase();
   const severity = String(event.severity || '').toLowerCase();
 
-  if (OUTAGE_INCIDENT_TYPES.has(incidentType) || type === 'missing_detected' || type === 'heartbeat_recovered') {
-    return 'outage';
-  }
-
-  if (DEGRADED_INCIDENT_TYPES.has(incidentType)) {
-    return 'degraded';
-  }
-
+  // PRIORITY 1: Lifecycle/Audit Events - ALWAYS informational, never inherit parent semantics
   if (LIFECYCLE_EVENT_TYPES.has(type)) {
     return 'informational';
   }
 
+  // PRIORITY 2: Root Reliability Semantics - Actual operational meaning
+  // Outage: Real service unavailability
+  if (OUTAGE_INCIDENT_TYPES.has(incidentType) || type === 'missing_detected' || type === 'heartbeat_recovered') {
+    return 'outage';
+  }
+
+  // Degraded: Service performance degradation
+  if (DEGRADED_INCIDENT_TYPES.has(incidentType)) {
+    return 'degraded';
+  }
+
+  // PRIORITY 3: Severity Fallback - Last resort only
   if (severity === 'critical') {
     return 'outage';
   }
