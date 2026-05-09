@@ -27,7 +27,7 @@ SET
 
 incident_events.impact_type = CASE
 
-  -- PRIORITY 1: Lifecycle / Audit Events
+  -- Lifecycle / Audit visibility
   WHEN (
     CONVERT(incident_events.type USING utf8mb4)
   ) IN (
@@ -42,7 +42,6 @@ incident_events.impact_type = CASE
   )
   THEN ''informational''
 
-  -- PRIORITY 2: Outage lifecycle events
   WHEN (
     CONVERT(incident_events.type USING utf8mb4)
   ) IN (
@@ -57,12 +56,10 @@ END,
 
 incident_events.reliability_class = CASE
 
-  -- PRIORITY 1: Lifecycle / Audit Events
+  -- Informational lifecycle-only events
   WHEN (
     CONVERT(incident_events.type USING utf8mb4)
   ) IN (
-    ''alert_triggered'',
-    ''alert_resolved'',
     ''reminder_sent'',
     ''incident_acknowledged'',
     ''incident_note_added'',
@@ -72,7 +69,7 @@ incident_events.reliability_class = CASE
   )
   THEN ''informational''
 
-  -- PRIORITY 2A: Real outages
+  -- Real outage semantics
   WHEN (
     CONVERT(
       COALESCE(alert_events.type, incident_events.incident_type)
@@ -91,7 +88,7 @@ incident_events.reliability_class = CASE
   )
   THEN ''outage''
 
-  -- PRIORITY 2B: Degradation events
+  -- Real degradation semantics
   WHEN (
     CONVERT(
       COALESCE(alert_events.type, incident_events.incident_type)
@@ -105,7 +102,7 @@ incident_events.reliability_class = CASE
   )
   THEN ''degraded''
 
-  -- PRIORITY 3: Severity fallback
+  -- Severity fallback only
   WHEN (
     CONVERT(incident_events.severity USING utf8mb4)
   ) = ''critical''
@@ -137,7 +134,6 @@ SET
 
 impact_type = CASE
 
-  -- PRIORITY 1: Lifecycle / Audit Events
   WHEN (
     CONVERT(type USING utf8mb4)
   ) IN (
@@ -152,7 +148,6 @@ impact_type = CASE
   )
   THEN ''informational''
 
-  -- PRIORITY 2: Outage lifecycle events
   WHEN (
     CONVERT(type USING utf8mb4)
   ) IN (
@@ -167,12 +162,10 @@ END,
 
 reliability_class = CASE
 
-  -- PRIORITY 1: Lifecycle / Audit Events
+  -- Informational lifecycle-only events
   WHEN (
     CONVERT(type USING utf8mb4)
   ) IN (
-    ''alert_triggered'',
-    ''alert_resolved'',
     ''reminder_sent'',
     ''incident_acknowledged'',
     ''incident_note_added'',
@@ -182,7 +175,7 @@ reliability_class = CASE
   )
   THEN ''informational''
 
-  -- PRIORITY 2A: Real outages
+  -- Real outage semantics
   WHEN (
     CONVERT(incident_type USING utf8mb4)
   ) IN (
@@ -198,7 +191,7 @@ reliability_class = CASE
   )
   THEN ''outage''
 
-  -- PRIORITY 2B: Degradation events
+  -- Real degradation semantics
   WHEN (
     CONVERT(incident_type USING utf8mb4)
   ) IN (
@@ -209,7 +202,7 @@ reliability_class = CASE
   )
   THEN ''degraded''
 
-  -- PRIORITY 3: Severity fallback
+  -- Severity fallback only
   WHEN (
     CONVERT(severity USING utf8mb4)
   ) = ''critical''
