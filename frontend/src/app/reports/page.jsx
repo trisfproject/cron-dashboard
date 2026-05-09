@@ -271,7 +271,7 @@ function ReportsContent() {
           <option value="downtime">Sort by downtime</option>
           <option value="incidents">Sort by incidents</option>
         </select>
-        <button className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-md bg-ink px-5 text-sm font-semibold text-white transition hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:bg-blue-600 dark:hover:bg-blue-500 dark:focus:ring-offset-slate-950 sm:w-auto" type="submit">
+        <button className="inline-flex h-12 w-full min-w-32 flex-1 items-center justify-center gap-2 rounded-md bg-ink px-5 text-sm font-semibold text-white transition hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:bg-blue-600 dark:hover:bg-blue-500 dark:focus:ring-offset-slate-950 sm:w-auto" type="submit">
           <Search className="h-4 w-4" aria-hidden="true" />
           <span>Apply</span>
         </button>
