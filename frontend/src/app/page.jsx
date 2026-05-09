@@ -1126,30 +1126,30 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
         <TimelineChart data={timeline} interval={timelineInterval} onRangeSelect={applySelectedTimelineRange} />
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-2">
+      <section className="grid min-w-0 gap-4 xl:grid-cols-2">
         {currentUser?.role === 'admin' ? (
-        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm xl:col-span-2">
+        <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:p-5 xl:col-span-2">
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div>
+            <div className="min-w-0">
               <h2 className="text-base font-semibold text-ink">Active Alerts</h2>
               <p className="mt-1 text-sm text-slate-500">Realtime alert lifecycle across reliability, duration, retries, and cron silence rules.</p>
             </div>
-            <Link href="/alerts" className="inline-flex min-h-10 items-center justify-center rounded-md border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900">
+            <Link href="/alerts" className="inline-flex min-h-10 w-full shrink-0 items-center justify-center rounded-md border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900 sm:w-auto">
               View history
             </Link>
           </div>
           <div className="space-y-3 md:hidden">
             {activeAlerts.map((alert) => (
               <article key={alert.id} className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
-                <div className="flex items-start justify-between gap-3">
+                <div className="flex flex-col gap-2 min-[420px]:flex-row min-[420px]:items-start min-[420px]:justify-between">
                   <p className="min-w-0 break-words text-sm font-semibold text-ink">{alert.cron_name || 'All monitored cron jobs'}</p>
-                  <AlertSeverityBadge severity={alert.severity} />
+                  <span className="shrink-0"><AlertSeverityBadge severity={alert.severity} /></span>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {alert.env ? <EnvironmentBadge env={alert.env} /> : null}
                   <ServiceGroupBadge serviceGroup={alert.service_group} />
                 </div>
-                <p className="text-sm text-slate-600 dark:text-slate-300">{alert.reason}</p>
+                <p className="break-words text-sm text-slate-600 dark:text-slate-300">{alert.reason}</p>
                 <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
                   <AlertStateBadge state={alert.state} />
                   <span>{alert.triggered_at || '-'}</span>
@@ -1163,8 +1163,8 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
               <div className="rounded-lg bg-emerald-50 px-3 py-8 text-center text-sm text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:ring-emerald-900">No active alerts. Cron monitoring is quiet.</div>
             ) : null}
           </div>
-          <div className="hidden overflow-x-auto md:block">
-            <table className="min-w-full divide-y divide-slate-200 text-sm">
+          <div className="hidden min-w-0 overflow-x-auto rounded-md md:block">
+            <table className="min-w-[72rem] divide-y divide-slate-200 text-sm dark:divide-slate-800">
               <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
                 <tr>
                   <th className="px-3 py-2">Cron</th>
@@ -1182,12 +1182,14 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
                     <td className="max-w-[18rem] truncate px-3 py-2 font-medium text-ink">{alert.cron_name || 'All monitored cron jobs'}</td>
                     <td className="whitespace-nowrap px-3 py-2"><AlertSeverityBadge severity={alert.severity} /></td>
                     <td className="whitespace-nowrap px-3 py-2">
-                      <div className="flex gap-1.5">
+                      <div className="flex flex-wrap gap-1.5">
                         {alert.env ? <EnvironmentBadge env={alert.env} /> : null}
                         <ServiceGroupBadge serviceGroup={alert.service_group} />
                       </div>
                     </td>
-                    <td className="min-w-[24rem] px-3 py-2 text-slate-600 dark:text-slate-300">{alert.reason}</td>
+                    <td className="min-w-[18rem] max-w-[28rem] px-3 py-2 text-slate-600 dark:text-slate-300">
+                      <p className="break-words">{alert.reason}</p>
+                    </td>
                     <td className="whitespace-nowrap px-3 py-2 text-slate-600 dark:text-slate-300">{alert.triggered_at || '-'}</td>
                     <td className="whitespace-nowrap px-3 py-2"><AlertStateBadge state={alert.state} /></td>
                     <td className="whitespace-nowrap px-3 py-2 text-slate-600 dark:text-slate-300">
@@ -1209,22 +1211,22 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
         ) : null}
 
         {currentUser?.role === 'admin' ? (
-        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm xl:col-span-2">
-          <div className="mb-4 flex items-start justify-between gap-3">
-            <div>
+        <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:p-5 xl:col-span-2">
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
               <h2 className="text-base font-semibold text-ink">Operational Activity</h2>
               <p className="mt-1 text-sm text-slate-500">Recent administrative and incident-management events.</p>
             </div>
-            <Link href="/audit" className="inline-flex min-h-10 items-center justify-center rounded-md border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900">
+            <Link href="/audit" className="inline-flex min-h-10 w-full shrink-0 items-center justify-center rounded-md border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900 sm:w-auto">
               Audit log
             </Link>
           </div>
           <div className="divide-y divide-slate-100 dark:divide-slate-800">
             {auditFeed.map((event) => (
-              <div key={event.id} className="grid gap-1 py-3 text-sm sm:grid-cols-[12rem_1fr_auto] sm:items-center">
-                <p className="font-medium text-ink">{event.action}</p>
-                <p className="text-slate-500">{event.user_email || 'System'} / {event.target_label || event.target_type || 'NYX'}</p>
-                <p className="text-xs text-slate-500">{event.created_at}</p>
+              <div key={event.id} className="grid min-w-0 gap-1 py-3 text-sm sm:grid-cols-[minmax(0,12rem)_minmax(0,1fr)_minmax(8rem,auto)] sm:items-center sm:gap-3">
+                <p className="min-w-0 break-words font-medium text-ink">{event.action}</p>
+                <p className="min-w-0 break-words text-slate-500">{event.user_email || 'System'} / {event.target_label || event.target_type || 'NYX'}</p>
+                <p className="text-xs text-slate-500 sm:text-right">{event.created_at}</p>
               </div>
             ))}
             {auditFeed.length === 0 ? <div className="py-8 text-center text-sm text-slate-500">No recent operational activity.</div> : null}
@@ -1232,7 +1234,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
         </div>
         ) : null}
 
-        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
           <div className="mb-4">
             <h2 className="text-base font-semibold text-ink">Cron Health Overview</h2>
             <p className="mt-1 text-sm text-slate-500">Operational reliability across monitored cron jobs.</p>
@@ -1240,7 +1242,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
           <div className="space-y-3 md:hidden">
             {attentionHealthJobs.map((job, index) => (
               <article key={`${job?.cron_name ?? 'cron'}-${index}-mobile`} className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
-                <div className="flex items-start justify-between gap-3">
+                <div className="flex flex-col gap-2 min-[420px]:flex-row min-[420px]:items-start min-[420px]:justify-between">
                   <p className="min-w-0 break-words text-sm font-semibold text-ink">{job?.cron_name ?? '-'}</p>
                   <span className={`shrink-0 rounded-md px-2 py-1 text-xs font-medium ring-1 ${job.health.className}`}>{job.health.label}</span>
                 </div>
@@ -1268,8 +1270,8 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
               <div className="rounded-lg bg-emerald-50 px-3 py-8 text-center text-sm text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:ring-emerald-900">All monitored cron jobs are healthy.</div>
             ) : null}
           </div>
-          <div className="hidden overflow-x-auto md:block">
-            <table className="min-w-full divide-y divide-slate-200 text-sm">
+          <div className="hidden min-w-0 overflow-x-auto rounded-md md:block">
+            <table className="min-w-[48rem] divide-y divide-slate-200 text-sm dark:divide-slate-800">
               <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
                 <tr>
                   <th className="px-3 py-2">Cron</th>
@@ -1280,7 +1282,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
                   <th className="px-3 py-2">Failed</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {attentionHealthJobs.map((job, index) => (
                   <tr key={`${job?.cron_name ?? 'cron'}-${index}`}>
                     <td className="max-w-[18rem] truncate px-3 py-2 font-medium text-ink">{job?.cron_name ?? '-'}</td>
@@ -1288,7 +1290,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
                       <span className={`rounded-md px-2 py-1 text-xs font-medium ring-1 ${job.health.className}`}>{job.health.label}</span>
                     </td>
                     <td className="whitespace-nowrap px-3 py-2">
-                      <div className="flex gap-1.5">
+                      <div className="flex flex-wrap gap-1.5">
                         {job?.env ? <EnvironmentBadge env={job.env} /> : null}
                         <ServiceGroupBadge serviceGroup={job?.service_group} />
                       </div>
@@ -1308,7 +1310,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
           </div>
         </div>
 
-        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
           <div className="mb-4">
             <h2 className="text-base font-semibold text-ink">Slowest cron jobs</h2>
             <p className="mt-1 text-sm text-slate-500">Highest average duration in the selected timeframe.</p>
@@ -1319,22 +1321,22 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
 
               return (
                 <article key={`${job?.cron_name ?? 'cron'}-${index}-mobile`} className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
-                  <div className="flex items-start justify-between gap-3">
+                  <div className="flex flex-col gap-2 min-[420px]:flex-row min-[420px]:items-start min-[420px]:justify-between">
                     <p className="min-w-0 break-words text-sm font-semibold text-ink">{job?.cron_name ?? '-'}</p>
                     <span className={`shrink-0 rounded-md px-2 py-1 text-xs font-medium ring-1 ${severity.className}`}>{severity.label}</span>
                   </div>
-                  <div className="grid grid-cols-3 gap-2 text-sm">
-                    <div>
+                  <div className="grid grid-cols-1 gap-2 text-sm min-[420px]:grid-cols-3">
+                    <div className="min-w-0">
                       <p className="text-xs text-slate-500">Avg</p>
-                      <p className="mt-1 font-medium text-slate-700">{formatDuration(job?.avg_duration ?? 0)}</p>
+                      <p className="mt-1 break-words font-medium text-slate-700 dark:text-slate-200">{formatDuration(job?.avg_duration ?? 0)}</p>
                     </div>
-                    <div>
+                    <div className="min-w-0">
                       <p className="text-xs text-slate-500">Max</p>
-                      <p className="mt-1 font-medium text-slate-700">{formatDuration(job?.max_duration ?? 0)}</p>
+                      <p className="mt-1 break-words font-medium text-slate-700 dark:text-slate-200">{formatDuration(job?.max_duration ?? 0)}</p>
                     </div>
-                    <div>
+                    <div className="min-w-0">
                       <p className="text-xs text-slate-500">Runs</p>
-                      <p className="mt-1 font-medium text-slate-700">{formatNumber(job?.total_runs ?? 0)}</p>
+                      <p className="mt-1 break-words font-medium text-slate-700 dark:text-slate-200">{formatNumber(job?.total_runs ?? 0)}</p>
                     </div>
                   </div>
                 </article>
@@ -1344,8 +1346,8 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
               <div className="rounded-lg bg-slate-50 px-3 py-8 text-center text-sm text-slate-500 dark:bg-slate-950">No duration data in this timeframe.</div>
             ) : null}
           </div>
-          <div className="hidden overflow-x-auto md:block">
-            <table className="min-w-full divide-y divide-slate-200 text-sm">
+          <div className="hidden min-w-0 overflow-x-auto rounded-md md:block">
+            <table className="min-w-[42rem] divide-y divide-slate-200 text-sm dark:divide-slate-800">
               <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
                 <tr>
                   <th className="px-3 py-2">Cron</th>
@@ -1354,13 +1356,13 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
                   <th className="px-3 py-2">Runs</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {slowestJobs.map((job, index) => (
                   <tr key={`${job?.cron_name ?? 'cron'}-${index}`}>
                     <td className="max-w-[18rem] truncate px-3 py-2 font-medium text-ink">{job?.cron_name ?? '-'}</td>
-                    <td className="whitespace-nowrap px-3 py-2 text-slate-600">{formatDuration(job?.avg_duration ?? 0)}</td>
-                    <td className="whitespace-nowrap px-3 py-2 text-slate-600">{formatDuration(job?.max_duration ?? 0)}</td>
-                    <td className="whitespace-nowrap px-3 py-2 text-slate-600">{formatNumber(job?.total_runs ?? 0)}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-slate-600 dark:text-slate-300">{formatDuration(job?.avg_duration ?? 0)}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-slate-600 dark:text-slate-300">{formatDuration(job?.max_duration ?? 0)}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-slate-600 dark:text-slate-300">{formatNumber(job?.total_runs ?? 0)}</td>
                   </tr>
                 ))}
                 {slowestJobs.length === 0 ? (
