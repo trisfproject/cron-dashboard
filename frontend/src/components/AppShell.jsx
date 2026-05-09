@@ -356,15 +356,23 @@ export function AppShell({ children }) {
         </aside>
       </div>
       <main className="mx-auto w-full max-w-7xl flex-1 px-4 pb-8 pt-5 sm:px-6 sm:py-8 lg:px-8">{children}</main>
-      <footer className="border-t border-slate-200/70 bg-white/60 px-4 py-[calc(0.875rem+env(safe-area-inset-bottom))] text-center backdrop-blur dark:border-slate-800/80 dark:bg-slate-950/50 sm:px-6">
-        <div className="mx-auto flex max-w-7xl flex-col items-center justify-center gap-1.5">
-          <p className="text-sm font-medium tracking-normal text-slate-700 dark:text-slate-200">
-            <span>NYX x trisf.bot</span>
-            <span className="ml-1 text-slate-500 dark:text-slate-400">v{appMetadata.version}</span>
+      <footer className="border-t border-slate-200/80 bg-white/70 px-4 py-[calc(0.75rem+env(safe-area-inset-bottom))] text-xs text-slate-500 backdrop-blur dark:border-slate-800/50 dark:bg-slate-950/60 dark:text-slate-400 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-7xl">
+          <p className="truncate text-center font-medium tracking-normal lg:hidden">
+            <span className="text-slate-600 dark:text-slate-300">NYX v{appMetadata.version} x trisf.bot</span>
+            <span className="mx-1.5 text-slate-300 dark:text-slate-700">•</span>
+            <span>DevSecOps</span>
+            <span className="mx-1.5 text-slate-300 dark:text-slate-700">•</span>
+            <span>TechDev</span>
           </p>
-          <p className="text-xs font-normal tracking-normal text-slate-500 dark:text-slate-400">
-            DevSecOps / TechDev
-          </p>
+          <div className="hidden items-center justify-between gap-6 lg:flex">
+            <p className="font-medium tracking-normal text-slate-600 dark:text-slate-300">
+              NYX v{appMetadata.version} x trisf.bot
+            </p>
+            <p className="tracking-normal text-slate-500 dark:text-slate-400">
+              DevSecOps <span className="mx-2 text-slate-300 dark:text-slate-700">•</span> TechDev
+            </p>
+          </div>
         </div>
       </footer>
     </div>
