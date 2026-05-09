@@ -20,6 +20,10 @@ const emptyStats = {
     problematic_jobs: [],
     slowest_jobs: []
   },
+  heartbeat: {
+    summary: {},
+    schedules: []
+  },
   mode: 'window',
   window: '30m',
   interval: '1m'
@@ -264,6 +268,7 @@ function normalizeStatsResponse(data, range) {
     summary: source?.summary && typeof source.summary === 'object' ? source.summary : {},
     timeline: Array.isArray(source?.timeline) ? source.timeline : [],
     insights: source?.insights && typeof source.insights === 'object' ? source.insights : emptyStats.insights,
+    heartbeat: source?.heartbeat && typeof source.heartbeat === 'object' ? source.heartbeat : emptyStats.heartbeat,
     mode: source?.mode || 'window',
     window: source?.window || null,
     range: source?.range || range,
@@ -761,13 +766,13 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
                 const statusStyle = {
                   missing: 'bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-950/50 dark:text-rose-200 dark:ring-rose-900',
                   healthy: 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-200 dark:ring-emerald-900',
-                  outside_window: 'bg-slate-100 text-slate-600 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-800',
+                  outside_window: 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-200 dark:ring-emerald-900',
                   invalid_schedule: 'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-950/50 dark:text-amber-200 dark:ring-amber-900'
                 }[schedule.heartbeat_status] || 'bg-slate-100 text-slate-600 ring-slate-200';
                 const statusLabel = {
                   missing: 'Missing',
                   healthy: 'Healthy',
-                  outside_window: 'Outside window',
+                  outside_window: 'Healthy',
                   invalid_schedule: 'Invalid'
                 }[schedule.heartbeat_status] || schedule.heartbeat_status;
 
@@ -784,7 +789,10 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
                       {schedule.last_heartbeat_at ? `${formatRelativeTime(schedule.last_heartbeat_at)} (${schedule.last_heartbeat_at} WIB)` : 'No heartbeat'}
                     </td>
                     <td className="whitespace-nowrap px-3 py-2 text-slate-600 dark:text-slate-300">{schedule.expected_at || '-'}</td>
-                    <td className="min-w-[16rem] px-3 py-2 text-slate-600 dark:text-slate-300">{schedule.schedule_description || schedule.schedule_expression}</td>
+                    <td className="min-w-[16rem] px-3 py-2 text-slate-600 dark:text-slate-300">
+                      <p className="font-mono text-xs text-slate-700 dark:text-slate-200">{schedule.schedule_expression || '-'}</p>
+                      {schedule.schedule_description ? <p className="mt-1 text-xs text-slate-500">{schedule.schedule_description}</p> : null}
+                    </td>
                   </tr>
                 );
               })}

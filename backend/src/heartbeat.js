@@ -909,8 +909,9 @@ async function sendTelegram(text, { severity } = {}) {
 
 export async function heartbeatSummary({ env, service_group } = {}) {
   const health = await evaluateHeartbeatSchedules();
+  const normalizedEnv = String(env || '').toLowerCase();
   const scoped = health.filter((item) => {
-    if (env && item.environment !== env && item.env !== env) return false;
+    if (normalizedEnv && String(item.environment || '').toLowerCase() !== normalizedEnv && String(item.env || '').toLowerCase() !== normalizedEnv) return false;
     if (service_group && item.service_group !== service_group) return false;
     return true;
   });
@@ -918,11 +919,12 @@ export async function heartbeatSummary({ env, service_group } = {}) {
   const healthy = scoped.filter((item) => item.heartbeat_status === 'healthy');
   const outsideWindow = scoped.filter((item) => item.heartbeat_status === 'outside_window');
   const invalid = scoped.filter((item) => item.heartbeat_status === 'invalid_schedule');
+  const healthyOperationalCount = healthy.length + outsideWindow.length;
 
   return {
     summary: {
       monitored_schedules: scoped.length,
-      healthy: healthy.length,
+      healthy: healthyOperationalCount,
       missing: missing.length,
       outside_window: outsideWindow.length,
       invalid_schedule: invalid.length
