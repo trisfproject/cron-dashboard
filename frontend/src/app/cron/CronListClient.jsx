@@ -484,10 +484,6 @@ export function CronListClient({
                       <p className="mt-1 font-medium text-slate-700 dark:text-slate-300">{formatPercent(job?.success_rate ?? 0)}</p>
                     </div>
                     <div className="min-w-0">
-                      <p className="text-xs text-slate-500">Server</p>
-                      <p className="mt-1 truncate text-slate-700 dark:text-slate-300">{job?.server ?? '-'}</p>
-                    </div>
-                    <div className="min-w-0">
                       <p className="text-xs text-slate-500">Runs</p>
                       <p className="mt-1 font-medium text-slate-700 dark:text-slate-300">{formatNumber(job?.total_runs ?? 0)}</p>
                     </div>
@@ -502,12 +498,11 @@ export function CronListClient({
         </div>
 
         <div className="hidden overflow-x-auto lg:block">
-          <table className="min-w-[68rem] divide-y divide-slate-200 text-sm dark:divide-slate-800 xl:min-w-full">
+          <table className="min-w-[60rem] divide-y divide-slate-200 text-sm dark:divide-slate-800 xl:min-w-full">
             <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500 dark:bg-slate-900/60 dark:text-slate-400">
               <tr>
                 <th className="px-4 py-3">Service</th>
                 <th className="px-4 py-3">Cron</th>
-                <th className="px-4 py-3">Server</th>
                 <th className="px-4 py-3">Env</th>
                 <th className="px-4 py-3">Last status</th>
                 <th className="px-4 py-3">Last run freshness</th>
@@ -522,7 +517,7 @@ export function CronListClient({
               {serviceGroups.map((group) => (
                 <Fragment key={`${group}-desktop-group`}>
                   <tr key={`${group}-header`} className="bg-slate-50/70 dark:bg-slate-900/50">
-                    <td className="px-4 py-2 text-xs font-semibold uppercase tracking-normal text-slate-500 dark:text-slate-400" colSpan={canManageHeartbeat ? 11 : 10}>
+                    <td className="px-4 py-2 text-xs font-semibold uppercase tracking-normal text-slate-500 dark:text-slate-400" colSpan={canManageHeartbeat ? 10 : 9}>
                       <span>{group}</span>
                       <span className="ml-2 font-medium normal-case text-slate-400">{formatNumber(groupedJobs[group].length)} rows</span>
                     </td>
@@ -530,10 +525,9 @@ export function CronListClient({
                   {groupedJobs[group].map((job, index) => (
                     <tr key={`${jobKey(job)}-${index}`} className="dark:border-slate-800">
                       <td className="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-300"><ServiceGroupBadge serviceGroup={job?.service_group} />{!job?.service_group ? '-' : null}</td>
-                      <td className="max-w-[22rem] px-4 py-3 font-medium text-ink dark:text-slate-100">
+                      <td className="max-w-[30rem] px-4 py-3 font-medium text-ink dark:text-slate-100">
                         <Link className="block truncate hover:text-blue-700 dark:hover:text-blue-300" href={cronHref(job)}>{job?.cron_name ?? '-'}</Link>
                       </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-300">{job?.server ?? '-'}</td>
                       <td className="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-300">{job?.env ? <EnvironmentBadge env={job.env} /> : '-'}</td>
                       <td className="whitespace-nowrap px-4 py-3"><StatusBadge status={job?.last_status} /></td>
                       <td className="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-300">{formatDate(job?.last_run)}</td>
@@ -554,7 +548,7 @@ export function CronListClient({
               ))}
               {displayJobs.length === 0 && !error ? (
                 <tr>
-                  <td className="px-4 py-8 text-center text-slate-500" colSpan={canManageHeartbeat ? 11 : 10}>No cron executions found for {rangeLabel}.</td>
+                  <td className="px-4 py-8 text-center text-slate-500" colSpan={canManageHeartbeat ? 10 : 9}>No cron executions found for {rangeLabel}.</td>
                 </tr>
               ) : null}
             </tbody>
