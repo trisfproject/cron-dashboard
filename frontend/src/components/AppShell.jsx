@@ -357,22 +357,14 @@ export function AppShell({ children }) {
       </div>
       <main className="mx-auto w-full max-w-7xl flex-1 px-4 pb-8 pt-5 sm:px-6 sm:py-8 lg:px-8">{children}</main>
       <footer className="bg-white/70 px-4 text-xs text-slate-500 backdrop-blur dark:bg-slate-950/60 dark:text-slate-400 sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-7xl border-t border-slate-200/80 pb-[calc(0.5rem+env(safe-area-inset-bottom))] pt-3 dark:border-slate-800/50">
-          <p className="truncate text-center font-medium tracking-normal lg:hidden">
+        <div className="mx-auto max-w-7xl border-t border-slate-200/80 pb-[calc(0.5rem+env(safe-area-inset-bottom))] pt-3 text-center dark:border-slate-800/50">
+          <p className="truncate font-medium tracking-normal">
             <span className="text-slate-600 dark:text-slate-300">NYX v{appMetadata.version} x trisf.bot</span>
             <span className="mx-1.5 text-slate-300 dark:text-slate-700">•</span>
             <span>DevSecOps</span>
             <span className="mx-1.5 text-slate-300 dark:text-slate-700">•</span>
             <span>TechDev</span>
           </p>
-          <div className="hidden items-center justify-between gap-6 lg:flex">
-            <p className="font-medium tracking-normal text-slate-600 dark:text-slate-300">
-              NYX v{appMetadata.version} x trisf.bot
-            </p>
-            <p className="tracking-normal text-slate-500 dark:text-slate-400">
-              DevSecOps <span className="mx-2 text-slate-300 dark:text-slate-700">•</span> TechDev
-            </p>
-          </div>
         </div>
       </footer>
     </div>
