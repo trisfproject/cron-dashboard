@@ -839,10 +839,11 @@ export async function listAuditLogs({ action, userId, start, end, limit = 100, o
   }));
 }
 
-export async function listAuthActivityForUser(userId) {
+export async function listAuthActivityForUser(userId, { limit = 5, offset = 0 } = {}) {
   return listAuditLogs({
     userId,
-    limit: 20
+    limit,
+    offset
   });
 }
 
@@ -925,9 +926,31 @@ export async function registerAuthRoutes(app) {
   });
 
   app.get('/auth/me', { preHandler: requireAuth }, async (request) => ({ user: request.user }));
-  app.get('/auth/activity', { preHandler: requireAuth }, async (request) => ({
-    activity: await listAuthActivityForUser(request.user.id)
-  }));
+  app.get('/auth/activity', {
+    preHandler: requireAuth,
+    schema: {
+      querystring: {
+        type: 'object',
+        properties: {
+          limit: { type: 'integer', minimum: 1, maximum: 50, default: 5 },
+          offset: { type: 'integer', minimum: 0, maximum: 10000, default: 0 }
+        }
+      }
+    }
+  }, async (request) => {
+    const limit = Math.min(Number(request.query.limit || 5), 50);
+    const offset = Number(request.query.offset || 0);
+    const rows = await listAuthActivityForUser(request.user.id, { limit: limit + 1, offset });
+    const activity = rows.slice(0, limit);
+
+    return {
+      activity,
+      limit,
+      offset,
+      next_offset: offset + activity.length,
+      has_more: rows.length > limit
+    };
+  });
   app.post('/auth/password-reminder-shown', {
     preHandler: requireAuth,
     schema: {

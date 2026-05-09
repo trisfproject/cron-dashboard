@@ -11,6 +11,8 @@ const initialPasswordForm = {
   confirm_password: ''
 };
 
+const ACTIVITY_PAGE_SIZE = 5;
+
 function PasswordField({ id, label, value, onChange, visible, onToggle, autoComplete }) {
   return (
     <label className="block space-y-1.5">
@@ -55,9 +57,29 @@ function passwordStageLabel(stage) {
   }[stage] || 'Healthy';
 }
 
+function activityContext(event) {
+  const parts = [`IP ${event?.ip_address || '-'}`];
+
+  if (event?.target_label) {
+    parts.push(event.target_label);
+  } else if (event?.target_type) {
+    parts.push(event.target_type);
+  }
+
+  if (event?.status === 'failed') {
+    parts.push('failed');
+  }
+
+  return parts.join(' / ');
+}
+
 export default function AccountPage() {
   const [user, setUser] = useState(null);
   const [activity, setActivity] = useState([]);
+  const [activityHasMore, setActivityHasMore] = useState(false);
+  const [activityNextOffset, setActivityNextOffset] = useState(0);
+  const [activityLoadingMore, setActivityLoadingMore] = useState(false);
+  const [activityLoadError, setActivityLoadError] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [passwordForm, setPasswordForm] = useState(initialPasswordForm);
@@ -71,10 +93,13 @@ export default function AccountPage() {
       try {
         const [userData, activityData] = await Promise.all([
           getCurrentUser(),
-          getAuthActivity()
+          getAuthActivity({ limit: ACTIVITY_PAGE_SIZE, offset: 0 })
         ]);
         setUser(userData?.user || null);
-        setActivity(Array.isArray(activityData?.activity) ? activityData.activity : []);
+        const nextActivity = Array.isArray(activityData?.activity) ? activityData.activity : [];
+        setActivity(nextActivity);
+        setActivityHasMore(Boolean(activityData?.has_more));
+        setActivityNextOffset(Number(activityData?.next_offset || nextActivity.length || 0));
       } catch (fetchError) {
         setError(fetchError?.message || 'Failed to load session activity');
       } finally {
@@ -140,12 +165,46 @@ export default function AccountPage() {
         window.dispatchEvent(new CustomEvent('nyx:user-updated', { detail: response.user }));
       }
       setPasswordSuccess('Password changed. Other active sessions have been invalidated.');
-      const activityData = await getAuthActivity();
-      setActivity(Array.isArray(activityData?.activity) ? activityData.activity : []);
+      const activityData = await getAuthActivity({ limit: ACTIVITY_PAGE_SIZE, offset: 0 });
+      const nextActivity = Array.isArray(activityData?.activity) ? activityData.activity : [];
+      setActivity(nextActivity);
+      setActivityHasMore(Boolean(activityData?.has_more));
+      setActivityNextOffset(Number(activityData?.next_offset || nextActivity.length || 0));
     } catch (changeError) {
       setPasswordError(formatApiError(changeError, 'Unable to change password'));
     } finally {
       setPasswordLoading(false);
+    }
+  }
+
+  async function loadMoreActivity() {
+    setActivityLoadingMore(true);
+    setActivityLoadError('');
+
+    try {
+      const activityData = await getAuthActivity({
+        limit: ACTIVITY_PAGE_SIZE,
+        offset: activityNextOffset
+      });
+      const nextActivity = Array.isArray(activityData?.activity) ? activityData.activity : [];
+      setActivity((current) => {
+        const seen = new Set(current.map((event) => event.id));
+        const merged = [...current];
+
+        for (const event of nextActivity) {
+          if (!seen.has(event.id)) {
+            merged.push(event);
+          }
+        }
+
+        return merged;
+      });
+      setActivityHasMore(Boolean(activityData?.has_more));
+      setActivityNextOffset(Number(activityData?.next_offset || activityNextOffset + nextActivity.length));
+    } catch (fetchError) {
+      setActivityLoadError(formatApiError(fetchError, 'Failed to load more authentication activity'));
+    } finally {
+      setActivityLoadingMore(false);
     }
   }
 
@@ -282,19 +341,38 @@ export default function AccountPage() {
       </section>
 
       <section className="rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
-        <div className="border-b border-slate-200 p-4 dark:border-slate-800">
-          <h2 className="text-base font-semibold text-ink">Recent Authentication Activity</h2>
+        <div className="flex flex-col gap-1 border-b border-slate-200 px-4 py-3 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-ink">Recent Authentication Activity</h2>
+            <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Newest events first. Showing {activity.length || 0} loaded events.</p>
+          </div>
         </div>
         <div className="divide-y divide-slate-100 dark:divide-slate-800">
           {activity.map((event) => (
-            <div key={event.id} className="grid gap-1 p-4 text-sm sm:grid-cols-[10rem_1fr_auto] sm:items-center">
-              <p className="font-medium text-ink">{event.action}</p>
-              <p className="text-slate-500">IP {event.ip_address || '-'}</p>
-              <p className="text-xs text-slate-500">{event.created_at}</p>
+            <div key={event.id} className="grid gap-1 px-4 py-2.5 text-sm sm:grid-cols-[11rem_minmax(0,1fr)_10rem] sm:items-center sm:gap-3">
+              <p className="truncate font-medium capitalize text-ink">{String(event.action || '').replaceAll('_', ' ')}</p>
+              <p className="min-w-0 truncate text-xs text-slate-500 dark:text-slate-400 sm:text-sm">
+                {activityContext(event)}
+              </p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 sm:text-right">{event.created_at}</p>
             </div>
           ))}
-          {activity.length === 0 && !loading ? <div className="p-8 text-center text-sm text-slate-500">No recent authentication activity.</div> : null}
+          {activity.length === 0 && !loading ? <div className="px-4 py-6 text-center text-sm text-slate-500">No recent authentication activity.</div> : null}
         </div>
+        <div className="flex flex-col gap-2 border-t border-slate-200 px-4 py-3 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            {activityHasMore ? 'More authentication events are available.' : activity.length > 0 ? 'All loaded authentication events are visible.' : 'No events loaded.'}
+          </p>
+          <button
+            type="button"
+            onClick={loadMoreActivity}
+            disabled={!activityHasMore || activityLoadingMore || loading}
+            className="min-h-9 w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-900 sm:w-auto"
+          >
+            {activityLoadingMore ? 'Loading...' : 'Load More'}
+          </button>
+        </div>
+        {activityLoadError ? <p className="border-t border-rose-200 bg-rose-50 px-4 py-2 text-sm font-medium text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200">{activityLoadError}</p> : null}
       </section>
     </div>
   );

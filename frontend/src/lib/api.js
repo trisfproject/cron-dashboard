@@ -339,8 +339,17 @@ export function getAuditLogs(params = {}) {
   return request(`/audit-logs${suffix}`);
 }
 
-export function getAuthActivity() {
-  return request('/auth/activity');
+export function getAuthActivity(params = {}) {
+  const query = new URLSearchParams();
+
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== '') {
+      query.set(key, String(value));
+    }
+  }
+
+  const suffix = query.toString() ? `?${query.toString()}` : '';
+  return request(`/auth/activity${suffix}`);
 }
 
 export function changePassword(payload) {
