@@ -8,7 +8,38 @@ import { acknowledgeAlert, evaluateAlerts, formatApiError, getAlerts, getScopeOp
 import { formatDate } from '@/lib/format';
 
 const PAGE_SIZE = 20;
-const POLL_INTERVAL_MS = 30000;
+const POLL_INTERVAL_MS = 10000;
+const RETRY_DELAY_MS = 800;
+
+function pollingDebug(message, metadata = {}) {
+  console.debug(`[NYX polling] ${message}`, metadata);
+}
+
+function wait(ms) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+function isAbortError(error) {
+  return error?.name === 'AbortError' || /aborted|abort/i.test(error?.message || '');
+}
+
+async function retryOnce(label, requestFactory) {
+  try {
+    return await requestFactory();
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw error;
+    }
+
+    pollingDebug('retrying fetch', { label, error: error?.message });
+    await wait(RETRY_DELAY_MS);
+    const result = await requestFactory();
+    pollingDebug('fetch recovered', { label });
+    return result;
+  }
+}
 
 function normalizeAlerts(data) {
   return Array.isArray(data?.alerts) ? data.alerts : [];
@@ -57,6 +88,8 @@ export default function AlertsPage() {
   const [error, setError] = useState('');
   const [loadError, setLoadError] = useState('');
   const alertsRef = useRef([]);
+  const pollInFlightRef = useRef(false);
+  const visibleRef = useRef(true);
 
   function replaceAlerts(nextAlerts) {
     alertsRef.current = nextAlerts;
@@ -93,9 +126,38 @@ export default function AlertsPage() {
   }, [alerts]);
 
   useEffect(() => {
+    if (typeof document === 'undefined') {
+      return undefined;
+    }
+
+    visibleRef.current = !document.hidden;
+
+    function onVisibilityChange() {
+      visibleRef.current = !document.hidden;
+      pollingDebug(document.hidden ? 'polling paused' : 'polling resumed', { page: 'alerts' });
+    }
+
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+  }, []);
+
+  useEffect(() => {
     const timer = window.setInterval(async () => {
+      if (!visibleRef.current) {
+        pollingDebug('polling paused', { page: 'alerts' });
+        return;
+      }
+
+      if (pollInFlightRef.current) {
+        pollingDebug('poll skipped; request still in flight', { page: 'alerts' });
+        return;
+      }
+
+      pollInFlightRef.current = true;
+
       try {
-        const data = await getAlerts(alertParams(state, scope, 0));
+        const data = await retryOnce('alerts-page', () => getAlerts(alertParams(state, scope, 0)));
         const freshAlerts = normalizeAlerts(data);
         const merged = mergeFreshAlerts(alertsRef.current, freshAlerts);
         replaceAlerts(merged.alerts);
@@ -104,12 +166,18 @@ export default function AlertsPage() {
         }
         setHasMore(Boolean(data?.has_more) || merged.alerts.length > PAGE_SIZE);
       } catch (pollError) {
-        console.error('Failed to refresh alerts:', pollError);
+        if (isAbortError(pollError)) {
+          pollingDebug('request aborted', { page: 'alerts' });
+        } else {
+          console.warn('Failed to refresh alerts:', pollError);
+        }
+      } finally {
+        pollInFlightRef.current = false;
       }
     }, POLL_INTERVAL_MS);
 
     return () => window.clearInterval(timer);
-  }, [alerts.length, scope, state]);
+  }, [scope.env, scope.service_group, state]);
 
   useEffect(() => {
     getScopeOptions()

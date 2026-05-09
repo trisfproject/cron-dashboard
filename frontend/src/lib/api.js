@@ -373,7 +373,7 @@ export function canDeleteUser(id) {
   return request(`/users/${id}/can-delete`);
 }
 
-export function getAuditLogs(params = {}) {
+export function getAuditLogs(params = {}, options = {}) {
   const query = new URLSearchParams();
 
   for (const [key, value] of Object.entries(params)) {
@@ -383,7 +383,7 @@ export function getAuditLogs(params = {}) {
   }
 
   const suffix = query.toString() ? `?${query.toString()}` : '';
-  return request(`/audit-logs${suffix}`);
+  return request(`/audit-logs${suffix}`, options);
 }
 
 export function getAuthActivity(params = {}) {

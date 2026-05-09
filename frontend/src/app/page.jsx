@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useState, useEffect, useRef } from 'react';
+import { Suspense, useCallback, useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Activity, AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Clock3, DatabaseZap, ListChecks, Radio, RotateCcw, TrendingUp } from 'lucide-react';
@@ -31,9 +31,62 @@ const emptyStats = {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const LOG_PAGE_SIZE = 10;
+const RETRY_DELAY_MS = 800;
+const POLL_INTERVALS = {
+  stats: 10000,
+  alerts: 10000,
+  logs: 30000,
+  audit: 60000,
+  auth: 60000
+};
 const VALID_WINDOWS = new Set(['5m', '15m', '30m', '1h', '4h']);
 const VALID_RANGES = new Set(['today', '7d', '30d']);
 const JAKARTA_OFFSET_MS = 7 * 60 * 60 * 1000;
+
+function pollingDebug(message, metadata = {}) {
+  console.debug(`[NYX polling] ${message}`, metadata);
+}
+
+function wait(ms) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+function isAbortError(error) {
+  return error?.name === 'AbortError' || /aborted|abort/i.test(error?.message || '');
+}
+
+function resourceLabel(resource) {
+  return {
+    stats: 'Stats',
+    alerts: 'Alerts',
+    logs: 'Timeline',
+    audit: 'Audit feed',
+    auth: 'Session'
+  }[resource] || 'Dashboard data';
+}
+
+async function retryOnce(label, requestFactory) {
+  try {
+    return await requestFactory();
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw error;
+    }
+
+    pollingDebug('retrying fetch', { label, error: error?.message });
+    await wait(RETRY_DELAY_MS);
+
+    try {
+      const result = await requestFactory();
+      pollingDebug('fetch recovered', { label });
+      return result;
+    } catch (retryError) {
+      throw retryError;
+    }
+  }
+}
 
 function parseJakartaDateTime(value) {
   if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value || '')) {
@@ -311,12 +364,21 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
   const [logsLoadingMore, setLogsLoadingMore] = useState(false);
   const [logsError, setLogsError] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [pollWarnings, setPollWarnings] = useState({});
   const [refreshInterval, setRefreshInterval] = useState(0);
-  const [refreshTick, setRefreshTick] = useState(0);
   const [liveMode, setLiveMode] = useState(initialFilter.type !== 'custom');
   const [hasLoaded, setHasLoaded] = useState(false);
   const selectionTimerRef = useRef(null);
+  const visibleRef = useRef(true);
+  const timersRef = useRef({});
+  const inFlightRef = useRef({});
+  const controllersRef = useRef({});
+  const resumePollingRef = useRef(null);
+  const currentUserRef = useRef(null);
+
+  useEffect(() => {
+    currentUserRef.current = currentUser;
+  }, [currentUser]);
 
   useEffect(() => {
     setFilter(initialFilter);
@@ -350,16 +412,38 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
   }, []);
 
   useEffect(() => {
-    if (!refreshInterval || !liveMode) {
+    if (typeof document === 'undefined') {
       return undefined;
     }
 
-    const timer = setInterval(() => {
-      setRefreshTick((value) => value + 1);
-    }, refreshInterval);
+    visibleRef.current = !document.hidden;
 
-    return () => clearInterval(timer);
-  }, [refreshInterval, liveMode]);
+    function onVisibilityChange() {
+      visibleRef.current = !document.hidden;
+
+      if (document.hidden) {
+        pollingDebug('polling paused');
+        Object.values(timersRef.current).forEach((timer) => window.clearTimeout(timer));
+        timersRef.current = {};
+        Object.entries(controllersRef.current).forEach(([resource, controller]) => {
+          controller.abort();
+          inFlightRef.current[resource] = false;
+          pollingDebug('request aborted', { resource });
+        });
+        controllersRef.current = {};
+        return;
+      }
+
+      pollingDebug('polling resumed');
+      resumePollingRef.current?.();
+    }
+
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, []);
 
   useEffect(() => () => {
     if (selectionTimerRef.current) {
@@ -367,85 +451,243 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
     }
   }, []);
 
+  const dashboardParams = useCallback(() => {
+    const customParams = isValidCustomRange(customRange)
+      ? { start: customRange.start, end: customRange.end }
+      : null;
+    const params = customParams || { [filter.type]: filter.value };
+    const scopeParams = {
+      ...(scope.env ? { env: scope.env } : {}),
+      ...(scope.service_group ? { service_group: scope.service_group } : {})
+    };
+
+    return { params, scopeParams };
+  }, [customRange, filter.type, filter.value, scope.env, scope.service_group]);
+
   useEffect(() => {
     let cancelled = false;
 
-    setLoading(true);
-    setError(null);
+    function setResourceWarning(resource, message) {
+      setPollWarnings((current) => ({ ...current, [resource]: message }));
+    }
 
-    async function loadDashboard() {
-      try {
-        const customParams = isValidCustomRange(customRange)
-          ? { start: customRange.start, end: customRange.end }
-          : null;
-        const params = customParams || { [filter.type]: filter.value };
-        const scopeParams = {
-          ...(scope.env ? { env: scope.env } : {}),
-          ...(scope.service_group ? { service_group: scope.service_group } : {})
-        };
-
-        const [statsData, logsData, userData] = await Promise.all([
-          getStats({ ...params, ...scopeParams }),
-          getLogs({ ...params, ...scopeParams, limit: LOG_PAGE_SIZE, offset: 0 }),
-          getCurrentUser()
-        ]);
-        const user = userData?.user || null;
-        const [alertsData, auditData] = user?.role === 'admin'
-          ? await Promise.all([
-            getAlerts({ state: 'active', limit: 5, ...scopeParams }).catch((alertError) => {
-            console.error('Failed to fetch active alerts:', alertError);
-            return { alerts: [] };
-            }),
-            getAuditLogs({ limit: 5 }).catch((auditError) => {
-              console.error('Failed to fetch audit feed:', auditError);
-              return { audit_logs: [] };
-            })
-          ])
-          : [{ alerts: [] }, { audit_logs: [] }];
-
-        if (process.env.NODE_ENV === 'development') {
-          console.log('stats response', statsData);
-          console.log('logs response', logsData);
+    function clearResourceWarning(resource) {
+      setPollWarnings((current) => {
+        if (!current[resource]) {
+          return current;
         }
 
-        if (cancelled) {
-          return;
-        }
+        const next = { ...current };
+        delete next[resource];
+        return next;
+      });
+    }
 
-        setStats(normalizeStatsResponse(statsData, filter.value));
-        setCurrentUser(user);
-        const nextLogs = normalizeLogsResponse(logsData);
-        setLogs(nextLogs);
-        setHasMoreLogs(nextLogs.length === LOG_PAGE_SIZE);
-        setAlerts(Array.isArray(alertsData?.alerts) ? alertsData.alerts : []);
-        setAuditFeed(Array.isArray(auditData?.audit_logs) ? auditData.audit_logs : []);
-        setLogsError(null);
-      } catch (error) {
-        console.error('Failed to fetch dashboard data:', error);
-
-        if (!cancelled) {
-          setError(error?.message || 'Failed to load dashboard');
-          setStats(emptyStats);
-          setCurrentUser(null);
-          setLogs([]);
-          setAlerts([]);
-          setAuditFeed([]);
-          setHasMoreLogs(false);
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-          setHasLoaded(true);
-        }
+    function clearTimer(resource) {
+      if (timersRef.current[resource]) {
+        window.clearTimeout(timersRef.current[resource]);
+        delete timersRef.current[resource];
       }
     }
 
-    loadDashboard();
+    function abortResource(resource) {
+      const controller = controllersRef.current[resource];
+
+      if (controller) {
+        controller.abort();
+        delete controllersRef.current[resource];
+        inFlightRef.current[resource] = false;
+        pollingDebug('request aborted', { resource });
+      }
+    }
+
+    async function runResource(resource, requestFactory, onSuccess) {
+      if (cancelled || !visibleRef.current) {
+        pollingDebug('polling paused', { resource });
+        return;
+      }
+
+      if (inFlightRef.current[resource]) {
+        pollingDebug('poll skipped; request still in flight', { resource });
+        return;
+      }
+
+      const controller = new AbortController();
+      controllersRef.current[resource] = controller;
+      inFlightRef.current[resource] = true;
+
+      try {
+        const data = await retryOnce(resource, () => requestFactory(controller.signal));
+
+        if (cancelled || controller.signal.aborted) {
+          return;
+        }
+
+        onSuccess(data);
+        clearResourceWarning(resource);
+      } catch (fetchError) {
+        if (isAbortError(fetchError)) {
+          pollingDebug('request aborted', { resource });
+          return;
+        }
+
+        console.warn(`Dashboard ${resource} temporarily unavailable:`, fetchError);
+
+        if (!cancelled) {
+          setResourceWarning(resource, `${resourceLabel(resource)} temporarily unavailable. Retrying...`);
+        }
+      } finally {
+        if (controllersRef.current[resource] === controller) {
+          delete controllersRef.current[resource];
+        }
+
+        inFlightRef.current[resource] = false;
+      }
+    }
+
+    function runStats() {
+      const { params, scopeParams } = dashboardParams();
+      return runResource(
+        'stats',
+        (signal) => getStats({ ...params, ...scopeParams }, { signal }),
+        (statsData) => {
+          if (process.env.NODE_ENV === 'development') {
+            console.log('stats response', statsData);
+          }
+
+          setStats(normalizeStatsResponse(statsData, filter.value));
+        }
+      );
+    }
+
+    function runLogs() {
+      const { params, scopeParams } = dashboardParams();
+      return runResource(
+        'logs',
+        (signal) => getLogs({ ...params, ...scopeParams, limit: LOG_PAGE_SIZE, offset: 0 }, { signal }),
+        (logsData) => {
+          if (process.env.NODE_ENV === 'development') {
+            console.log('logs response', logsData);
+          }
+
+          const nextLogs = normalizeLogsResponse(logsData);
+          setLogs(nextLogs);
+          setHasMoreLogs(nextLogs.length === LOG_PAGE_SIZE);
+          setLogsError(null);
+        }
+      );
+    }
+
+    function runAuth() {
+      return runResource(
+        'auth',
+        (signal) => getCurrentUser({ signal }),
+        (userData) => {
+          const user = userData?.user || null;
+          currentUserRef.current = user;
+          setCurrentUser(user);
+
+          if (user?.role !== 'admin') {
+            setAlerts([]);
+            setAuditFeed([]);
+          }
+        }
+      );
+    }
+
+    function runAlerts() {
+      const { scopeParams } = dashboardParams();
+
+      if (currentUserRef.current?.role !== 'admin') {
+        setAlerts([]);
+        return Promise.resolve();
+      }
+
+      return runResource(
+        'alerts',
+        (signal) => getAlerts({ state: 'active', limit: 5, ...scopeParams }, { signal }),
+        (alertsData) => setAlerts(Array.isArray(alertsData?.alerts) ? alertsData.alerts : [])
+      );
+    }
+
+    function runAudit() {
+      if (currentUserRef.current?.role !== 'admin') {
+        setAuditFeed([]);
+        return Promise.resolve();
+      }
+
+      return runResource(
+        'audit',
+        (signal) => getAuditLogs({ limit: 5 }, { signal }),
+        (auditData) => setAuditFeed(Array.isArray(auditData?.audit_logs) ? auditData.audit_logs : [])
+      );
+    }
+
+    function intervalFor(resource) {
+      if (!refreshInterval || !liveMode) {
+        return 0;
+      }
+
+      return Math.max(refreshInterval, POLL_INTERVALS[resource]);
+    }
+
+    function schedule(resource, runner) {
+      clearTimer(resource);
+      const interval = intervalFor(resource);
+
+      if (!interval) {
+        return;
+      }
+
+      timersRef.current[resource] = window.setTimeout(async () => {
+        await runner();
+        schedule(resource, runner);
+      }, interval);
+    }
+
+    function scheduleAll() {
+      schedule('stats', runStats);
+      schedule('alerts', runAlerts);
+      schedule('logs', runLogs);
+      schedule('audit', runAudit);
+      schedule('auth', runAuth);
+    }
+
+    async function initialLoad() {
+      setLoading(true);
+      setPollWarnings({});
+
+      await Promise.all([runAuth(), runStats(), runLogs()]);
+      await Promise.all([runAlerts(), runAudit()]);
+
+      if (!cancelled) {
+        setLoading(false);
+        setHasLoaded(true);
+      }
+    }
+
+    Object.values(timersRef.current).forEach((timer) => window.clearTimeout(timer));
+    timersRef.current = {};
+    Object.keys(controllersRef.current).forEach(abortResource);
+    resumePollingRef.current = () => {
+      runStats();
+      runAlerts();
+      runLogs();
+      runAuth();
+      runAudit();
+      scheduleAll();
+    };
+
+    initialLoad();
+    scheduleAll();
 
     return () => {
       cancelled = true;
+      Object.values(timersRef.current).forEach((timer) => window.clearTimeout(timer));
+      timersRef.current = {};
+      Object.keys(controllersRef.current).forEach(abortResource);
     };
-  }, [filter, customRange, refreshTick, scope.env, scope.service_group]);
+  }, [dashboardParams, filter.value, liveMode, refreshInterval]);
 
   function applyCustomRange(nextCustomRange) {
     if (isValidCustomRange(nextCustomRange)) {
@@ -544,26 +786,6 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
     );
   }
 
-  if (error) {
-    return (
-      <div className="space-y-8">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-normal text-ink">Dashboard</h1>
-            <p className="mt-1 text-sm text-slate-500">Live health and execution trends across monitored cron jobs.</p>
-          </div>
-        </div>
-        <div className="flex items-center justify-center rounded-lg border border-red-200 bg-red-50 p-8">
-          <div>
-            <p className="font-semibold text-red-900">Failed to load dashboard</p>
-            <p className="text-sm text-red-700 mt-1">{error}</p>
-            <p className="text-xs text-red-600 mt-2">Check browser console for details.</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   if (!stats) {
     return (
       <div className="space-y-8">
@@ -588,6 +810,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
   const heartbeatSummary = heartbeat.summary || {};
   const heartbeatSchedules = Array.isArray(heartbeat.schedules) ? heartbeat.schedules : [];
   const missingHeartbeatSchedules = heartbeatSchedules.filter((schedule) => schedule.heartbeat_status === 'missing');
+  const pollWarningMessages = Object.values(pollWarnings).filter(Boolean);
   const visibleHeartbeatSchedules = heartbeatSchedules.slice(0, 6);
   const problematicJobs = Array.isArray(insights.problematic_jobs) ? insights.problematic_jobs : [];
   const rankedHealthJobs = rankCronHealthJobs(problematicJobs);
@@ -661,6 +884,12 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
           </div>
         </div>
       </section>
+
+      {pollWarningMessages.length > 0 ? (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+          ⚠ {pollWarningMessages.slice(0, 2).join(' ')}
+        </div>
+      ) : null}
 
       <section className="grid grid-cols-2 gap-2.5 sm:gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard 
