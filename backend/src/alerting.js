@@ -347,6 +347,30 @@ function telegramTopicIdForSeverity(severity) {
     || normalizeTelegramTopicId(process.env.TELEGRAM_MESSAGE_THREAD_ID);
 }
 
+function redactTelegramChatId(chatId) {
+  const value = String(chatId || '');
+
+  if (value.length <= 4) {
+    return '****';
+  }
+
+  return `${value.slice(0, 2)}****${value.slice(-2)}`;
+}
+
+function telegramSendTimeoutMs() {
+  const timeoutMs = Number(process.env.TELEGRAM_SEND_TIMEOUT_MS || 10000);
+  return Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 10000;
+}
+
+function telegramFetchOptions(payload) {
+  return {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(telegramSendTimeoutMs())
+  };
+}
+
 function severityIcon(severity) {
   return {
     info: '🔵',
@@ -441,16 +465,24 @@ async function buildTelegramMessage(alert, rule, lifecycle = 'triggered') {
   ].join('\n');
 }
 
-async function sendTelegram(text, { severity } = {}) {
+async function sendTelegram(text, { severity, logger, logContext = {} } = {}) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const chatIds = telegramChatIds();
   const topicId = telegramTopicIdForSeverity(severity);
 
   if (!token || chatIds.length === 0) {
+    logger?.warn?.({
+      ...logContext,
+      telegram_chat_count: chatIds.length,
+      telegram_bot_token_configured: Boolean(token)
+    }, 'Telegram send suppressed; credentials are not configured');
     return { sent: false, error: 'Telegram credentials are not configured' };
   }
 
   const results = await Promise.all(chatIds.map(async (chatId) => {
+    let failureLogged = false;
+    let activeTopicId = topicId || null;
+    let topicFallbackUsed = false;
     const basePayload = {
       chat_id: chatId,
       text,
@@ -463,29 +495,100 @@ async function sendTelegram(text, { severity } = {}) {
       payload.message_thread_id = topicId;
     }
 
-    let response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
+    try {
+      logger?.debug?.({
+        ...logContext,
+        telegram_chat_id: redactTelegramChatId(chatId),
+        telegram_topic_id: topicId || null,
+        telegram_topic_fallback: false,
+        telegram_timeout_ms: telegramSendTimeoutMs()
+      }, 'Telegram send started');
 
-    if (!response.ok && topicId) {
-      response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(basePayload)
-      });
+      let response = await fetch(
+        `https://api.telegram.org/bot${token}/sendMessage`,
+        telegramFetchOptions(payload)
+      );
+
+      if (!response.ok && topicId) {
+        const responseText = await response.text();
+        logger?.warn?.({
+          ...logContext,
+          telegram_chat_id: redactTelegramChatId(chatId),
+          telegram_topic_id: topicId,
+          telegram_status: response.status,
+          telegram_response: responseText.slice(0, 300)
+        }, 'Telegram send with topic failed; retrying without topic');
+
+        activeTopicId = null;
+        topicFallbackUsed = true;
+        response = await fetch(
+          `https://api.telegram.org/bot${token}/sendMessage`,
+          telegramFetchOptions(basePayload)
+        );
+      }
+
+      if (!response.ok) {
+        const responseText = await response.text();
+        failureLogged = true;
+        logger?.warn?.({
+          ...logContext,
+          telegram_chat_id: redactTelegramChatId(chatId),
+          telegram_topic_id: activeTopicId,
+          telegram_topic_fallback: topicFallbackUsed,
+          telegram_status: response.status,
+          telegram_response: responseText.slice(0, 300)
+        }, 'Telegram send failed');
+        throw new Error(`Telegram API ${response.status}: ${responseText.slice(0, 300)}`);
+      }
+
+      const responseBody = await response.json();
+
+      logger?.debug?.({
+        ...logContext,
+        telegram_chat_id: redactTelegramChatId(chatId),
+        telegram_topic_id: activeTopicId,
+        telegram_topic_fallback: topicFallbackUsed,
+        telegram_status: response.status,
+        telegram_ok: responseBody?.ok === true,
+        telegram_message_id: responseBody?.result?.message_id || null,
+        telegram_response_description: responseBody?.description || null
+      }, 'Telegram response received');
+
+      if (responseBody?.ok !== true) {
+        failureLogged = true;
+        logger?.warn?.({
+          ...logContext,
+          telegram_chat_id: redactTelegramChatId(chatId),
+          telegram_topic_id: activeTopicId,
+          telegram_topic_fallback: topicFallbackUsed,
+          telegram_status: response.status,
+          telegram_response_description: responseBody?.description || null
+        }, 'Telegram send failed');
+        throw new Error(`Telegram API rejected message: ${responseBody?.description || 'ok=false'}`);
+      }
+
+      return responseBody;
+    } catch (error) {
+      if (!failureLogged) {
+        logger?.warn?.({
+          ...logContext,
+          telegram_chat_id: redactTelegramChatId(chatId),
+          telegram_topic_id: activeTopicId,
+          telegram_topic_fallback: topicFallbackUsed,
+          error: error.message,
+          error_name: error.name
+        }, 'Telegram send failed');
+      }
+      throw error;
     }
-
-    if (!response.ok) {
-      const responseText = await response.text();
-      throw new Error(`Telegram API ${response.status}: ${responseText.slice(0, 300)}`);
-    }
-
-    return response.json();
   }));
 
-  return { sent: true, count: results.length, topic_id: topicId };
+  return {
+    sent: results.length > 0,
+    count: results.length,
+    topic_id: topicId,
+    message_ids: results.map((result) => result?.result?.message_id).filter(Boolean)
+  };
 }
 
 async function sendWebhook(url, text, flavor) {
@@ -508,6 +611,15 @@ async function notifyAlert(app, alert, rule, lifecycle = 'triggered') {
   const channels = ruleChannels(rule);
 
   if (channels.length === 0) {
+    if (lifecycle === 'resolved') {
+      app?.log?.info?.({
+        alert_id: alert.id,
+        rule_id: alert.rule_id || rule.id,
+        cron_name: alert.cron_name,
+        lifecycle,
+        suppression_reason: 'No notification channels selected'
+      }, 'Resolved alert notification suppressed');
+    }
     return { sent: false, status: 'skipped', error: 'No notification channels selected' };
   }
 
@@ -525,7 +637,17 @@ async function notifyAlert(app, alert, rule, lifecycle = 'triggered') {
   const tasks = channels.map(async (channel) => {
     try {
       if (channel === 'telegram') {
-        const result = await sendTelegram(text, { severity: alert.severity });
+        const result = await sendTelegram(text, {
+          severity: alert.severity,
+          logger: app?.log,
+          logContext: {
+            alert_id: alert.id,
+            rule_id: alert.rule_id || rule.id,
+            cron_name: alert.cron_name,
+            lifecycle,
+            channel
+          }
+        });
         delivered = delivered || Boolean(result.sent);
         if (!result.sent && result.error) {
           errors.push(result.error);
@@ -544,9 +666,14 @@ async function notifyAlert(app, alert, rule, lifecycle = 'triggered') {
   });
 
   await Promise.all(tasks);
+
+  const status = delivered && (lifecycle !== 'resolved' || errors.length === 0)
+    ? 'success'
+    : 'failed';
+
   return {
     sent: delivered,
-    status: delivered ? 'success' : 'failed',
+    status,
     error: errors.join('; ') || null
   };
 }
@@ -932,6 +1059,13 @@ async function maybeNotify(app, alert, rule, lastNotifiedAt, lifecycle = 'trigge
   }
 
   if (lifecycle === 'triggered' && last && Date.now() - last < cooldown) {
+    app?.log?.debug({
+      alert_id: alert.id,
+      rule_id: alert.rule_id || rule.id,
+      cron_name: alert.cron_name,
+      lifecycle,
+      suppression_reason: 'Cooldown window has not elapsed'
+    }, 'Alert notification suppressed by cooldown');
     return { sent: false, status: 'suppressed', error: null };
   }
 
@@ -1069,13 +1203,28 @@ export async function evaluateAlerts(app) {
           }
         });
 
-        const notificationResult = await maybeNotify(app, { ...resolvedAlert, state: 'resolved' }, rule, null, 'resolved');
         app?.log?.info({
           alert_id: resolvedAlert.id,
           rule_id: resolvedAlert.rule_id,
           cron_name: resolvedAlert.cron_name,
-          notification_status: notificationResult?.status || null
-        }, 'Resolved alert notification dispatched');
+          channels: ruleChannels(rule)
+        }, 'Resolved alert notification send started');
+
+        const notificationResult = await maybeNotify(app, { ...resolvedAlert, state: 'resolved' }, rule, null, 'resolved');
+        const notificationLogPayload = {
+          alert_id: resolvedAlert.id,
+          rule_id: resolvedAlert.rule_id,
+          cron_name: resolvedAlert.cron_name,
+          notification_status: notificationResult?.status || null,
+          notification_sent: Boolean(notificationResult?.sent),
+          notification_error: notificationResult?.error || null
+        };
+
+        if (notificationResult?.status === 'success' && notificationResult?.sent) {
+          app?.log?.info(notificationLogPayload, 'Resolved alert notification delivered');
+        } else {
+          app?.log?.warn(notificationLogPayload, 'Resolved alert notification delivery failed');
+        }
 
         await logAudit({
           user: { email: 'system@nyx' },
