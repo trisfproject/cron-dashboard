@@ -1,0 +1,301 @@
+'use client';
+
+import { useMemo, useState } from 'react';
+import { Activity, CalendarDays, CheckCircle2, ChevronDown, Clock3, GitBranch, History, LockKeyhole, Server, ShieldCheck } from 'lucide-react';
+import { BrandMark } from '@/components/BrandMark';
+import { appMetadata } from '@/lib/appMetadata';
+
+const RELEASES = [
+  {
+    version: '1.1.0',
+    label: 'Current release',
+    title: 'Operational Lifecycle, Security & Alerting',
+    summary: 'Expanded NYX into a governed internal operations center with scoped observability, alert lifecycle management, auditability, and stronger account security controls.',
+    sections: [
+      {
+        title: 'Core Platform',
+        items: [
+          'Added environment and service-group scoping across dashboard metrics, cron lists, logs, alerts, and alert rules.',
+          'Introduced rolling windows, Today, 7D, 30D, and custom WIB time windows with chart zoom, pan, reset, and live refresh controls.',
+          'Added scoped option discovery for environments and services so filters reflect ingested operational data.',
+          'Expanded dashboard insights with system health state, ingest freshness, throughput, problematic cron jobs, and slowest cron analytics.'
+        ]
+      },
+      {
+        title: 'Authentication & Security',
+        items: [
+          'Added session-version validation so role changes, status changes, password resets, password changes, archive, restore, and force logout invalidate stale sessions.',
+          'Introduced password policy enforcement, password-age tracking, expiration metadata, reminder banners, and audited password reminder visibility.',
+          'Added self-service password changes with current-password verification, reuse prevention, confirmation checks, and other-session invalidation.',
+          'Improved login protection with failed-login auditing, temporary lockout tracking, secure HttpOnly session cookies, and authenticated session bootstrap handling.'
+        ]
+      },
+      {
+        title: 'User Management',
+        items: [
+          'Added admin user creation, profile editing, role assignment, activation, deactivation, password reset, and force logout controls.',
+          'Introduced soft-delete lifecycle support with archive and restore flows that preserve audit history.',
+          'Added duplicate-user recovery guidance for active, disabled, and archived accounts with contextual restore, reactivate, and reset-password actions.',
+          'Protected operators from self-deactivation, self-archive, and last-active-admin removal while allowing permanent deletion only for users without login or audit history.'
+        ]
+      },
+      {
+        title: 'Alerting',
+        items: [
+          'Added alert rules for failed thresholds, warning thresholds, success-rate degradation, duration anomalies, retry storms, and cron silence.',
+          'Introduced alert lifecycle states for active, acknowledged, and resolved events with manual evaluation and acknowledgement workflows.',
+          'Added environment and service scopes for alert rules and alert history, including quieter runtime policy defaults for staging and development.',
+          'Added Telegram, Discord, and Slack notification channels, Telegram test delivery, forum-topic support, notification cooldowns, delivery counts, and last notification status.'
+        ]
+      },
+      {
+        title: 'Audit & Operations',
+        items: [
+          'Added admin audit logs for login, logout, failed login, alert rule changes, alert acknowledgements, password resets, user lifecycle changes, and forced logout.',
+          'Added account-level authentication activity so users can review recent security events from their session security page.',
+          'Added audit filtering by action, user, start date, and end date with load-more pagination for operational investigations.',
+          'Added dashboard activity feed for recent administrative and incident-management events.'
+        ]
+      },
+      {
+        title: 'UI/UX',
+        items: [
+          'Refined responsive navigation with desktop links, mobile drawer navigation, safe-area spacing, account identity, role badges, theme controls, and logout actions.',
+          'Added mobile/tablet card layouts for alerts, audit logs, users, cron jobs, health insights, slowest jobs, and execution history while preserving dense desktop tables.',
+          'Added execution output inspection with detected issue type, stdout, stderr, warnings, exceptions, retry logs, timeout details, copy actions, and full-output expansion.',
+          'Added dark and light mode polish, scoped badges, compact controls, loading states, empty states, and footer version metadata.'
+        ]
+      },
+      {
+        title: 'Reliability & Stability',
+        items: [
+          'Added idempotent, schema-aware migrations for partial deployments and older MySQL or MariaDB compatibility.',
+          'Added post-ingest and scheduled alert evaluation with throttled failure logging so alert engine errors do not disrupt cron ingest.',
+          'Added pagination and duplicate merging for dashboard logs, cron lists, alert history, and audit logs.',
+          'Improved query performance with indexes for time ranges, status, server, environment, service group, alert scope, audit queries, and archived users.'
+        ]
+      },
+      {
+        title: 'Infrastructure',
+        items: [
+          'Updated Docker Compose for health-gated MySQL, backend, and frontend startup with restart policies, local MySQL storage, logging limits, and a dedicated Docker bridge network.',
+          'Added backend alert evaluation interval configuration, bootstrap admin environment variables, session TTL configuration, and production build metadata wiring.',
+          'Hardened NGINX reverse proxy configs with security headers, request size limits, proxy timeouts, Cloudflare-ready host routing, and private CIDR restrictions for cron ingest.',
+          'Documented deployment, networking, backup, environment-file handling, and service verification guidance for production operations.'
+        ]
+      }
+    ]
+  },
+  {
+    version: '1.0.0',
+    label: 'Foundation release',
+    title: 'Foundational Monitoring Platform',
+    summary: 'Established the core NYX cron observability platform with authenticated dashboard access, durable ingest storage, operational metrics, and production deployment scaffolding.',
+    sections: [
+      {
+        title: 'Core Platform',
+        items: [
+          'Delivered the cron ingest API with API-key authentication, request validation, timestamp normalization, SHA-256 deduplication, and duplicate-safe responses.',
+          'Created durable MySQL storage for cron name, command, server, environment, status, duration, timestamp, hash, and ingest timestamps.',
+          'Added the primary dashboard for total jobs, total runs, success rate, failure count, warning count, average duration, and timeline trends.',
+          'Added cron list and cron detail views for moving from fleet-level status into job-level execution history.'
+        ]
+      },
+      {
+        title: 'Authentication & Security',
+        items: [
+          'Introduced NYX application users, admin/user roles, authenticated dashboard sessions, and middleware route protection.',
+          'Added bootstrap admin support through environment variables for first-run operational access.',
+          'Protected ingest traffic with API-key verification and reverse-proxy allow rules for internal cron producers.',
+          'Added server-side API proxy behavior that redirects expired or missing sessions back to login.'
+        ]
+      },
+      {
+        title: 'User Management',
+        items: [
+          'Added the initial admin-only user table for managing names, emails, roles, account status, and last-login visibility.',
+          'Added user creation and basic role management with immediate sign-in availability for active users.'
+        ]
+      },
+      {
+        title: 'Alerting',
+        items: [
+          'Prepared the platform for operational alerting by exposing alert history and rule-management surfaces behind admin-only access.',
+          'Established the initial notification configuration model where secrets remain in backend environment variables.'
+        ]
+      },
+      {
+        title: 'Audit & Operations',
+        items: [
+          'Added health-check endpoints and operational deployment documentation for local service verification.',
+          'Established the operational dashboard as the primary place to review live cron execution status and recent activity.'
+        ]
+      },
+      {
+        title: 'UI/UX',
+        items: [
+          'Established NYX branding, app shell navigation, responsive layout foundations, and clean enterprise dashboard typography.',
+          'Added dark and light theme support with persistent theme controls.',
+          'Added reusable status badges, metric cards, timeline charts, log tables, and formatting utilities.',
+          'Added responsive login and dashboard layouts suitable for desktop, tablet, and mobile monitoring.'
+        ]
+      },
+      {
+        title: 'Reliability & Stability',
+        items: [
+          'Added database indexes for cron name, timestamp, status, cron/server/timestamp lookup, and unique ingest hashes.',
+          'Added backend database wait logic and graceful shutdown handling for containerized production operation.',
+          'Added bounded API query limits for logs and cron lists to keep operational views predictable.'
+        ]
+      },
+      {
+        title: 'Infrastructure',
+        items: [
+          'Shipped Dockerfiles and Docker Compose services for MySQL, Fastify backend, and Next.js frontend.',
+          'Added NGINX reverse proxy templates for API and frontend hosts with proxy headers and security headers.',
+          'Added environment templates, deployment documentation, networking notes, and cron ingest examples for production rollout.'
+        ]
+      }
+    ]
+  }
+];
+
+const currentVersion = String(appMetadata.version || RELEASES[0].version).replace(/^v/i, '');
+const selectedInitialVersion = RELEASES.some((release) => release.version === currentVersion) ? currentVersion : RELEASES[0].version;
+
+function MetadataPill({ icon: Icon, label, value }) {
+  return (
+    <div className="min-w-0 rounded-md border border-slate-200 bg-white/85 p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
+      <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+        <span>{label}</span>
+      </div>
+      <p className="mt-2 truncate text-sm font-semibold text-ink">{value}</p>
+    </div>
+  );
+}
+
+function ReleaseDetail({ release }) {
+  return (
+    <article className="rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
+      <div className="border-b border-slate-200 p-4 dark:border-slate-800 sm:p-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">
+              <GitBranch className="h-4 w-4" aria-hidden="true" />
+              v{release.version}
+            </p>
+            <h2 className="mt-2 text-lg font-semibold tracking-normal text-ink">{release.title}</h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500 dark:text-slate-400">{release.summary}</p>
+          </div>
+          <span className="inline-flex w-fit items-center gap-2 rounded-md bg-slate-100 px-2.5 py-1.5 text-xs font-semibold text-slate-600 ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-800">
+            <CalendarDays className="h-4 w-4" aria-hidden="true" />
+            {release.label}
+          </span>
+        </div>
+      </div>
+      <div className="divide-y divide-slate-100 dark:divide-slate-800">
+        {release.sections.map((section) => (
+          <section key={section.title} className="grid gap-3 p-4 sm:p-5 md:grid-cols-[13rem_minmax(0,1fr)]">
+            <h3 className="text-sm font-semibold text-ink">{section.title}</h3>
+            <ul className="space-y-2.5">
+              {section.items.map((item) => (
+                <li key={item} className="flex gap-2.5 text-sm leading-6 text-slate-600 dark:text-slate-300">
+                  <CheckCircle2 className="mt-1 h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-300" aria-hidden="true" />
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))}
+      </div>
+    </article>
+  );
+}
+
+export default function AboutPage() {
+  const [selectedVersion, setSelectedVersion] = useState(selectedInitialVersion);
+  const selectedRelease = useMemo(
+    () => RELEASES.find((release) => release.version === selectedVersion) || RELEASES[0],
+    [selectedVersion]
+  );
+
+  return (
+    <div className="space-y-6">
+      <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
+        <div className="border-b border-slate-200 bg-slate-50 px-4 py-5 dark:border-slate-800 dark:bg-slate-900/50 sm:px-6 lg:px-7">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0 space-y-5">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+                <span className="flex min-h-16 w-fit max-w-full shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white px-4 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+                  <BrandMark />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">About NYX</p>
+                  <h1 className="mt-2 text-2xl font-semibold tracking-normal text-ink sm:text-3xl">NYX Monitoring Platform</h1>
+                  <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600 dark:text-slate-300 sm:text-base">
+                    Operational observability and cron reliability dashboard for internal platform teams.
+                  </p>
+                </div>
+              </div>
+              <div className="inline-flex w-fit items-center gap-2 rounded-md bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700 ring-1 ring-blue-200 dark:bg-blue-950/40 dark:text-blue-200 dark:ring-blue-900">
+                <Activity className="h-4 w-4" aria-hidden="true" />
+                Current Version: v{currentVersion}
+              </div>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2 lg:w-[26rem]">
+              <MetadataPill icon={Server} label="Platform" value="Cron observability" />
+              <MetadataPill icon={ShieldCheck} label="Visibility" value="Admin only" />
+              <MetadataPill icon={LockKeyhole} label="Access" value="Authenticated session" />
+              <MetadataPill icon={Clock3} label="Runtime" value={appMetadata.environment || 'Internal'} />
+            </div>
+          </div>
+        </div>
+        <div className="grid gap-3 px-4 py-4 text-sm text-slate-600 dark:text-slate-300 sm:grid-cols-3 sm:px-6 lg:px-7">
+          <div>
+            <p className="font-semibold text-ink">Operational Center</p>
+            <p className="mt-1 leading-6">Cron health, alerts, audit activity, and release context in one admin surface.</p>
+          </div>
+          <div>
+            <p className="font-semibold text-ink">Enterprise Controls</p>
+            <p className="mt-1 leading-6">Role-gated visibility, session controls, lifecycle governance, and traceable changes.</p>
+          </div>
+          <div>
+            <p className="font-semibold text-ink">Build Metadata</p>
+            <p className="mt-1 leading-6">{appMetadata.gitHash ? `Commit ${appMetadata.gitHash}` : 'Build details are sourced from the deployed NYX metadata.'}</p>
+          </div>
+        </div>
+      </section>
+
+      <section className="space-y-4">
+        <div className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950 sm:flex-row sm:items-end sm:justify-between sm:p-5">
+          <div>
+            <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              <History className="h-4 w-4" aria-hidden="true" />
+              Release History
+            </p>
+            <h2 className="mt-2 text-lg font-semibold text-ink">Version Notes</h2>
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Select a platform version to review its operational changes.</p>
+          </div>
+          <label className="w-full space-y-1 sm:w-64">
+            <span className="text-sm font-medium text-slate-600 dark:text-slate-300">Version</span>
+            <span className="relative block">
+              <select
+                value={selectedVersion}
+                onChange={(event) => setSelectedVersion(event.target.value)}
+                className="min-h-11 w-full appearance-none rounded-md border border-slate-300 bg-white px-3 py-2 pr-10 text-sm font-semibold text-ink shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:border-slate-800 dark:bg-slate-950 dark:focus:border-blue-400 dark:focus:ring-blue-950"
+              >
+                {RELEASES.map((release) => (
+                  <option key={release.version} value={release.version}>v{release.version}</option>
+                ))}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" aria-hidden="true" />
+            </span>
+          </label>
+        </div>
+
+        <ReleaseDetail release={selectedRelease} />
+      </section>
+    </div>
+  );
+}

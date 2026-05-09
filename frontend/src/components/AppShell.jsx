@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { Activity, AlertTriangle, Bell, ClipboardList, ListChecks, Menu, UserCircle, Users, X } from 'lucide-react';
+import { Activity, AlertTriangle, Bell, ClipboardList, Info, ListChecks, Menu, UserCircle, Users, X } from 'lucide-react';
 import { BrandMark } from '@/components/BrandMark';
 import { LogoutButton } from '@/components/LogoutButton';
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -15,7 +15,8 @@ const NAV_ITEMS = [
   { href: '/cron', label: 'Cron', icon: ListChecks, adminOnly: false },
   { href: '/alerts', label: 'Alerts', icon: Bell, adminOnly: true },
   { href: '/users', label: 'Users', icon: Users, adminOnly: true },
-  { href: '/audit', label: 'Audit', icon: ClipboardList, adminOnly: true }
+  { href: '/audit', label: 'Audit', icon: ClipboardList, adminOnly: true },
+  { href: '/about', label: 'About', icon: Info, adminOnly: true }
 ];
 
 function isActivePath(pathname, href) {
