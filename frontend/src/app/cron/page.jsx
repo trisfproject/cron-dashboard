@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { CronListClient } from './CronListClient';
@@ -6,6 +7,75 @@ import { getCronList, getCurrentUser, getScopeOptions } from '@/lib/api';
 export const dynamic = 'force-dynamic';
 
 const PAGE_SIZE = 20;
+const SESSION_COOKIE = 'nyx_session';
+
+function parseCookie(header) {
+  return String(header || '')
+    .split(';')
+    .map((part) => part.trim())
+    .reduce((cookies, part) => {
+      const separator = part.indexOf('=');
+
+      if (separator > -1) {
+        cookies[part.slice(0, separator)] = decodeURIComponent(part.slice(separator + 1));
+      }
+
+      return cookies;
+    }, {});
+}
+
+function timingSafeCompare(left, right) {
+  const leftBuffer = Buffer.from(left || '');
+  const rightBuffer = Buffer.from(right || '');
+
+  if (leftBuffer.length !== rightBuffer.length) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function decodeBase64url(value) {
+  const normalized = String(value || '').replaceAll('-', '+').replaceAll('_', '/');
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+  return Buffer.from(padded, 'base64').toString('utf8');
+}
+
+function userFromSessionCookie(cookieHeader) {
+  const token = parseCookie(cookieHeader)[SESSION_COOKIE];
+  const secret = process.env.AUTH_SECRET || process.env.API_KEY;
+
+  if (!token || !secret) {
+    return null;
+  }
+
+  const [header, payload, signature] = String(token).split('.');
+
+  if (!header || !payload || !signature) {
+    return null;
+  }
+
+  const expected = crypto
+    .createHmac('sha256', secret)
+    .update(`${header}.${payload}`)
+    .digest('base64url');
+
+  if (!timingSafeCompare(signature, expected)) {
+    return null;
+  }
+
+  try {
+    const decoded = JSON.parse(decodeBase64url(payload));
+
+    if (Number(decoded.exp || 0) * 1000 <= Date.now()) {
+      return null;
+    }
+
+    return decoded;
+  } catch {
+    return null;
+  }
+}
 
 export default async function CronListPage({ searchParams }) {
   const resolvedSearchParams = await searchParams;
@@ -30,7 +100,7 @@ export default async function CronListPage({ searchParams }) {
   };
   let response = { jobs: [], has_more: false, next_offset: 0, limit: PAGE_SIZE, offset: 0 };
   let scopeOptions = { environments: [], service_groups: [] };
-  let currentUser = null;
+  let currentUser = userFromSessionCookie(cookie);
   let error = null;
 
   try {
@@ -52,7 +122,7 @@ export default async function CronListPage({ searchParams }) {
       })
     ]);
     response = cronResponse || response;
-    currentUser = userResponse?.user || null;
+    currentUser = userResponse?.user || currentUser;
     scopeOptions = {
       environments: Array.isArray(scopeResponse?.environments) ? scopeResponse.environments : [],
       service_groups: Array.isArray(scopeResponse?.service_groups) ? scopeResponse.service_groups : []
