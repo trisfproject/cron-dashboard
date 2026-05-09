@@ -132,6 +132,7 @@ async function ensureAlertSchema() {
       await ensureColumn('alert_events', alertEventColumns, 'acknowledged_by_email', 'VARCHAR(255) NULL');
       await ensureColumn('alert_events', alertEventColumns, 'acknowledgement_note', 'TEXT NULL');
       await ensureColumn('alert_events', alertEventColumns, 'started_at', 'TIMESTAMP NULL');
+      await ensureColumn('alert_events', alertEventColumns, 'resolved_at', 'TIMESTAMP NULL');
       await ensureColumn('alert_events', alertEventColumns, 'downtime_seconds', 'INT UNSIGNED NULL');
       await ensureColumn('alert_events', alertEventColumns, 'downtime_minutes', 'DECIMAL(12, 2) NULL');
 
@@ -912,7 +913,7 @@ async function upsertAlert(app, rule, trigger) {
   const key = alertKey(rule, trigger.cron_name, trigger.env, trigger.service_group);
   const [[existing]] = await alertQuery(
     { operation: 'find_existing_alert_event', table: 'alert_events', rule },
-    `SELECT id, state, severity, last_notified_at
+    `SELECT id, state, severity, last_notified_at, triggered_at, started_at
      FROM alert_events
      WHERE alert_key = ?
      LIMIT 1`,
@@ -936,13 +937,11 @@ async function upsertAlert(app, rule, trigger) {
       type: rule.type,
       severity: rule.severity,
       reason: trigger.reason,
-      state: 'active'
+      state: 'active',
+      started_at: toMysqlDateTime(new Date())
     };
 
-    await recordAlertIncidentEvent(alert, rule, 'alert_triggered', {
-      event_key: `${result.insertId}:alert_triggered:${result.insertId}`,
-      incident_status: 'active'
-    });
+    await recordConfiguredAlertStarted(alert, rule);
 
     await maybeNotify(app, alert, rule, null, 'triggered');
     return alert;
@@ -956,16 +955,28 @@ async function upsertAlert(app, rule, trigger) {
       env = ?,
       service_group = ?,
       severity = ?,
-      state = CASE WHEN state = 'resolved' THEN 'active' ELSE state END,
-      triggered_at = CASE WHEN state = 'resolved' THEN UTC_TIMESTAMP() ELSE triggered_at END,
-      started_at = CASE WHEN state = 'resolved' THEN UTC_TIMESTAMP() ELSE COALESCE(started_at, triggered_at) END,
-      resolved_at = NULL,
-      downtime_seconds = NULL,
-      downtime_minutes = NULL,
+      state = CASE WHEN ? THEN 'active' ELSE state END,
+      triggered_at = CASE WHEN ? THEN UTC_TIMESTAMP() ELSE triggered_at END,
+      started_at = CASE WHEN ? THEN UTC_TIMESTAMP() ELSE COALESCE(started_at, triggered_at) END,
+      resolved_at = CASE WHEN ? THEN NULL ELSE resolved_at END,
+      downtime_seconds = CASE WHEN ? THEN NULL ELSE downtime_seconds END,
+      downtime_minutes = CASE WHEN ? THEN NULL ELSE downtime_minutes END,
       updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
       ${reactivated ? "AND state = 'resolved'" : ''}
-  `, [trigger.reason, trigger.env || rule.env || null, trigger.service_group || rule.service_group || null, rule.severity, existing.id]);
+  `, [
+    trigger.reason,
+    trigger.env || rule.env || null,
+    trigger.service_group || rule.service_group || null,
+    rule.severity,
+    reactivated,
+    reactivated,
+    reactivated,
+    reactivated,
+    reactivated,
+    reactivated,
+    existing.id
+  ]);
 
   if (reactivated && updateResult.affectedRows === 0) {
     app?.log?.debug({ alert_id: existing.id, rule_id: rule.id, cron_name: trigger.cron_name }, 'Alert reactivation suppressed; incident already active');
@@ -983,14 +994,14 @@ async function upsertAlert(app, rule, trigger) {
     severity: rule.severity,
     reason: trigger.reason,
     state: reactivated ? 'active' : existing.state,
+    started_at: reactivated ? toMysqlDateTime(new Date()) : existing.started_at || existing.triggered_at,
     escalated
   };
 
   if (reactivated) {
-    await recordAlertIncidentEvent(alert, rule, 'alert_triggered', {
-      event_key: `${existing.id}:alert_triggered:${Date.now()}`,
-      incident_status: 'active'
-    });
+    await recordConfiguredAlertStarted(alert, rule);
+  } else if (existing.state === 'active' || existing.state === 'acknowledged') {
+    await recordConfiguredAlertStarted(alert, rule);
   }
 
   if (reactivated || escalated) {
@@ -1018,13 +1029,38 @@ function incidentTypeForLifecycle(alert, lifecycle) {
   return lifecycle === 'reminder' ? 'reminder_sent' : 'alert_triggered';
 }
 
+async function recordConfiguredAlertStarted(alert, rule) {
+  const lifecycleStart = alert.started_at || alert.triggered_at || alert.id;
+
+  await recordAlertIncidentEvent(alert, rule, 'alert_triggered', {
+    event_key: `${alert.id}:alert_triggered:${String(lifecycleStart).slice(0, 64)}`,
+    incident_status: 'active',
+    title: 'Alert triggered',
+    lifecycle: 'triggered',
+    started_at: alert.started_at || null
+  });
+}
+
+async function recordConfiguredAlertResolved(alert, rule, duration, resolvedAt) {
+  await recordAlertIncidentEvent(alert, rule, 'alert_resolved', {
+    event_key: `${alert.id}:alert_resolved:${toMysqlDateTime(resolvedAt)}`,
+    incident_status: 'resolved',
+    title: 'Alert resolved',
+    lifecycle: 'resolved',
+    started_at: duration.startedAt ? toMysqlDateTime(duration.startedAt) : null,
+    resolved_at: toMysqlDateTime(resolvedAt),
+    downtime_seconds: duration.downtimeSeconds,
+    downtime_minutes: duration.downtimeMinutes
+  });
+}
+
 async function recordAlertIncidentEvent(alert, rule, type, options = {}) {
   await recordIncidentEvent({
     event_key: options.event_key,
     alert_event_id: alert.id,
     rule_id: alert.rule_id || rule.id,
     alert_key: alert.alert_key,
-    cron_name: alert.cron_name,
+    cron_name: alert.cron_name || 'All monitored cron jobs',
     server: alert.server,
     env: alert.env,
     service_group: alert.service_group,
@@ -1244,30 +1280,11 @@ export async function evaluateAlerts(app) {
           cron_name: resolvedAlert.cron_name
         }, 'Alert incident closed');
 
-        await recordIncidentEvent({
-          event_key: `${resolvedAlert.id}:alert_resolved:${Date.now()}`,
-          alert_event_id: resolvedAlert.id,
-          rule_id: resolvedAlert.rule_id,
-          alert_key: resolvedAlert.alert_key,
-          cron_name: resolvedAlert.cron_name,
-          env: resolvedAlert.env,
-          service_group: resolvedAlert.service_group,
-          severity: resolvedAlert.severity,
-          type: 'alert_resolved',
-          incident_type: resolvedAlert.type,
-          incident_status: 'resolved',
-          title: 'Alert resolved',
-          reason: resolvedAlert.reason,
-          started_at: duration.startedAt ? toMysqlDateTime(duration.startedAt) : null,
-          resolved_at: toMysqlDateTime(resolvedAt),
-          downtime_seconds: duration.downtimeSeconds,
-          downtime_minutes: duration.downtimeMinutes,
-          metadata: {
-            alert_type: resolvedAlert.type,
-            rule_name: resolvedAlert.rule_name,
-            lifecycle: 'resolved'
-          }
-        });
+        await recordConfiguredAlertStarted({
+          ...resolvedAlert,
+          started_at: duration.startedAt ? toMysqlDateTime(duration.startedAt) : resolvedAlert.started_at || resolvedAlert.triggered_at
+        }, rule);
+        await recordConfiguredAlertResolved(resolvedAlert, rule, duration, resolvedAt);
 
         app?.log?.info({
           alert_id: resolvedAlert.id,
@@ -1493,7 +1510,7 @@ export async function acknowledgeAlert(id, user = {}, note = '') {
     alert_event_id: id,
     rule_id: alert.rule_id,
     alert_key: alert.alert_key,
-    cron_name: alert.cron_name,
+    cron_name: alert.cron_name || 'All monitored cron jobs',
     env: alert.env,
     service_group: alert.service_group,
     severity: alert.severity,

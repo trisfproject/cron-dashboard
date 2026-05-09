@@ -113,6 +113,7 @@ async function ensureIncidentSchema() {
       await ensureColumn('incident_events', columns, 'started_at', 'TIMESTAMP NULL');
       await ensureColumn('incident_events', columns, 'resolved_at', 'TIMESTAMP NULL');
       await ensureColumn('incident_events', columns, 'downtime_seconds', 'INT UNSIGNED NULL');
+      await ensureColumn('incident_events', columns, 'downtime_minutes', 'DECIMAL(12, 2) NULL');
 
       const indexes = await tableIndexSet('incident_events');
       await ensureIndex('incident_events', indexes, 'idx_incident_events_occurred_at', '(occurred_at)');
