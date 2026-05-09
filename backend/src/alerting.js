@@ -896,6 +896,7 @@ async function upsertAlert(app, rule, trigger) {
     const alert = {
       id: result.insertId,
       rule_id: rule.id,
+      alert_key: key,
       cron_name: trigger.cron_name,
       env: trigger.env || rule.env || null,
       service_group: trigger.service_group || rule.service_group || null,
@@ -937,6 +938,7 @@ async function upsertAlert(app, rule, trigger) {
   const alert = {
     id: existing.id,
     rule_id: rule.id,
+    alert_key: key,
     cron_name: trigger.cron_name,
     env: trigger.env || rule.env || null,
     service_group: trigger.service_group || rule.service_group || null,
@@ -1134,13 +1136,15 @@ export async function evaluateAlerts(app) {
 
     if (resolvedIds.length > 0) {
       const [resolvedAlerts] = await alertQuery({ operation: 'load_resolved_alert_events', table: 'alert_events' }, `
-        SELECT alert_events.id, alert_events.rule_id, alert_rules.name AS rule_name,
-          alert_rules.channels, alert_rules.cooldown_minutes,
+        SELECT alert_events.id, alert_events.rule_id, alert_events.alert_key,
+          COALESCE(alert_rules.name, alert_events.type) AS rule_name,
+          COALESCE(alert_rules.channels, '[]') AS channels,
+          COALESCE(alert_rules.cooldown_minutes, 10) AS cooldown_minutes,
           alert_events.cron_name, alert_events.type, alert_events.severity,
           alert_events.env, alert_events.service_group,
           alert_events.reason, alert_events.state
         FROM alert_events
-        INNER JOIN alert_rules ON alert_rules.id = alert_events.rule_id
+        LEFT JOIN alert_rules ON alert_rules.id = alert_events.rule_id
         WHERE alert_events.id IN (${resolvedIds.map(() => '?').join(',')})
       `, resolvedIds);
 
@@ -1189,6 +1193,7 @@ export async function evaluateAlerts(app) {
           event_key: `${resolvedAlert.id}:alert_resolved:${Date.now()}`,
           alert_event_id: resolvedAlert.id,
           rule_id: resolvedAlert.rule_id,
+          alert_key: resolvedAlert.alert_key,
           cron_name: resolvedAlert.cron_name,
           env: resolvedAlert.env,
           service_group: resolvedAlert.service_group,
@@ -1358,7 +1363,7 @@ export async function listAlerts({ state = 'active', env, service_group, limit =
 
   const where = filters.length > 0 ? `WHERE ${filters.join(' AND ')}` : '';
   const [rows] = await alertQuery({ operation: 'list_alert_events', table: 'alert_events' }, `
-    SELECT alert_events.id, alert_events.rule_id, alert_rules.name AS rule_name,
+    SELECT alert_events.id, alert_events.rule_id, COALESCE(alert_rules.name, alert_events.type) AS rule_name,
       alert_events.cron_name, alert_events.type, alert_events.severity,
       alert_events.env, alert_events.service_group,
       alert_events.reason, alert_events.state,
@@ -1375,7 +1380,7 @@ export async function listAlerts({ state = 'active', env, service_group, limit =
       alert_events.last_notification_error,
       ${JAKARTA_NOW_SQL} AS now_wib
     FROM alert_events
-    INNER JOIN alert_rules ON alert_rules.id = alert_events.rule_id
+    LEFT JOIN alert_rules ON alert_rules.id = alert_events.rule_id
     ${where}
     ORDER BY alert_events.triggered_at DESC, alert_events.id DESC
     LIMIT ? OFFSET ?
