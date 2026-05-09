@@ -67,6 +67,14 @@ function minutesBetween(left, right) {
   return Math.max(0, Math.floor((left.getTime() - right.getTime()) / 60000));
 }
 
+function secondsBetween(left, right) {
+  return Math.max(0, Math.round((left.getTime() - right.getTime()) / 1000));
+}
+
+function toMysqlDateTime(date) {
+  return date.toISOString().slice(0, 19).replace('T', ' ');
+}
+
 function addMinutes(date, minutes) {
   return new Date(date.getTime() + Number(minutes || 0) * 60000);
 }
@@ -405,6 +413,10 @@ export async function ensureHeartbeatSchema() {
 
       const scheduleColumns = await tableColumnSet('cron_schedules');
       await ensureColumn('cron_schedules', scheduleColumns, 'cooldown_minutes', 'INT UNSIGNED NOT NULL DEFAULT 30');
+      const alertEventColumns = await tableColumnSet('alert_events');
+      await ensureColumn('alert_events', alertEventColumns, 'started_at', 'TIMESTAMP NULL');
+      await ensureColumn('alert_events', alertEventColumns, 'downtime_seconds', 'INT UNSIGNED NULL');
+      await ensureColumn('alert_events', alertEventColumns, 'downtime_minutes', 'DECIMAL(12, 2) NULL');
       const scheduleIndexes = await tableIndexSet('cron_schedules');
       await ensureIndex('cron_schedules', scheduleIndexes, 'idx_cron_schedules_enabled_env_service', '(enabled, environment, service_group)');
       await ensureIndex('cron_schedules', scheduleIndexes, 'idx_cron_schedules_cron_name', '(cron_name)');
@@ -828,8 +840,8 @@ async function persistHeartbeatAlerts(app, health) {
       try {
         const [result] = await query(`
           INSERT INTO alert_events
-            (rule_id, alert_key, cron_name, env, service_group, type, severity, reason, state, triggered_at)
-          VALUES (?, ?, ?, ?, ?, 'missing_cron', ?, ?, 'active', UTC_TIMESTAMP())
+            (rule_id, alert_key, cron_name, env, service_group, type, severity, reason, state, triggered_at, started_at)
+          VALUES (?, ?, ?, ?, ?, 'missing_cron', ?, ?, 'active', UTC_TIMESTAMP(), UTC_TIMESTAMP())
         `, [rule.id, key, item.cron_name, env, serviceGroup, severity, reason]);
 
         await recordHeartbeatIncidentEvent({ id: result.insertId, severity, ...alertPayload }, rule, 'triggered', item.cooldown_minutes || rule.cooldown_minutes);
@@ -855,7 +867,10 @@ async function persistHeartbeatAlerts(app, health) {
         severity = ?,
         state = CASE WHEN state = 'resolved' THEN 'active' ELSE state END,
         triggered_at = CASE WHEN state = 'resolved' THEN UTC_TIMESTAMP() ELSE triggered_at END,
+        started_at = CASE WHEN state = 'resolved' THEN UTC_TIMESTAMP() ELSE COALESCE(started_at, triggered_at) END,
         resolved_at = NULL,
+        downtime_seconds = NULL,
+        downtime_minutes = NULL,
         updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
         ${reactivated ? "AND state = 'resolved'" : ''}
@@ -878,6 +893,7 @@ async function persistHeartbeatAlerts(app, health) {
 
   const [activeRows] = await query(
     `SELECT id, alert_key, cron_name, env, service_group, severity, last_notified_at, triggered_at,
+       COALESCE(started_at, triggered_at) AS started_at,
        DATE_FORMAT(CONVERT_TZ(triggered_at, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s') AS triggered_at_wib
      FROM alert_events
      WHERE state IN ('active', 'acknowledged')
@@ -912,14 +928,21 @@ async function persistHeartbeatAlerts(app, health) {
   }
 
   for (const row of resolvedRows) {
+    const incidentOpenedAt = toDate(row.started_at || row.triggered_at);
+    const resolvedAt = new Date();
+    const downtimeSeconds = incidentOpenedAt ? secondsBetween(resolvedAt, incidentOpenedAt) : null;
+    const downtimeMinutes = downtimeSeconds === null ? null : Math.round((downtimeSeconds / 60) * 100) / 100;
     const [updateResult] = await query(
       `UPDATE alert_events
        SET state = 'resolved',
-         resolved_at = UTC_TIMESTAMP(),
+         started_at = COALESCE(started_at, triggered_at),
+         resolved_at = ?,
+         downtime_seconds = ?,
+         downtime_minutes = ?,
          updated_at = CURRENT_TIMESTAMP
        WHERE id = ?
          AND state IN ('active', 'acknowledged')`,
-      [row.id]
+      [toMysqlDateTime(resolvedAt), downtimeSeconds, downtimeMinutes, row.id]
     );
 
     if (updateResult.affectedRows === 0) {
@@ -928,12 +951,13 @@ async function persistHeartbeatAlerts(app, health) {
     }
 
     const currentHealth = healthByKey.get(row.alert_key) || {};
-    const incidentOpenedAt = toDate(row.triggered_at);
-    const resolvedAt = new Date();
-    const downtimeMinutes = incidentOpenedAt ? minutesBetween(resolvedAt, incidentOpenedAt) : null;
     const resolvedAlert = {
       ...row,
       recovered_at: formatWibDate(resolvedAt),
+      resolved_at: toMysqlDateTime(resolvedAt),
+      started_at: incidentOpenedAt ? toMysqlDateTime(incidentOpenedAt) : null,
+      downtime_seconds: downtimeSeconds,
+      downtime_minutes: downtimeMinutes,
       downtime_duration_label: downtimeMinutes === null ? '-' : humanMinutes(downtimeMinutes),
       last_heartbeat_at: currentHealth.last_heartbeat_at || null,
       schedule_description: currentHealth.schedule_description || null
@@ -1050,6 +1074,12 @@ async function recordHeartbeatIncidentEvent(alert, rule, lifecycle, repeatMinute
       ? 'reminder_sent'
       : 'missing_detected';
   const downtimeMatch = String(alert.downtime_duration_label || '').match(/^(\d+)/);
+  const downtimeSeconds = Number.isFinite(Number(alert.downtime_seconds))
+    ? Math.max(0, Math.round(Number(alert.downtime_seconds)))
+    : null;
+  const downtimeMinutes = Number.isFinite(Number(alert.downtime_minutes))
+    ? Math.max(0, Number(alert.downtime_minutes))
+    : downtimeSeconds === null && downtimeMatch ? Number(downtimeMatch[1]) : downtimeSeconds === null ? null : Math.round((downtimeSeconds / 60) * 100) / 100;
 
   await recordIncidentEvent({
     event_key: [
@@ -1066,13 +1096,18 @@ async function recordHeartbeatIncidentEvent(alert, rule, lifecycle, repeatMinute
     service_group: alert.service_group,
     severity: alert.severity,
     type,
+    incident_type: 'missing_cron',
+    incident_status: lifecycle === 'resolved' ? 'resolved' : 'active',
     title: lifecycle === 'resolved'
       ? 'Heartbeat recovered'
       : lifecycle === 'reminder'
         ? 'Reminder sent'
         : 'Missing detected',
     reason: lifecycle === 'resolved' ? 'Heartbeat restored' : 'Cron heartbeat missing',
-    downtime_minutes: downtimeMatch ? Number(downtimeMatch[1]) : null,
+    started_at: alert.started_at || null,
+    resolved_at: alert.resolved_at || null,
+    downtime_seconds: downtimeSeconds,
+    downtime_minutes: downtimeMinutes,
     metadata: {
       lifecycle,
       schedule: alert.schedule_description || null,

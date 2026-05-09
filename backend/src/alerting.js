@@ -131,6 +131,9 @@ async function ensureAlertSchema() {
       await ensureColumn('alert_events', alertEventColumns, 'acknowledged_by_name', 'VARCHAR(255) NULL');
       await ensureColumn('alert_events', alertEventColumns, 'acknowledged_by_email', 'VARCHAR(255) NULL');
       await ensureColumn('alert_events', alertEventColumns, 'acknowledgement_note', 'TEXT NULL');
+      await ensureColumn('alert_events', alertEventColumns, 'started_at', 'TIMESTAMP NULL');
+      await ensureColumn('alert_events', alertEventColumns, 'downtime_seconds', 'INT UNSIGNED NULL');
+      await ensureColumn('alert_events', alertEventColumns, 'downtime_minutes', 'DECIMAL(12, 2) NULL');
 
       const cronLogIndexes = await tableIndexSet('cron_logs');
       const alertRuleIndexes = await tableIndexSet('alert_rules');
@@ -230,6 +233,36 @@ function normalizeRulePayload(payload = {}) {
 
 function normalizeEnvironment(value) {
   return String(value || '').trim().toLowerCase();
+}
+
+function toUtcDate(value) {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = typeof value === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(value)
+    ? `${value.replace(' ', 'T')}Z`
+    : value;
+  const date = new Date(normalized);
+
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function toMysqlDateTime(date) {
+  return date.toISOString().slice(0, 19).replace('T', ' ');
+}
+
+function incidentDuration(startedAt, resolvedAt) {
+  const start = toUtcDate(startedAt);
+  const end = toUtcDate(resolvedAt);
+  const seconds = start && end ? Math.max(0, Math.round((end.getTime() - start.getTime()) / 1000)) : null;
+
+  return {
+    startedAt: start,
+    resolvedAt: end,
+    downtimeSeconds: seconds,
+    downtimeMinutes: seconds === null ? null : Math.round((seconds / 60) * 100) / 100
+  };
 }
 
 function getEnvironmentPolicy(env) {
@@ -889,8 +922,8 @@ async function upsertAlert(app, rule, trigger) {
   if (!existing) {
     const [result] = await alertQuery({ operation: 'insert_alert_event', table: 'alert_events', rule }, `
       INSERT INTO alert_events
-        (rule_id, alert_key, cron_name, env, service_group, type, severity, reason, state, triggered_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', UTC_TIMESTAMP())
+        (rule_id, alert_key, cron_name, env, service_group, type, severity, reason, state, triggered_at, started_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', UTC_TIMESTAMP(), UTC_TIMESTAMP())
     `, [rule.id, key, trigger.cron_name, trigger.env || rule.env || null, trigger.service_group || rule.service_group || null, rule.type, rule.severity, trigger.reason]);
 
     const alert = {
@@ -907,7 +940,8 @@ async function upsertAlert(app, rule, trigger) {
     };
 
     await recordAlertIncidentEvent(alert, rule, 'alert_triggered', {
-      event_key: `${result.insertId}:alert_triggered:${result.insertId}`
+      event_key: `${result.insertId}:alert_triggered:${result.insertId}`,
+      incident_status: 'active'
     });
 
     await maybeNotify(app, alert, rule, null, 'triggered');
@@ -924,7 +958,10 @@ async function upsertAlert(app, rule, trigger) {
       severity = ?,
       state = CASE WHEN state = 'resolved' THEN 'active' ELSE state END,
       triggered_at = CASE WHEN state = 'resolved' THEN UTC_TIMESTAMP() ELSE triggered_at END,
+      started_at = CASE WHEN state = 'resolved' THEN UTC_TIMESTAMP() ELSE COALESCE(started_at, triggered_at) END,
       resolved_at = NULL,
+      downtime_seconds = NULL,
+      downtime_minutes = NULL,
       updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
       ${reactivated ? "AND state = 'resolved'" : ''}
@@ -951,7 +988,8 @@ async function upsertAlert(app, rule, trigger) {
 
   if (reactivated) {
     await recordAlertIncidentEvent(alert, rule, 'alert_triggered', {
-      event_key: `${existing.id}:alert_triggered:${Date.now()}`
+      event_key: `${existing.id}:alert_triggered:${Date.now()}`,
+      incident_status: 'active'
     });
   }
 
@@ -992,8 +1030,13 @@ async function recordAlertIncidentEvent(alert, rule, type, options = {}) {
     service_group: alert.service_group,
     severity: alert.severity,
     type,
+    incident_type: options.incident_type || alert.type || type,
+    incident_status: options.incident_status || (type === 'alert_resolved' ? 'resolved' : type === 'reminder_sent' ? 'active' : null),
     title: options.title || (type === 'alert_resolved' ? 'Alert resolved' : type === 'reminder_sent' ? 'Reminder sent' : 'Alert triggered'),
     reason: alert.reason,
+    started_at: options.started_at,
+    resolved_at: options.resolved_at,
+    downtime_seconds: options.downtime_seconds,
     downtime_minutes: options.downtime_minutes,
     metadata: {
       alert_type: alert.type,
@@ -1142,7 +1185,8 @@ export async function evaluateAlerts(app) {
           COALESCE(alert_rules.cooldown_minutes, 10) AS cooldown_minutes,
           alert_events.cron_name, alert_events.type, alert_events.severity,
           alert_events.env, alert_events.service_group,
-          alert_events.reason, alert_events.state
+          alert_events.reason, alert_events.state,
+          alert_events.triggered_at, COALESCE(alert_events.started_at, alert_events.triggered_at) AS started_at
         FROM alert_events
         LEFT JOIN alert_rules ON alert_rules.id = alert_events.rule_id
         WHERE alert_events.id IN (${resolvedIds.map(() => '?').join(',')})
@@ -1163,15 +1207,26 @@ export async function evaluateAlerts(app) {
           cron_name: resolvedAlert.cron_name
         }, 'Alert incident resolving');
 
+        const resolvedAt = new Date();
+        const duration = incidentDuration(resolvedAlert.started_at || resolvedAlert.triggered_at, resolvedAt);
+
         const [resolveResult] = await alertQuery(
           { operation: 'resolve_alert_event', table: 'alert_events', alert_id: resolvedAlert.id },
           `UPDATE alert_events
            SET state = 'resolved',
-             resolved_at = UTC_TIMESTAMP(),
+             started_at = COALESCE(started_at, triggered_at),
+             resolved_at = ?,
+             downtime_seconds = ?,
+             downtime_minutes = ?,
              updated_at = CURRENT_TIMESTAMP
            WHERE id = ?
              AND state IN ('active', 'acknowledged')`,
-          [resolvedAlert.id]
+          [
+            toMysqlDateTime(resolvedAt),
+            duration.downtimeSeconds,
+            duration.downtimeMinutes,
+            resolvedAlert.id
+          ]
         );
 
         if (resolveResult.affectedRows === 0) {
@@ -1199,8 +1254,14 @@ export async function evaluateAlerts(app) {
           service_group: resolvedAlert.service_group,
           severity: resolvedAlert.severity,
           type: 'alert_resolved',
+          incident_type: resolvedAlert.type,
+          incident_status: 'resolved',
           title: 'Alert resolved',
           reason: resolvedAlert.reason,
+          started_at: duration.startedAt ? toMysqlDateTime(duration.startedAt) : null,
+          resolved_at: toMysqlDateTime(resolvedAt),
+          downtime_seconds: duration.downtimeSeconds,
+          downtime_minutes: duration.downtimeMinutes,
           metadata: {
             alert_type: resolvedAlert.type,
             rule_name: resolvedAlert.rule_name,
@@ -1374,6 +1435,8 @@ export async function listAlerts({ state = 'active', env, service_group, limit =
       alert_events.acknowledged_by_email,
       alert_events.acknowledgement_note,
       DATE_FORMAT(CONVERT_TZ(alert_events.resolved_at, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s') AS resolved_at,
+      alert_events.downtime_seconds,
+      alert_events.downtime_minutes,
       DATE_FORMAT(CONVERT_TZ(alert_events.last_notified_at, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s') AS last_notified_at,
       alert_events.notification_count,
       alert_events.last_notification_status,

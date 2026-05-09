@@ -86,9 +86,14 @@ async function ensureIncidentSchema() {
           service_group VARCHAR(120) NULL,
           severity VARCHAR(20) NULL,
           type VARCHAR(40) NOT NULL,
+          incident_type VARCHAR(40) NULL,
+          incident_status VARCHAR(40) NULL,
           title VARCHAR(255) NOT NULL,
           reason TEXT NULL,
-          downtime_minutes INT NULL,
+          started_at TIMESTAMP NULL,
+          resolved_at TIMESTAMP NULL,
+          downtime_seconds INT UNSIGNED NULL,
+          downtime_minutes DECIMAL(12, 2) NULL,
           metadata_json LONGTEXT NULL,
           occurred_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -103,6 +108,11 @@ async function ensureIncidentSchema() {
 
       const columns = await tableColumnSet('incident_events');
       await ensureColumn('incident_events', columns, 'server', 'VARCHAR(255) NULL');
+      await ensureColumn('incident_events', columns, 'incident_type', 'VARCHAR(40) NULL');
+      await ensureColumn('incident_events', columns, 'incident_status', 'VARCHAR(40) NULL');
+      await ensureColumn('incident_events', columns, 'started_at', 'TIMESTAMP NULL');
+      await ensureColumn('incident_events', columns, 'resolved_at', 'TIMESTAMP NULL');
+      await ensureColumn('incident_events', columns, 'downtime_seconds', 'INT UNSIGNED NULL');
 
       const indexes = await tableIndexSet('incident_events');
       await ensureIndex('incident_events', indexes, 'idx_incident_events_occurred_at', '(occurred_at)');
@@ -173,6 +183,12 @@ export async function recordIncidentEvent(event = {}) {
   const occurredAt = event.occurred_at || null;
   const occurredAtColumns = occurredAt ? ', occurred_at' : '';
   const occurredAtPlaceholder = occurredAt ? ', ?' : '';
+  const downtimeSeconds = Number.isFinite(Number(event.downtime_seconds))
+    ? Math.max(0, Math.round(Number(event.downtime_seconds)))
+    : null;
+  const downtimeMinutes = Number.isFinite(Number(event.downtime_minutes))
+    ? Math.max(0, Number(event.downtime_minutes))
+    : downtimeSeconds === null ? null : Math.round((downtimeSeconds / 60) * 100) / 100;
   const values = [
     eventKey,
     event.alert_event_id || null,
@@ -184,9 +200,14 @@ export async function recordIncidentEvent(event = {}) {
     event.service_group || null,
     event.severity || null,
     event.type,
+    event.incident_type || event.type,
+    event.incident_status || null,
     eventTitle(event.type, event.title),
     event.reason || null,
-    Number.isFinite(Number(event.downtime_minutes)) ? Number(event.downtime_minutes) : null,
+    event.started_at || null,
+    event.resolved_at || null,
+    downtimeSeconds,
+    downtimeMinutes,
     metadata
   ];
 
@@ -197,8 +218,9 @@ export async function recordIncidentEvent(event = {}) {
   const [result] = await query(`
     INSERT IGNORE INTO incident_events
       (event_key, alert_event_id, rule_id, alert_key, cron_name, server, env, service_group, severity,
-       type, title, reason, downtime_minutes, metadata_json${occurredAtColumns})
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${occurredAtPlaceholder})
+       type, incident_type, incident_status, title, reason, started_at, resolved_at, downtime_seconds,
+       downtime_minutes, metadata_json${occurredAtColumns})
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${occurredAtPlaceholder})
   `, values);
 
   return result.insertId || null;
@@ -233,8 +255,11 @@ export async function listIncidentEvents({ cron, env, service_group, limit = 20,
   const [rows] = await query(`
     SELECT incident_events.id, incident_events.alert_event_id, incident_events.rule_id, incident_events.alert_key,
       incident_events.cron_name, incident_events.server, incident_events.env, incident_events.service_group,
-      incident_events.severity, incident_events.type, incident_events.title, incident_events.reason,
-      incident_events.downtime_minutes, incident_events.metadata_json,
+      incident_events.severity, incident_events.type, incident_events.incident_type, incident_events.incident_status,
+      incident_events.title, incident_events.reason,
+      incident_events.downtime_seconds, incident_events.downtime_minutes, incident_events.metadata_json,
+      DATE_FORMAT(CONVERT_TZ(incident_events.started_at, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s') AS started_at,
+      DATE_FORMAT(CONVERT_TZ(incident_events.resolved_at, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s') AS resolved_at,
       alert_events.state AS alert_state,
       alert_events.acknowledged_by_name,
       alert_events.acknowledged_by_email,
@@ -343,8 +368,8 @@ export async function getReliabilityReport({ range = '7d', start, end, env, serv
     SELECT
       SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) THEN 1 ELSE 0 END) AS total_incidents,
       SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(RECOVERY_TYPES)}) THEN 1 ELSE 0 END) AS total_recoveries,
-      COALESCE(SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(RECOVERY_TYPES)}) THEN incident_events.downtime_minutes ELSE 0 END), 0) AS total_downtime_minutes,
-      COALESCE(AVG(CASE WHEN incident_events.type IN (${incidentPlaceholders(RECOVERY_TYPES)}) AND incident_events.downtime_minutes IS NOT NULL THEN incident_events.downtime_minutes END), 0) AS mttr_minutes,
+      COALESCE(SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(RECOVERY_TYPES)}) THEN COALESCE(incident_events.downtime_seconds, incident_events.downtime_minutes * 60, 0) ELSE 0 END), 0) AS total_downtime_seconds,
+      COALESCE(AVG(CASE WHEN incident_events.type IN (${incidentPlaceholders(RECOVERY_TYPES)}) AND COALESCE(incident_events.downtime_seconds, incident_events.downtime_minutes * 60) IS NOT NULL THEN COALESCE(incident_events.downtime_seconds, incident_events.downtime_minutes * 60) END), 0) AS mttr_seconds,
       COUNT(*) AS total_events
     FROM incident_events
     WHERE ${where}
@@ -380,15 +405,15 @@ export async function getReliabilityReport({ range = '7d', start, end, env, serv
       MAX(incident_events.env) AS env,
       MAX(incident_events.service_group) AS service_group,
       SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) THEN 1 ELSE 0 END) AS incident_count,
-      COALESCE(SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(RECOVERY_TYPES)}) THEN incident_events.downtime_minutes ELSE 0 END), 0) AS total_downtime_minutes,
-      COALESCE(AVG(CASE WHEN incident_events.type IN (${incidentPlaceholders(RECOVERY_TYPES)}) AND incident_events.downtime_minutes IS NOT NULL THEN incident_events.downtime_minutes END), 0) AS avg_recovery_minutes,
+      COALESCE(SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(RECOVERY_TYPES)}) THEN COALESCE(incident_events.downtime_seconds, incident_events.downtime_minutes * 60, 0) ELSE 0 END), 0) AS total_downtime_seconds,
+      COALESCE(AVG(CASE WHEN incident_events.type IN (${incidentPlaceholders(RECOVERY_TYPES)}) AND COALESCE(incident_events.downtime_seconds, incident_events.downtime_minutes * 60) IS NOT NULL THEN COALESCE(incident_events.downtime_seconds, incident_events.downtime_minutes * 60) END), 0) AS avg_recovery_seconds,
       MAX(incident_events.occurred_at) AS latest_event
     FROM incident_events
     WHERE ${where}
       AND incident_events.type IN (${incidentPlaceholders(eventTypes)})
     GROUP BY incident_events.cron_name
-    HAVING incident_count > 0 OR total_downtime_minutes > 0
-    ORDER BY ${sort === 'incidents' ? 'incident_count DESC, total_downtime_minutes DESC' : 'total_downtime_minutes DESC, incident_count DESC'}, latest_event DESC
+    HAVING incident_count > 0 OR total_downtime_seconds > 0
+    ORDER BY ${sort === 'incidents' ? 'incident_count DESC, total_downtime_seconds DESC' : 'total_downtime_seconds DESC, incident_count DESC'}, latest_event DESC
     LIMIT 10
   `, [
     ...INCIDENT_TYPES,
@@ -415,7 +440,7 @@ export async function getReliabilityReport({ range = '7d', start, end, env, serv
     ...eventTypes
   ]);
 
-  const totalDowntimeMinutes = Number(summary?.total_downtime_minutes || 0);
+  const totalDowntimeMinutes = Math.round((Number(summary?.total_downtime_seconds || 0) / 60) * 100) / 100;
   const totalIncidents = Number(summary?.total_incidents || 0);
   const uptimeMinutes = Math.max(periodMinutes - totalDowntimeMinutes, 0);
 
@@ -425,7 +450,7 @@ export async function getReliabilityReport({ range = '7d', start, end, env, serv
       total_incidents: totalIncidents,
       total_recoveries: Number(summary?.total_recoveries || 0),
       total_downtime_minutes: totalDowntimeMinutes,
-      mttr_minutes: Number(summary?.mttr_minutes || 0),
+      mttr_minutes: Math.round((Number(summary?.mttr_seconds || 0) / 60) * 100) / 100,
       mtbf_minutes: totalIncidents > 0 ? Math.round((uptimeMinutes / totalIncidents) * 100) / 100 : periodMinutes,
       total_alerts: Number(alertSummary?.total_alerts || 0)
     },
@@ -434,8 +459,8 @@ export async function getReliabilityReport({ range = '7d', start, end, env, serv
       env: row.env,
       service_group: row.service_group,
       incident_count: Number(row.incident_count || 0),
-      total_downtime_minutes: Number(row.total_downtime_minutes || 0),
-      avg_recovery_minutes: Number(row.avg_recovery_minutes || 0)
+      total_downtime_minutes: Math.round((Number(row.total_downtime_seconds || 0) / 60) * 100) / 100,
+      avg_recovery_minutes: Math.round((Number(row.avg_recovery_seconds || 0) / 60) * 100) / 100
     })),
     trend: normalizeDailyTrend(trendRows, dateFilter.startDate, dateFilter.endDate),
     range: dateFilter.mode === 'custom' ? 'custom' : (dateFilter.range || range),
