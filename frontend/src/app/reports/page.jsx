@@ -114,6 +114,17 @@ function ReportsContent() {
   const [scopeOptions, setScopeOptions] = useState({ environments: [], service_groups: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [timeRangeMode, setTimeRangeMode] = useState(() => {
+    const start = searchParams.get('start');
+    const end = searchParams.get('end');
+    const range = searchParams.get('range');
+
+    if (DATE_ONLY_PATTERN.test(start || '') && DATE_ONLY_PATTERN.test(end || '')) {
+      return 'custom';
+    }
+
+    return VALID_RANGES.has(range) ? range : '7d';
+  });
 
   const filters = useMemo(() => {
     const range = searchParams.get('range');
@@ -130,6 +141,12 @@ function ReportsContent() {
       sort: VALID_SORTS.has(sort) ? sort : 'downtime'
     };
   }, [searchParams]);
+
+  const appliedRange = filters.start && filters.end ? 'custom' : filters.range;
+
+  useEffect(() => {
+    setTimeRangeMode(appliedRange);
+  }, [appliedRange]);
 
   useEffect(() => {
     let cancelled = false;
@@ -168,11 +185,11 @@ function ReportsContent() {
     const start = form.get('start');
     const end = form.get('end');
 
-    if (start || end) {
-      if (start) query.set('start', start);
-      if (end) query.set('end', end);
+    if (timeRangeMode === 'custom') {
+      query.set('start', start);
+      query.set('end', end);
     } else {
-      query.set('range', filters.range);
+      query.set('range', timeRangeMode);
     }
 
     for (const key of ['env', 'service_group', 'sort']) {
@@ -184,6 +201,7 @@ function ReportsContent() {
   }
 
   function applyPreset(range) {
+    setTimeRangeMode(range);
     const query = new URLSearchParams();
     query.set('range', range);
     for (const key of ['env', 'service_group', 'sort']) {
@@ -197,7 +215,6 @@ function ReportsContent() {
   const scopeText = metricSubtext(filters.range, filters);
   const problematicCrons = Array.isArray(report?.problematic_crons) ? report.problematic_crons : [];
   const trend = Array.isArray(report?.trend) ? report.trend : [];
-  const activeRange = filters.start && filters.end ? 'custom' : filters.range;
   const activeRangeLabel = rangeLabel(report?.range || filters.range, filters.start, filters.end);
 
   return (
@@ -220,30 +237,35 @@ function ReportsContent() {
         className="grid grid-cols-1 gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950 sm:grid-cols-2 xl:grid-cols-[repeat(12,minmax(0,1fr))]"
         onSubmit={applyFilters}
       >
-        <div className="flex h-11 overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950 sm:col-span-2 xl:col-span-3">
+        <div className="grid h-11 grid-cols-4 overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950 sm:col-span-2 xl:col-span-4">
           {[
             ['today', 'Today'],
             ['7d', '7D'],
-            ['30d', '30D']
+            ['30d', '30D'],
+            ['custom', 'Custom']
           ].map(([value, label]) => (
             <button
               key={value}
               type="button"
-              className={`flex-1 px-3 text-sm font-semibold transition ${activeRange === value ? 'bg-ink text-white dark:bg-blue-600' : 'text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-900'}`}
-              onClick={() => applyPreset(value)}
+              className={`px-2 text-sm font-semibold transition ${timeRangeMode === value ? 'bg-ink text-white dark:bg-blue-600' : 'text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-900'}`}
+              onClick={() => (value === 'custom' ? setTimeRangeMode('custom') : applyPreset(value))}
             >
               {label}
             </button>
           ))}
         </div>
-        <label className="relative xl:col-span-2">
-          <CalendarDays className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
-          <input className={`${inputClass} w-full pl-9`} type="date" name="start" defaultValue={filters.start} aria-label="Start date" />
-        </label>
-        <label className="relative xl:col-span-2">
-          <CalendarDays className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
-          <input className={`${inputClass} w-full pl-9`} type="date" name="end" defaultValue={filters.end} aria-label="End date" />
-        </label>
+        {timeRangeMode === 'custom' ? (
+          <>
+            <label className="relative xl:col-span-2">
+              <CalendarDays className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+              <input className={`${inputClass} w-full pl-9`} type="date" name="start" defaultValue={filters.start} aria-label="Start date" required />
+            </label>
+            <label className="relative xl:col-span-2">
+              <CalendarDays className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+              <input className={`${inputClass} w-full pl-9`} type="date" name="end" defaultValue={filters.end} aria-label="End date" required />
+            </label>
+          </>
+        ) : null}
         <select className={`${selectClass} xl:col-span-2`} name="env" defaultValue={filters.env}>
           <option value="">All environments</option>
           {scopeOptions.environments.map((option) => <option key={option.value} value={option.value}>{option.value}</option>)}

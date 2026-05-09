@@ -9,120 +9,119 @@ v1.2.0
 
 ### Heartbeat Monitoring
 
-* Added schedule-aware cron heartbeat monitoring
-* Added missing cron detection
-* Added heartbeat recovery/resolved notifications
-* Added heartbeat reminder cooldown handling
-* Added configurable grace-period support
-* Added heartbeat visibility for non-admin users
-* Added heartbeat configuration controls for admins
-* Added heartbeat status integration into cron overview/dashboard
+* Schedule-aware cron heartbeat monitoring
+* Missing cron detection
+* Grace-period handling
+* Recovery/resolved notifications
+* Reminder cooldown improvements
+* Heartbeat lifecycle tracking
+* Compact schedule formatting improvements
+* Next expected heartbeat calculation improvements
 
-### Incident Lifecycle Improvements
+### Incident Lifecycle & Timeline
 
-* Added alert trigger lifecycle handling
-* Added reminder notification lifecycle
-* Added recovery/resolved lifecycle support
-* Improved duplicate reminder mitigation
-* Improved resolved alert synchronization behavior
-* Added incident transition stabilization improvements
+* Incident event recording
+* Incident lifecycle persistence
+* Missing/recovery visibility
+* Incremental timeline loading
+* Incident retrieval APIs
+* Incident history foundation
 
-### Incident Timeline
+### Maintenance Mode
 
-* Added incident timeline/history foundation
-* Added missing/recovery event visibility
-* Added timeline pagination/load-more support
-* Added incident event persistence structure
-* Added incident history API foundation
+* Maintenance window management
+* Temporary alert silencing
+* Notification suppression controls
+* Maintenance duration handling
+* Maintenance reason input support
+
+### Incident Acknowledgement
+
+* Incident acknowledgement workflow
+* Ownership tracking
+* User acknowledgement visibility
+* Incident notes/comments support
+
+### Reliability Reports
+
+* Reports section foundation
+* Reliability overview cards
+* Incident visibility metrics
+* Operational reporting foundation
+* Most problematic cron reporting
+* Custom date range support
+* API-backed report aggregation
 
 ### Alerting Improvements
 
-* Improved Telegram notification lifecycle handling
-* Improved Configured Rules alert stability
-* Added resolved notification handling improvements
-* Added heartbeat recovery notification support
-* Improved alert delivery observability/logging
+* Telegram lifecycle improvements
+* Configured Rules alert stabilization
+* Recovery notification handling
+* Duplicate reminder mitigation
+* Improved notification logging
+* Improved alert parsing/filtering
+
+### Frontend Stability & Polling
+
+* Enhanced polling mechanism
+* Visibility-aware polling handling
+* Retry logic improvements
+* Reduced transient dashboard failures
+* Improved dashboard resiliency
+* Better graceful recovery handling
 
 ### Operational Visibility
 
-* Added enhanced cron detail visibility
-* Added environment filtering
-* Added service-group filtering
-* Added server-aware monitoring support
-* Improved heartbeat visibility in operational tables
+* Cron detail enhancements
+* Environment filtering
+* Service-group filtering
+* Server-aware monitoring
+* Heartbeat dashboard integration
+* Improved operational table clarity
 
-### Frontend Stability Improvements
+### Backend & Infrastructure Improvements
 
-* Improved polling resiliency strategy
-* Improved retry handling approach
-* Reduced transient dashboard failure impact
-* Improved partial recovery handling behavior
-* Added groundwork for hidden-tab polling optimization
+* Incident persistence improvements
+* Improved MySQL compatibility handling
+* Incident event storage foundation
+* Lifecycle logging improvements
+* Heartbeat evaluator lifecycle controls
 
-### RBAC / Access Improvements
+### RBAC & Session Improvements
 
-* Non-admin users can now view Heartbeat Monitoring
-* Heartbeat configuration remains admin-only
-* Added improved session fallback handling for role detection
-
-### Infrastructure / Backend Improvements
-
-* Improved incident lifecycle persistence groundwork
-* Improved MySQL compatibility for incident timeline schema
-* Added incident event storage foundation
-* Improved backend lifecycle logging
+* Heartbeat visibility for non-admin users
+* Admin-only heartbeat configuration management
+* Improved session fallback handling
+* Improved authentication/session parsing
 
 ---
 
 ## Upcoming
 
-### Reports
+### Advanced Reliability Analytics
 
-* Reliability overview dashboard
-* MTTR / MTBF visibility
-* Downtime analytics
-* Most problematic cron insights
-* Incident trend reporting
-* SLA-style operational reporting
-
-### Maintenance Mode
-
-* Silence alerts temporarily
-* Maintenance windows
-* Notification suppression controls
-* Maintenance timeline visibility
-
-### Incident Acknowledgement
-
-* Incident ownership workflow
-* Acknowledged incident state
-* Incident notes/comments
-* Operational handling visibility
-
-### Reliability & Analytics
-
+* SLA compliance reporting
+* Availability scoring
 * Failure heatmaps
-* Availability tracking
-* Reliability scoring
-* Historical aggregation improvements
+* Predictive reliability insights
 
-### Data Retention
+### Data Lifecycle & Retention
 
-* Retention policies
-* Historical log archiving
+* Historical aggregation optimization
+* Long-term retention policies
+* Archive management
 * Aggregated historical metrics
-* Long-term operational storage improvements
-
-### Frontend Enhancements
-
-* Hidden-tab polling pause
-* Additional polling optimization
-* Improved graceful degradation UX
-* Additional transient failure handling
 
 ### Future Integrations
 
-* Slack/Discord/webhook notification support
-* Export/report generation
+* Slack integrations
+* Discord integrations
+* Generic webhook integrations
 * Scheduled operational summaries
-* Advanced operational analytics
+
+### Advanced Reporting
+
+* Export/report generation
+* Executive operational summaries
+* Advanced drilldowns
+* Deep operational analytics
