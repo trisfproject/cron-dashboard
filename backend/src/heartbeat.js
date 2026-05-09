@@ -9,6 +9,9 @@ const JAKARTA_SQL_TIMEZONE = '+07:00';
 const JAKARTA_NOW_SQL = `DATE_FORMAT(CONVERT_TZ(UTC_TIMESTAMP(), '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s')`;
 
 let heartbeatSchemaReadyPromise;
+let heartbeatEvaluatorStarted = false;
+let heartbeatEvaluatorTimer = null;
+let heartbeatEvaluatorInFlight = false;
 
 function cronExpressionParser() {
   return cronParser?.CronExpressionParser || cronParser?.default?.CronExpressionParser || null;
@@ -230,6 +233,57 @@ function nextExpectedAfter(schedule, date) {
 
 async function query(sql, values = []) {
   return pool.query(sql, values);
+}
+
+export function startHeartbeatEvaluator(app, intervalMs) {
+  if (heartbeatEvaluatorStarted) {
+    app?.log?.debug('Heartbeat evaluator already started; skipping duplicate startup');
+    return heartbeatEvaluatorTimer;
+  }
+
+  heartbeatEvaluatorStarted = true;
+  const run = async (reason) => {
+    if (heartbeatEvaluatorInFlight) {
+      app?.log?.debug({ reason }, 'Heartbeat evaluator tick skipped; previous evaluation still running');
+      return;
+    }
+
+    heartbeatEvaluatorInFlight = true;
+    app?.log?.debug({ reason }, 'Heartbeat evaluator tick');
+
+    try {
+      await evaluateHeartbeatSchedules({ persist: true, app });
+    } catch (error) {
+      app?.log?.warn({ err: error, error: error.message }, 'Heartbeat evaluation failed');
+    } finally {
+      heartbeatEvaluatorInFlight = false;
+    }
+  };
+
+  app?.log?.info({ interval_ms: intervalMs }, 'Heartbeat evaluator started');
+  run('startup');
+
+  if (intervalMs > 0) {
+    heartbeatEvaluatorTimer = setInterval(() => {
+      run('interval');
+    }, intervalMs);
+  }
+
+  return heartbeatEvaluatorTimer;
+}
+
+export function stopHeartbeatEvaluator(app) {
+  if (!heartbeatEvaluatorStarted) {
+    return;
+  }
+
+  if (heartbeatEvaluatorTimer) {
+    clearInterval(heartbeatEvaluatorTimer);
+  }
+
+  heartbeatEvaluatorTimer = null;
+  heartbeatEvaluatorStarted = false;
+  app?.log?.info('Heartbeat evaluator stopped');
 }
 
 async function tableColumnSet(tableName) {
@@ -769,20 +823,28 @@ async function persistHeartbeatAlerts(app, health) {
     };
 
     if (!existing) {
-      const [result] = await query(`
-        INSERT INTO alert_events
-          (rule_id, alert_key, cron_name, env, service_group, type, severity, reason, state, triggered_at)
-        VALUES (?, ?, ?, ?, ?, 'missing_cron', ?, ?, 'active', UTC_TIMESTAMP())
-      `, [rule.id, key, item.cron_name, env, serviceGroup, severity, reason]);
+      try {
+        const [result] = await query(`
+          INSERT INTO alert_events
+            (rule_id, alert_key, cron_name, env, service_group, type, severity, reason, state, triggered_at)
+          VALUES (?, ?, ?, ?, ?, 'missing_cron', ?, ?, 'active', UTC_TIMESTAMP())
+        `, [rule.id, key, item.cron_name, env, serviceGroup, severity, reason]);
 
-      await notifyMissingCron(app, { id: result.insertId, severity, ...alertPayload }, rule, null, 'triggered');
+        await notifyMissingCron(app, { id: result.insertId, severity, ...alertPayload }, rule, null, 'triggered');
+      } catch (error) {
+        if (error.code !== 'ER_DUP_ENTRY') {
+          throw error;
+        }
+
+        app?.log?.debug({ alert_key: key, cron_name: item.cron_name }, 'Missing cron alert already exists; duplicate insert suppressed');
+      }
       continue;
     }
 
     const reactivated = existing.state === 'resolved';
     const lifecycle = reactivated ? 'triggered' : 'reminder';
 
-    await query(`
+    const [updateResult] = await query(`
       UPDATE alert_events
       SET reason = ?,
         env = ?,
@@ -793,7 +855,13 @@ async function persistHeartbeatAlerts(app, health) {
         resolved_at = NULL,
         updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
+        ${reactivated ? "AND state = 'resolved'" : ''}
     `, [reason, env, serviceGroup, severity, existing.id]);
+
+    if (reactivated && updateResult.affectedRows === 0) {
+      app?.log?.debug({ alert_id: existing.id, alert_key: key }, 'Missing cron reactivation suppressed; incident already active');
+      continue;
+    }
 
     await notifyMissingCron(app, { id: existing.id, severity, ...alertPayload }, {
       ...rule,
@@ -836,18 +904,22 @@ async function persistHeartbeatAlerts(app, health) {
     return;
   }
 
-  const ids = resolvedRows.map((row) => row.id);
-
-  await query(
-    `UPDATE alert_events
-     SET state = 'resolved',
-       resolved_at = UTC_TIMESTAMP(),
-       updated_at = CURRENT_TIMESTAMP
-     WHERE id IN (${ids.map(() => '?').join(',')})`,
-    ids
-  );
-
   for (const row of resolvedRows) {
+    const [updateResult] = await query(
+      `UPDATE alert_events
+       SET state = 'resolved',
+         resolved_at = UTC_TIMESTAMP(),
+         updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?
+         AND state IN ('active', 'acknowledged')`,
+      [row.id]
+    );
+
+    if (updateResult.affectedRows === 0) {
+      app?.log?.debug({ alert_id: row.id, alert_key: row.alert_key }, 'Missing cron recovery suppressed; incident already resolved');
+      continue;
+    }
+
     const currentHealth = healthByKey.get(row.alert_key) || {};
     const incidentOpenedAt = toDate(row.triggered_at);
     const resolvedAt = new Date();
@@ -864,10 +936,17 @@ async function persistHeartbeatAlerts(app, health) {
 }
 
 async function notifyMissingCron(app, alert, rule, lastNotifiedAt, lifecycle) {
-  const cooldown = repeatIntervalMinutes(alert.severity, rule.cooldown_minutes) * 60 * 1000;
-  const last = lastNotifiedAt ? new Date(lastNotifiedAt).getTime() : 0;
+  const repeatMinutes = repeatIntervalMinutes(alert.severity, rule.cooldown_minutes);
+  const claimed = await claimMissingCronNotification(alert.id, lifecycle, repeatMinutes);
 
-  if (lifecycle === 'reminder' && last && Date.now() - last < cooldown) {
+  if (!claimed) {
+    app?.log?.debug({
+      alert_id: alert.id,
+      cron_name: alert.cron_name,
+      lifecycle,
+      repeat_interval_minutes: repeatMinutes,
+      last_notified_at: lastNotifiedAt || null
+    }, lifecycle === 'reminder' ? 'Missing cron reminder suppressed' : 'Missing cron notification suppressed');
     return;
   }
 
@@ -891,21 +970,74 @@ async function notifyMissingCron(app, alert, rule, lastNotifiedAt, lifecycle) {
     }
   }));
 
+  const status = delivered ? 'success' : channels.length === 0 ? 'skipped' : 'failed';
+
   await query(`
     UPDATE alert_events
     SET last_notification_status = ?,
       last_notification_error = ?,
-      last_notified_at = CASE WHEN ? = 'success' THEN UTC_TIMESTAMP() ELSE last_notified_at END,
       notification_count = CASE WHEN ? = 'success' THEN notification_count + 1 ELSE notification_count END,
       updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
   `, [
-    delivered ? 'success' : channels.length === 0 ? 'skipped' : 'failed',
+    status,
     errors.join('; ').slice(0, 1000) || null,
-    delivered ? 'success' : 'failed',
-    delivered ? 'success' : 'failed',
+    status,
     alert.id
   ]);
+
+  const logPayload = {
+    alert_id: alert.id,
+    cron_name: alert.cron_name,
+    lifecycle,
+    notification_status: status,
+    repeat_interval_minutes: repeatMinutes
+  };
+
+  if (status === 'success') {
+    const message = lifecycle === 'resolved'
+      ? 'Missing cron recovery notification sent'
+      : lifecycle === 'reminder'
+        ? 'Missing cron reminder sent'
+        : 'Missing cron alert sent';
+    app?.log?.info(logPayload, message);
+  } else {
+    app?.log?.warn({ ...logPayload, errors }, 'Missing cron notification was not delivered');
+  }
+}
+
+async function claimMissingCronNotification(alertId, lifecycle, repeatMinutes) {
+  if (lifecycle === 'reminder') {
+    const [result] = await query(`
+      UPDATE alert_events
+      SET last_notified_at = UTC_TIMESTAMP(),
+        last_notification_status = 'pending',
+        last_notification_error = NULL,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+        AND (
+          last_notification_status IS NULL
+          OR last_notification_status <> 'pending'
+          OR last_notified_at <= UTC_TIMESTAMP() - INTERVAL ? MINUTE
+        )
+        AND (last_notified_at IS NULL OR last_notified_at <= UTC_TIMESTAMP() - INTERVAL ? MINUTE)
+    `, [alertId, repeatMinutes, repeatMinutes]);
+
+    return result.affectedRows > 0;
+  }
+
+  // Triggered and resolved notifications are guarded by incident state transitions
+  // before this point, so they must bypass reminder cooldown/pending suppression.
+  const [result] = await query(`
+    UPDATE alert_events
+    SET last_notified_at = UTC_TIMESTAMP(),
+      last_notification_status = 'pending',
+      last_notification_error = NULL,
+      updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `, [alertId]);
+
+  return result.affectedRows > 0;
 }
 
 function repeatIntervalMinutes(severity, configuredMinutes) {
@@ -922,7 +1054,7 @@ function repeatIntervalMinutes(severity, configuredMinutes) {
 
 function parseChannels(value) {
   if (Array.isArray(value)) {
-    return value.filter(Boolean);
+    return uniqueList(value.filter(Boolean));
   }
 
   if (!value) {
@@ -931,17 +1063,21 @@ function parseChannels(value) {
 
   try {
     const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed.filter(Boolean) : [];
+    return Array.isArray(parsed) ? uniqueList(parsed.filter(Boolean)) : [];
   } catch {
-    return String(value).split(',').map((item) => item.trim()).filter(Boolean);
+    return uniqueList(String(value).split(',').map((item) => item.trim()).filter(Boolean));
   }
 }
 
+function uniqueList(values) {
+  return [...new Set(values)];
+}
+
 function telegramChatIds() {
-  return String(process.env.TELEGRAM_CHAT_ID || '')
+  return uniqueList(String(process.env.TELEGRAM_CHAT_ID || '')
     .split(',')
     .map((chatId) => chatId.trim())
-    .filter(Boolean);
+    .filter(Boolean));
 }
 
 function normalizeTelegramTopicId(value) {
