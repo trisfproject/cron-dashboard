@@ -2,15 +2,21 @@
 
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { AlertTriangle, Bell, CalendarDays, Clock3, Gauge, RotateCcw, Search, ShieldCheck, TimerReset } from 'lucide-react';
+import { AlertTriangle, Bell, Clock3, Gauge, RotateCcw, Search, ShieldCheck, TimerReset } from 'lucide-react';
+import { TimeRangeFilter } from '@/components/TimeRangeFilter';
 import { formatApiError, getReliabilityReport, getScopeOptions } from '@/lib/api';
 import { formatNumber, formatPercent } from '@/lib/format';
 
 const VALID_RANGES = new Set(['today', '7d', '30d']);
 const VALID_SORTS = new Set(['downtime', 'incidents']);
-const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const REPORT_TIME_PATTERN = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$/;
 const selectClass = 'h-11 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200';
-const inputClass = `${selectClass} min-w-0`;
+const REPORT_TIME_OPTIONS = [
+  { type: 'range', value: 'today', label: 'Today' },
+  { type: 'range', value: '7d', label: '7D' },
+  { type: 'range', value: '30d', label: '30D' }
+];
+const DEFAULT_REPORT_FILTER = { type: 'range', value: '7d' };
 
 function formatMinutes(value) {
   const minutes = Number(value || 0);
@@ -29,7 +35,7 @@ function formatMinutes(value) {
 
 function rangeLabel(range, start = '', end = '') {
   if (start && end) {
-    return `${start} to ${end}`;
+    return `${start.replace('T', ' ')} to ${end.replace('T', ' ')}`;
   }
 
   return {
@@ -37,6 +43,16 @@ function rangeLabel(range, start = '', end = '') {
     '7d': 'Last 7 days',
     '30d': 'Last 30 days'
   }[range] || 'Last 7 days';
+}
+
+function normalizeCustomRangeForPicker(filters) {
+  if (!filters.start || !filters.end) {
+    return null;
+  }
+
+  const start = filters.start.length === 10 ? `${filters.start}T00:00` : filters.start;
+  const end = filters.end.length === 10 ? `${filters.end}T23:59` : filters.end;
+  return { start, end };
 }
 
 function metricSubtext(range, scope) {
@@ -114,17 +130,6 @@ function ReportsContent() {
   const [scopeOptions, setScopeOptions] = useState({ environments: [], service_groups: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [timeRangeMode, setTimeRangeMode] = useState(() => {
-    const start = searchParams.get('start');
-    const end = searchParams.get('end');
-    const range = searchParams.get('range');
-
-    if (DATE_ONLY_PATTERN.test(start || '') && DATE_ONLY_PATTERN.test(end || '')) {
-      return 'custom';
-    }
-
-    return VALID_RANGES.has(range) ? range : '7d';
-  });
 
   const filters = useMemo(() => {
     const range = searchParams.get('range');
@@ -134,19 +139,13 @@ function ReportsContent() {
 
     return {
       range: VALID_RANGES.has(range) ? range : '7d',
-      start: DATE_ONLY_PATTERN.test(start || '') ? start : '',
-      end: DATE_ONLY_PATTERN.test(end || '') ? end : '',
+      start: REPORT_TIME_PATTERN.test(start || '') ? start : '',
+      end: REPORT_TIME_PATTERN.test(end || '') ? end : '',
       env: searchParams.get('env') || '',
       service_group: searchParams.get('service_group') || '',
       sort: VALID_SORTS.has(sort) ? sort : 'downtime'
     };
   }, [searchParams]);
-
-  const appliedRange = filters.start && filters.end ? 'custom' : filters.range;
-
-  useEffect(() => {
-    setTimeRangeMode(appliedRange);
-  }, [appliedRange]);
 
   useEffect(() => {
     let cancelled = false;
@@ -182,14 +181,12 @@ function ReportsContent() {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const query = new URLSearchParams();
-    const start = form.get('start');
-    const end = form.get('end');
 
-    if (timeRangeMode === 'custom') {
-      query.set('start', start);
-      query.set('end', end);
+    if (filters.start && filters.end) {
+      query.set('start', filters.start);
+      query.set('end', filters.end);
     } else {
-      query.set('range', timeRangeMode);
+      query.set('range', filters.range);
     }
 
     for (const key of ['env', 'service_group', 'sort']) {
@@ -200,10 +197,20 @@ function ReportsContent() {
     router.push(`/reports?${query.toString()}`);
   }
 
-  function applyPreset(range) {
-    setTimeRangeMode(range);
+  function applyTimeFilter(nextFilter) {
     const query = new URLSearchParams();
-    query.set('range', range);
+    query.set('range', nextFilter?.value || '7d');
+    for (const key of ['env', 'service_group', 'sort']) {
+      const value = filters[key];
+      if (value) query.set(key, value);
+    }
+    router.push(`/reports?${query.toString()}`);
+  }
+
+  function applyCustomRange(nextRange) {
+    const query = new URLSearchParams();
+    query.set('start', nextRange.start);
+    query.set('end', nextRange.end);
     for (const key of ['env', 'service_group', 'sort']) {
       const value = filters[key];
       if (value) query.set(key, value);
@@ -215,6 +222,8 @@ function ReportsContent() {
   const scopeText = metricSubtext(filters.range, filters);
   const problematicCrons = Array.isArray(report?.problematic_crons) ? report.problematic_crons : [];
   const trend = Array.isArray(report?.trend) ? report.trend : [];
+  const selectedFilter = filters.start && filters.end ? { type: 'custom' } : { type: 'range', value: filters.range };
+  const customRange = normalizeCustomRangeForPicker(filters);
   const activeRangeLabel = rangeLabel(report?.range || filters.range, filters.start, filters.end);
 
   return (
@@ -237,35 +246,18 @@ function ReportsContent() {
         className="grid grid-cols-1 gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950 sm:grid-cols-2 xl:grid-cols-[repeat(12,minmax(0,1fr))]"
         onSubmit={applyFilters}
       >
-        <div className="grid h-11 grid-cols-4 overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950 sm:col-span-2 xl:col-span-4">
-          {[
-            ['today', 'Today'],
-            ['7d', '7D'],
-            ['30d', '30D'],
-            ['custom', 'Custom']
-          ].map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              className={`px-2 text-sm font-semibold transition ${timeRangeMode === value ? 'bg-ink text-white dark:bg-blue-600' : 'text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-900'}`}
-              onClick={() => (value === 'custom' ? setTimeRangeMode('custom') : applyPreset(value))}
-            >
-              {label}
-            </button>
-          ))}
+        <div className="sm:col-span-2 xl:col-span-4">
+          <TimeRangeFilter
+            selectedFilter={selectedFilter}
+            customRange={customRange}
+            options={REPORT_TIME_OPTIONS}
+            showRefreshControl={false}
+            defaultFilter={DEFAULT_REPORT_FILTER}
+            customDescription="Select start and end in WIB. Custom ranges override report presets."
+            onFilterChange={applyTimeFilter}
+            onCustomRangeChange={applyCustomRange}
+          />
         </div>
-        {timeRangeMode === 'custom' ? (
-          <>
-            <label className="relative xl:col-span-2">
-              <CalendarDays className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
-              <input className={`${inputClass} w-full pl-9`} type="date" name="start" defaultValue={filters.start} aria-label="Start date" required />
-            </label>
-            <label className="relative xl:col-span-2">
-              <CalendarDays className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
-              <input className={`${inputClass} w-full pl-9`} type="date" name="end" defaultValue={filters.end} aria-label="End date" required />
-            </label>
-          </>
-        ) : null}
         <select className={`${selectClass} xl:col-span-2`} name="env" defaultValue={filters.env}>
           <option value="">All environments</option>
           {scopeOptions.environments.map((option) => <option key={option.value} value={option.value}>{option.value}</option>)}

@@ -86,6 +86,10 @@ export function TimeRangeFilter({
   selectedFilter = { type: 'window', value: '30m' },
   customRange,
   refreshInterval = 0,
+  options = OPTIONS,
+  showRefreshControl = true,
+  defaultFilter = { type: 'window', value: '30m' },
+  customDescription = 'Select start and end in WIB. Custom ranges override live windows.',
   onFilterChange,
   onCustomRangeChange,
   onRefreshIntervalChange
@@ -138,7 +142,7 @@ export function TimeRangeFilter({
   function clearCustomRange() {
     setDraftStart('');
     setDraftEnd('');
-    onFilterChange?.({ type: 'window', value: '30m' });
+    onFilterChange?.(defaultFilter);
     setOpen(false);
   }
 
@@ -146,7 +150,7 @@ export function TimeRangeFilter({
     <div className="relative flex w-full min-w-0 flex-col items-start gap-2 sm:w-auto sm:items-end" ref={popoverRef}>
       <div className="flex w-full min-w-0 items-center gap-2 overflow-x-auto pb-1 sm:w-auto sm:overflow-visible sm:pb-0">
         <div className="flex shrink-0 gap-1 rounded-md bg-slate-100 p-1 dark:bg-slate-800/70">
-          {OPTIONS.map((option) => {
+          {options.map((option) => {
             const active = !isCustom && selectedFilter?.type === option.type && selectedFilter?.value === option.value;
 
             return (
@@ -180,20 +184,22 @@ export function TimeRangeFilter({
           </button>
         </div>
 
-        <label className="compact-control inline-flex shrink-0 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 sm:min-h-10 sm:gap-2 sm:py-1.5 sm:text-sm">
-          <RefreshCw className="h-3.5 w-3.5 sm:h-4 sm:w-4" aria-hidden="true" />
-          <select
-            value={refreshInterval}
-            onChange={(event) => onRefreshIntervalChange?.(Number(event.target.value))}
-            className="bg-transparent text-xs outline-none sm:text-sm"
-          >
-            {REFRESH_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        {showRefreshControl ? (
+          <label className="compact-control inline-flex shrink-0 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 sm:min-h-10 sm:gap-2 sm:py-1.5 sm:text-sm">
+            <RefreshCw className="h-3.5 w-3.5 sm:h-4 sm:w-4" aria-hidden="true" />
+            <select
+              value={refreshInterval}
+              onChange={(event) => onRefreshIntervalChange?.(Number(event.target.value))}
+              className="bg-transparent text-xs outline-none sm:text-sm"
+            >
+              {REFRESH_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
       </div>
 
       {activeLabel ? (
@@ -209,7 +215,7 @@ export function TimeRangeFilter({
         <div className="absolute left-0 right-auto top-full z-20 mt-2 w-[calc(100vw-2rem)] max-w-md rounded-lg border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900 sm:left-auto sm:right-0">
           <div className="mb-3">
             <p className="text-sm font-semibold text-ink dark:text-slate-100">Custom window</p>
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Select start and end in WIB. Custom ranges override live windows.</p>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{customDescription}</p>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
