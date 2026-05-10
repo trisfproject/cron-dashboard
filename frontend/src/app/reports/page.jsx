@@ -488,16 +488,25 @@ function ReportsContent() {
                 <h2 className="text-base font-semibold text-ink">Cron Health Overview</h2>
                 <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Aggregated cron reliability for {activeRangeLabel.toLowerCase()}.</p>
               </div>
-              <div className="space-y-3 md:hidden">
+              <div className="space-y-3 sm:hidden">
                 {attentionHealthJobs.map((job, index) => (
                   <article key={`${job?.cron_name ?? 'cron'}-${index}-mobile`} className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
-                    <div className="flex flex-col gap-2 min-[420px]:flex-row min-[420px]:items-start min-[420px]:justify-between">
+                    <div className="space-y-1">
+                      <p className="text-xs font-medium uppercase tracking-normal text-slate-500 dark:text-slate-400">Cron</p>
                       <p className="min-w-0 break-words text-sm font-semibold text-ink">{job?.cron_name ?? '-'}</p>
-                      <span className={`shrink-0 rounded-md px-2 py-1 text-xs font-medium ring-1 ${job.health.className}`}>{job.health.label}</span>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      {job?.env ? <EnvironmentBadge env={job.env} /> : null}
-                      <ServiceGroupBadge serviceGroup={job?.service_group} />
+                    <div className="grid grid-cols-1 gap-3 text-sm min-[420px]:grid-cols-2">
+                      <div className="min-w-0">
+                        <p className="text-xs text-slate-500">Health</p>
+                        <span className={`mt-1 inline-flex rounded-md px-2 py-1 text-xs font-medium ring-1 ${job.health.className}`}>{job.health.label}</span>
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs text-slate-500">Scope</p>
+                        <div className="mt-1 flex flex-wrap gap-1.5">
+                          {job?.env ? <EnvironmentBadge env={job.env} /> : null}
+                          <ServiceGroupBadge serviceGroup={job?.service_group} />
+                        </div>
+                      </div>
                     </div>
                     <div className="grid grid-cols-1 gap-2 text-sm min-[420px]:grid-cols-3">
                       <div className="rounded-md bg-white p-2 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
@@ -519,34 +528,42 @@ function ReportsContent() {
                   <div className="rounded-lg bg-emerald-50 px-3 py-8 text-center text-sm text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:ring-emerald-900">All monitored cron jobs are healthy in this range.</div>
                 ) : null}
               </div>
-              <div className="hidden min-w-0 overflow-x-auto rounded-md md:block">
-                <table className="min-w-[48rem] divide-y divide-slate-200 text-sm dark:divide-slate-800">
+              <div className="hidden min-w-0 overflow-x-auto rounded-md sm:block">
+                <table className="w-full table-fixed divide-y divide-slate-200 text-xs dark:divide-slate-800 lg:text-sm">
+                  <colgroup>
+                    <col className="w-[30%]" />
+                    <col className="w-[14%]" />
+                    <col className="w-[20%]" />
+                    <col className="w-[12%]" />
+                    <col className="w-[12%]" />
+                    <col className="w-[12%]" />
+                  </colgroup>
                   <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500 dark:bg-slate-900">
                     <tr>
-                      <th className="px-3 py-2">Cron</th>
-                      <th className="px-3 py-2">Health</th>
-                      <th className="px-3 py-2">Scope</th>
-                      <th className="px-3 py-2">Success</th>
-                      <th className="px-3 py-2">Warnings</th>
-                      <th className="px-3 py-2">Failed</th>
+                      <th className="px-2 py-2 lg:px-3">Cron</th>
+                      <th className="px-2 py-2 lg:px-3">Health</th>
+                      <th className="px-2 py-2 lg:px-3">Scope</th>
+                      <th className="px-2 py-2 lg:px-3">Success</th>
+                      <th className="px-2 py-2 lg:px-3">Warnings</th>
+                      <th className="px-2 py-2 lg:px-3">Failed</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                     {attentionHealthJobs.map((job, index) => (
                       <tr key={`${job?.cron_name ?? 'cron'}-${index}`}>
-                        <td className="max-w-[18rem] truncate px-3 py-2 font-medium text-ink">{job?.cron_name ?? '-'}</td>
-                        <td className="whitespace-nowrap px-3 py-2">
+                        <td className="break-words px-2 py-2 font-medium leading-5 text-ink lg:px-3">{job?.cron_name ?? '-'}</td>
+                        <td className="px-2 py-2 align-top lg:px-3">
                           <span className={`rounded-md px-2 py-1 text-xs font-medium ring-1 ${job.health.className}`}>{job.health.label}</span>
                         </td>
-                        <td className="whitespace-nowrap px-3 py-2">
+                        <td className="px-2 py-2 align-top lg:px-3">
                           <div className="flex flex-wrap gap-1.5">
                             {job?.env ? <EnvironmentBadge env={job.env} /> : null}
                             <ServiceGroupBadge serviceGroup={job?.service_group} />
                           </div>
                         </td>
-                        <td className="whitespace-nowrap px-3 py-2 text-slate-600 dark:text-slate-300">{formatPercent(job?.success_rate ?? 0)}</td>
-                        <td className="whitespace-nowrap px-3 py-2 text-slate-600 dark:text-slate-300">{formatNumber(job?.warning_count ?? 0)}</td>
-                        <td className="whitespace-nowrap px-3 py-2 text-slate-600 dark:text-slate-300">{formatNumber(job?.failed_count ?? 0)}</td>
+                        <td className="break-words px-2 py-2 align-top text-slate-600 dark:text-slate-300 lg:px-3">{formatPercent(job?.success_rate ?? 0)}</td>
+                        <td className="break-words px-2 py-2 align-top text-slate-600 dark:text-slate-300 lg:px-3">{formatNumber(job?.warning_count ?? 0)}</td>
+                        <td className="break-words px-2 py-2 align-top text-slate-600 dark:text-slate-300 lg:px-3">{formatNumber(job?.failed_count ?? 0)}</td>
                       </tr>
                     ))}
                     {attentionHealthJobs.length === 0 ? (
@@ -564,26 +581,30 @@ function ReportsContent() {
                 <h2 className="text-base font-semibold text-ink">Slowest cron jobs</h2>
                 <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Highest average duration for {activeRangeLabel.toLowerCase()}.</p>
               </div>
-              <div className="space-y-3 md:hidden">
+              <div className="space-y-3 sm:hidden">
                 {slowestJobs.map((job, index) => {
                   const severity = getPerformanceSeverity(job);
 
                   return (
                     <article key={`${job?.cron_name ?? 'cron'}-${index}-mobile`} className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
-                      <div className="flex flex-col gap-2 min-[420px]:flex-row min-[420px]:items-start min-[420px]:justify-between">
+                      <div className="space-y-1">
+                        <p className="text-xs font-medium uppercase tracking-normal text-slate-500 dark:text-slate-400">Cron</p>
                         <p className="min-w-0 break-words text-sm font-semibold text-ink">{job?.cron_name ?? '-'}</p>
-                        <span className={`shrink-0 rounded-md px-2 py-1 text-xs font-medium ring-1 ${severity.className}`}>{severity.label}</span>
                       </div>
-                      <div className="grid grid-cols-1 gap-2 text-sm min-[420px]:grid-cols-3">
-                        <div className="min-w-0">
-                          <p className="text-xs text-slate-500">Avg</p>
+                      <div className="grid grid-cols-1 gap-2 text-sm min-[420px]:grid-cols-2">
+                        <div className="min-w-0 rounded-md bg-white p-2 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
+                          <p className="text-xs text-slate-500">Status</p>
+                          <span className={`mt-1 inline-flex rounded-md px-2 py-1 text-xs font-medium ring-1 ${severity.className}`}>{severity.label}</span>
+                        </div>
+                        <div className="min-w-0 rounded-md bg-white p-2 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
+                          <p className="text-xs text-slate-500">Avg Duration</p>
                           <p className="mt-1 break-words font-medium text-slate-700 dark:text-slate-200">{formatDuration(job?.avg_duration ?? 0)}</p>
                         </div>
-                        <div className="min-w-0">
-                          <p className="text-xs text-slate-500">Max</p>
+                        <div className="min-w-0 rounded-md bg-white p-2 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
+                          <p className="text-xs text-slate-500">Max Duration</p>
                           <p className="mt-1 break-words font-medium text-slate-700 dark:text-slate-200">{formatDuration(job?.max_duration ?? 0)}</p>
                         </div>
-                        <div className="min-w-0">
+                        <div className="min-w-0 rounded-md bg-white p-2 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
                           <p className="text-xs text-slate-500">Runs</p>
                           <p className="mt-1 break-words font-medium text-slate-700 dark:text-slate-200">{formatNumber(job?.total_runs ?? 0)}</p>
                         </div>
@@ -595,23 +616,29 @@ function ReportsContent() {
                   <div className="rounded-lg bg-slate-50 px-3 py-8 text-center text-sm text-slate-500 dark:bg-slate-950">No duration data in this timeframe.</div>
                 ) : null}
               </div>
-              <div className="hidden min-w-0 overflow-x-auto rounded-md md:block">
-                <table className="min-w-[42rem] divide-y divide-slate-200 text-sm dark:divide-slate-800">
+              <div className="hidden min-w-0 overflow-x-auto rounded-md sm:block">
+                <table className="w-full table-fixed divide-y divide-slate-200 text-xs dark:divide-slate-800 lg:text-sm">
+                  <colgroup>
+                    <col className="w-[46%]" />
+                    <col className="w-[20%]" />
+                    <col className="w-[20%]" />
+                    <col className="w-[14%]" />
+                  </colgroup>
                   <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500 dark:bg-slate-900">
                     <tr>
-                      <th className="px-3 py-2">Cron</th>
-                      <th className="px-3 py-2">Avg duration</th>
-                      <th className="px-3 py-2">Max duration</th>
-                      <th className="px-3 py-2">Runs</th>
+                      <th className="px-2 py-2 lg:px-3">Cron</th>
+                      <th className="px-2 py-2 lg:px-3">Avg duration</th>
+                      <th className="px-2 py-2 lg:px-3">Max duration</th>
+                      <th className="px-2 py-2 lg:px-3">Runs</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                     {slowestJobs.map((job, index) => (
                       <tr key={`${job?.cron_name ?? 'cron'}-${index}`}>
-                        <td className="max-w-[18rem] truncate px-3 py-2 font-medium text-ink">{job?.cron_name ?? '-'}</td>
-                        <td className="whitespace-nowrap px-3 py-2 text-slate-600 dark:text-slate-300">{formatDuration(job?.avg_duration ?? 0)}</td>
-                        <td className="whitespace-nowrap px-3 py-2 text-slate-600 dark:text-slate-300">{formatDuration(job?.max_duration ?? 0)}</td>
-                        <td className="whitespace-nowrap px-3 py-2 text-slate-600 dark:text-slate-300">{formatNumber(job?.total_runs ?? 0)}</td>
+                        <td className="break-words px-2 py-2 font-medium leading-5 text-ink lg:px-3">{job?.cron_name ?? '-'}</td>
+                        <td className="break-words px-2 py-2 align-top text-slate-600 dark:text-slate-300 lg:px-3">{formatDuration(job?.avg_duration ?? 0)}</td>
+                        <td className="break-words px-2 py-2 align-top text-slate-600 dark:text-slate-300 lg:px-3">{formatDuration(job?.max_duration ?? 0)}</td>
+                        <td className="break-words px-2 py-2 align-top text-slate-600 dark:text-slate-300 lg:px-3">{formatNumber(job?.total_runs ?? 0)}</td>
                       </tr>
                     ))}
                     {slowestJobs.length === 0 ? (
