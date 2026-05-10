@@ -130,7 +130,7 @@ const RELEASES = [
         items: [
           'Added the audit log foundation for login, logout, failed login, alert rule changes, alert acknowledgements, role changes, and user administration.',
           'Added health-check endpoints and operational deployment documentation for local service verification.',
-          'Established the dashboard as the primary place to review live cron execution status and recent operational activity.'
+          'Established the dashboard as the primary place to review live cron execution status and operational health.'
         ]
       },
       {

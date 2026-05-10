@@ -179,26 +179,6 @@ export default function AuditPage() {
 
       {error ? <p className="rounded-md bg-rose-50 p-3 text-sm font-medium text-rose-700 dark:bg-rose-950/40 dark:text-rose-200">{error}</p> : null}
 
-      <section className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950 sm:p-5">
-        <div className="mb-4">
-          <h2 className="text-base font-semibold text-ink">Operational Activity</h2>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Recent acknowledgements, lifecycle actions, maintenance events, and administrative changes.</p>
-        </div>
-        {loading ? <div className="py-6 text-center text-sm text-slate-500">Loading operational activity...</div> : null}
-        {!loading ? (
-          <div className="divide-y divide-slate-100 dark:divide-slate-800">
-            {logs.slice(0, 5).map((event) => (
-              <div key={`activity-${auditKey(event)}`} className="grid min-w-0 gap-1 py-3 text-sm sm:grid-cols-[minmax(0,12rem)_minmax(0,1fr)_minmax(8rem,auto)] sm:items-center sm:gap-3">
-                <p className="min-w-0 break-words font-medium capitalize text-ink">{formatAction(event.action)}</p>
-                <p className="min-w-0 break-words text-slate-500">{event.user_email || 'System'} / {targetLabel(event)}</p>
-                <p className="text-xs text-slate-500 sm:text-right">{formatDate(event.created_at)}</p>
-              </div>
-            ))}
-            {logs.length === 0 ? <div className="py-8 text-center text-sm text-slate-500">No recent operational activity.</div> : null}
-          </div>
-        ) : null}
-      </section>
-
       <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
         <div className="border-b border-slate-200 px-4 py-4 dark:border-slate-800">
           <h2 className="text-base font-semibold text-ink">Audit Events</h2>

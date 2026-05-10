@@ -8,9 +8,8 @@ import { AlertSeverityBadge, AlertStateBadge } from '@/components/AlertBadge';
 import { EnvironmentBadge, ServiceGroupBadge } from '@/components/EnvironmentBadge';
 import { MetricCard } from '@/components/MetricCard';
 import { TimelineChart } from '@/components/TimelineChart';
-import { LogsTable } from '@/components/LogsTable';
 import { TimeRangeFilter } from '@/components/TimeRangeFilter';
-import { getAlerts, getCurrentUser, getLogs, getMaintenanceWindows, getScopeOptions, getStats } from '@/lib/api';
+import { getAlerts, getCurrentUser, getMaintenanceWindows, getScopeOptions, getStats } from '@/lib/api';
 import { formatDuration, formatNumber, formatPercent } from '@/lib/format';
 
 const emptyStats = {
@@ -30,12 +29,10 @@ const emptyStats = {
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const LOG_PAGE_SIZE = 10;
 const RETRY_DELAY_MS = 800;
 const POLL_INTERVALS = {
   stats: 10000,
   alerts: 10000,
-  logs: 30000,
   auth: 60000,
   maintenance: 60000
 };
@@ -61,7 +58,6 @@ function resourceLabel(resource) {
   return {
     stats: 'Stats',
     alerts: 'Alerts',
-    logs: 'Timeline',
     auth: 'Session',
     maintenance: 'Maintenance status'
   }[resource] || 'Dashboard data';
@@ -268,40 +264,15 @@ function normalizeStatsResponse(data, range) {
   };
 }
 
-function normalizeLogsResponse(data) {
-  const source = data?.data && typeof data.data === 'object' ? data.data : data;
-  return Array.isArray(source?.logs) ? source.logs : [];
-}
-
-function mergeLogs(existingLogs, nextLogs) {
-  const seen = new Set();
-  const merged = [];
-
-  for (const log of [...existingLogs, ...nextLogs]) {
-    const key = log?.id ?? log?.hash ?? `${log?.cron_name}-${log?.server}-${log?.timestamp}`;
-
-    if (!seen.has(key)) {
-      seen.add(key);
-      merged.push(log);
-    }
-  }
-
-  return merged;
-}
-
 function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, initialCustomRange = null, initialScope = { env: '', service_group: '' } }) {
   const [filter, setFilter] = useState(initialFilter);
   const [customRange, setCustomRange] = useState(isValidCustomRange(initialCustomRange) ? initialCustomRange : null);
   const [stats, setStats] = useState(emptyStats);
-  const [logs, setLogs] = useState([]);
   const [alerts, setAlerts] = useState([]);
   const [maintenanceWindows, setMaintenanceWindows] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
   const [scope, setScope] = useState(initialScope);
   const [scopeOptions, setScopeOptions] = useState({ environments: [], service_groups: [] });
-  const [hasMoreLogs, setHasMoreLogs] = useState(false);
-  const [logsLoadingMore, setLogsLoadingMore] = useState(false);
-  const [logsError, setLogsError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [pollWarnings, setPollWarnings] = useState({});
   const [refreshInterval, setRefreshInterval] = useState(0);
@@ -499,31 +470,6 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
       );
     }
 
-    function runLogs() {
-      if (currentUserRef.current?.role !== 'admin') {
-        setLogs([]);
-        setHasMoreLogs(false);
-        setLogsError(null);
-        return Promise.resolve();
-      }
-
-      const { params, scopeParams } = dashboardParams();
-      return runResource(
-        'logs',
-        (signal) => getLogs({ ...params, ...scopeParams, limit: LOG_PAGE_SIZE, offset: 0 }, { signal }),
-        (logsData) => {
-          if (process.env.NODE_ENV === 'development') {
-            console.log('logs response', logsData);
-          }
-
-          const nextLogs = normalizeLogsResponse(logsData);
-          setLogs(nextLogs);
-          setHasMoreLogs(nextLogs.length === LOG_PAGE_SIZE);
-          setLogsError(null);
-        }
-      );
-    }
-
     function runAuth() {
       return runResource(
         'auth',
@@ -535,9 +481,6 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
 
           if (user?.role !== 'admin') {
             setAlerts([]);
-            setLogs([]);
-            setHasMoreLogs(false);
-            setLogsError(null);
           }
         }
       );
@@ -592,7 +535,6 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
     function scheduleAll() {
       schedule('stats', runStats);
       schedule('alerts', runAlerts);
-      schedule('logs', runLogs);
       schedule('auth', runAuth);
       schedule('maintenance', runMaintenance);
     }
@@ -602,7 +544,6 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
       setPollWarnings({});
 
       await Promise.all([runAuth(), runStats(), runMaintenance()]);
-      await runLogs();
       await runAlerts();
 
       if (!cancelled) {
@@ -618,7 +559,6 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
       await runAuth();
       runStats();
       runAlerts();
-      runLogs();
       runMaintenance();
       scheduleAll();
     };
@@ -639,41 +579,6 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
       setCustomRange(nextCustomRange);
       setFilter({ type: 'custom', value: 'custom' });
       setLiveMode(false);
-    }
-  }
-
-  async function loadMoreLogs() {
-    if (currentUserRef.current?.role !== 'admin' || logsLoadingMore || !hasMoreLogs) {
-      return;
-    }
-
-    setLogsLoadingMore(true);
-    setLogsError(null);
-
-    try {
-      const customParams = isValidCustomRange(customRange)
-        ? { start: customRange.start, end: customRange.end }
-        : null;
-      const params = customParams || { [filter.type]: filter.value };
-      const scopeParams = {
-        ...(scope.env ? { env: scope.env } : {}),
-        ...(scope.service_group ? { service_group: scope.service_group } : {})
-      };
-      const logsData = await getLogs({
-        ...params,
-        ...scopeParams,
-        limit: LOG_PAGE_SIZE,
-        offset: logs.length
-      });
-      const nextLogs = normalizeLogsResponse(logsData);
-
-      setLogs((currentLogs) => mergeLogs(currentLogs, nextLogs));
-      setHasMoreLogs(nextLogs.length === LOG_PAGE_SIZE);
-    } catch (error) {
-      console.error('Failed to load more logs:', error);
-      setLogsError(error?.message || 'Failed to load more logs');
-    } finally {
-      setLogsLoadingMore(false);
     }
   }
 
@@ -757,7 +662,6 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
   const pollWarningMessages = Object.values(pollWarnings).filter(Boolean);
   const activeMaintenance = maintenanceWindows[0] || null;
   const visibleHeartbeatSchedules = heartbeatSchedules.slice(0, 6);
-  const logsArray = Array.isArray(logs) ? logs : [];
   const activeAlerts = Array.isArray(alerts) ? alerts : [];
   const isAdmin = currentUser?.role === 'admin';
   const isCustom = filter.type === 'custom';
@@ -1139,37 +1043,6 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
 
       </section>
 
-      {isAdmin ? (
-      <section className="space-y-4">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h2 className="text-base font-semibold text-ink">Operational Activity</h2>
-            <p className="mt-1 text-sm text-slate-500">Recent lifecycle stream, administrative operations, and ingested execution activity. Showing {formatNumber(logsArray.length)} entries.</p>
-          </div>
-        </div>
-        <LogsTable logs={logsArray} variant="activity" />
-        <div className="flex flex-col items-center gap-3 rounded-lg border border-slate-200 bg-white px-4 py-4 text-sm shadow-sm">
-          {logsError ? <p className="text-rose-700">{logsError}</p> : null}
-          {logsLoadingMore ? (
-            <div className="flex w-full max-w-md flex-col gap-2">
-              <div className="h-3 animate-pulse rounded bg-slate-200 dark:bg-slate-800" />
-              <div className="h-3 animate-pulse rounded bg-slate-200 dark:bg-slate-800" />
-              <p className="text-center text-slate-500">Loading more logs...</p>
-            </div>
-          ) : hasMoreLogs ? (
-            <button
-              type="button"
-              onClick={loadMoreLogs}
-              className="rounded-md bg-slate-900 px-4 py-2 font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300 dark:bg-blue-600 dark:hover:bg-blue-500"
-            >
-              Load More
-            </button>
-          ) : (
-            <p className="text-slate-500">No more logs</p>
-          )}
-        </div>
-      </section>
-      ) : null}
     </div>
   );
 }
