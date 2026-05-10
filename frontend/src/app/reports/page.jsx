@@ -525,11 +525,11 @@ function ReliabilityActivityChart({ trend }) {
 
   return (
     <div>
-      <div className="flex flex-col gap-2 border-b border-slate-200 px-4 py-3 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-sm text-slate-600 dark:text-slate-300">
+      <div className="flex flex-col gap-1.5 border-b border-slate-200 px-3 py-2.5 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between sm:gap-2 sm:px-4 sm:py-3">
+        <p className="text-xs font-medium text-slate-600 dark:text-slate-300 sm:text-sm">
           {formatNumber(totalIncidents)} triggered events / {formatNumber(totalRecoveries)} recovered events
         </p>
-        <span className={`w-fit rounded-md px-2 py-1 text-xs font-medium ring-1 ${
+        <span className={`w-fit rounded-md px-2 py-0.5 text-[0.7rem] font-medium ring-1 sm:py-1 sm:text-xs ${
           pressureElevated
             ? 'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-900'
             : 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:ring-emerald-900'
@@ -538,10 +538,10 @@ function ReliabilityActivityChart({ trend }) {
           {activityState.label}
         </span>
       </div>
-      <div className="overflow-x-auto">
+      <div className="overflow-hidden">
         <div
           ref={chartFrameRef}
-          className={`h-72 min-w-[36rem] touch-none px-3 py-5 sm:h-80 ${isZoomed ? 'cursor-grab active:cursor-grabbing' : 'cursor-crosshair'}`}
+          className={`h-56 min-w-0 touch-none px-2 py-3 sm:h-64 sm:px-3 sm:py-4 lg:h-80 lg:py-5 ${isZoomed ? 'cursor-grab active:cursor-grabbing' : 'cursor-crosshair'}`}
           onWheel={handleWheel}
           onDoubleClick={resetZoom}
           onTouchStart={handleTouchStart}
@@ -592,10 +592,10 @@ function ReliabilityActivityChart({ trend }) {
           </ResponsiveContainer>
         </div>
       </div>
-      <div className="flex flex-wrap items-center gap-4 border-t border-slate-200 px-4 py-3 text-xs font-medium text-slate-500 dark:border-slate-800 dark:text-slate-400">
-        <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-amber-500" /> Triggered events</span>
-        <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-emerald-500" /> Recovered events</span>
-        <span className="text-slate-400 dark:text-slate-500">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-slate-200 px-3 py-2 text-[0.7rem] font-medium leading-4 text-slate-500 dark:border-slate-800 dark:text-slate-400 sm:gap-x-4 sm:px-4 sm:py-3 sm:text-xs">
+        <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-amber-500 sm:h-2.5 sm:w-2.5" /> Triggered</span>
+        <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-emerald-500 sm:h-2.5 sm:w-2.5" /> Recovered</span>
+        <span className="basis-full text-slate-400 dark:text-slate-500 sm:basis-auto">
           {isZoomed ? 'Drag to pan the focused window, scroll to zoom, double-click to reset.' : 'Drag across the plot to zoom into a reliability window, scroll to zoom around the pointer.'}
         </span>
       </div>
