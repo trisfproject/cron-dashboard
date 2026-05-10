@@ -463,22 +463,22 @@ export function CronListClient({
           Showing {formatNumber(displayJobs.length)} latest cron rows. Last status, freshness, runs, success rate, and average duration use the selected range and Asia/Jakarta day boundary.
         </div>
 
-        <div className="divide-y divide-slate-100 dark:divide-slate-800 lg:hidden">
+        <div className="space-y-5 bg-slate-50/70 px-3 py-4 dark:bg-slate-950/60 lg:hidden">
           {serviceGroups.map((group) => (
-            <div key={`${group}-mobile-group`}>
-              <div className="bg-slate-50 px-4 py-2 text-xs font-semibold uppercase tracking-normal text-slate-500 dark:bg-slate-900/60 dark:text-slate-400">
+            <div key={`${group}-mobile-group`} className="space-y-3">
+              <div className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-normal text-slate-500 shadow-sm dark:border-slate-800 dark:bg-slate-900/70 dark:text-slate-400">
                 <span>{group}</span>
                 <span className="ml-2 font-medium normal-case text-slate-400">{formatNumber(groupedJobs[group].length)} rows</span>
               </div>
               {groupedJobs[group].map((job, index) => (
-                <article key={`${jobKey(job)}-mobile-${index}`} className="space-y-4 p-4">
-                  <div className="flex items-start justify-between gap-3">
+                <article key={`${jobKey(job)}-mobile-${index}`} className="space-y-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm ring-1 ring-slate-100 dark:border-slate-800 dark:bg-slate-950 dark:ring-slate-900">
+                  <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-3 dark:border-slate-800">
                     <Link className="min-w-0 break-words font-medium text-ink hover:text-blue-700 dark:text-slate-100 dark:hover:text-blue-300" href={cronHref(job)}>
                       {job?.cron_name ?? '-'}
                     </Link>
                     <StatusBadge status={job?.last_status} />
                   </div>
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2 rounded-md bg-slate-50 p-2 ring-1 ring-slate-100 dark:bg-slate-900/60 dark:ring-slate-800">
                     <HeartbeatBadge job={job} />
                     {canManageHeartbeat ? (
                       <button type="button" onClick={() => openHeartbeat(job)} className="min-h-9 rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900">
@@ -486,24 +486,24 @@ export function CronListClient({
                       </button>
                     ) : null}
                   </div>
-                  <div className="grid grid-cols-2 gap-3 text-sm">
-                    <div className="min-w-0">
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div className="min-w-0 rounded-md bg-slate-50 p-2 ring-1 ring-slate-100 dark:bg-slate-900/60 dark:ring-slate-800">
                       <p className="text-xs text-slate-500">Freshness</p>
                       <p className="mt-1 font-medium text-slate-700 dark:text-slate-300">{formatDate(job?.last_run)}</p>
                     </div>
-                    <div className="min-w-0">
+                    <div className="min-w-0 rounded-md bg-slate-50 p-2 ring-1 ring-slate-100 dark:bg-slate-900/60 dark:ring-slate-800">
                       <p className="text-xs text-slate-500">Avg duration</p>
                       <p className="mt-1 font-medium text-slate-700 dark:text-slate-300">{formatDuration(job?.avg_duration ?? 0)}</p>
                     </div>
-                    <div className="min-w-0">
+                    <div className="min-w-0 rounded-md bg-slate-50 p-2 ring-1 ring-slate-100 dark:bg-slate-900/60 dark:ring-slate-800">
                       <p className="text-xs text-slate-500">Env</p>
                       <p className="mt-1 truncate text-slate-700 dark:text-slate-300">{job?.env ? <EnvironmentBadge env={job.env} /> : '-'}</p>
                     </div>
-                    <div className="min-w-0">
+                    <div className="min-w-0 rounded-md bg-slate-50 p-2 ring-1 ring-slate-100 dark:bg-slate-900/60 dark:ring-slate-800">
                       <p className="text-xs text-slate-500">Success</p>
                       <p className="mt-1 font-medium text-slate-700 dark:text-slate-300">{formatPercent(job?.success_rate ?? 0)}</p>
                     </div>
-                    <div className="min-w-0">
+                    <div className="min-w-0 rounded-md bg-slate-50 p-2 ring-1 ring-slate-100 dark:bg-slate-900/60 dark:ring-slate-800">
                       <p className="text-xs text-slate-500">Runs</p>
                       <p className="mt-1 font-medium text-slate-700 dark:text-slate-300">{formatNumber(job?.total_runs ?? 0)}</p>
                     </div>

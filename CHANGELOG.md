@@ -103,6 +103,7 @@ v1.2.0
 * Dashboard observability flow reordered into Metrics, Timeline, Heartbeat Monitoring, then Active Alerts
 * Dashboard Timeline enhanced with contextual operational markers for failure spikes, warning surges, recoveries, and maintenance lifecycle events
 * Timeline tooltips now correlate execution activity with semantic incident and operational event overlays
+* Cron page mobile cards now have stronger spacing, boundaries, and metadata grouping for faster operational scanning
 * Operational Activity widget removed from the dashboard to reduce duplicated operational noise
 * Audit page simplified back to focused, filterable Audit Events history after removing duplicate activity summaries
 * Heartbeat Monitoring evolved from healthy/missing display into schedule-state operational scanning
