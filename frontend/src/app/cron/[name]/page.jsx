@@ -694,15 +694,15 @@ function CronDetailContent() {
         </section>
       ) : null}
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard icon={Activity} label="Executions" value={hasData ? formatNumber(totalRuns) : 'No data'} subtext="Selected time window" />
-        <MetricCard icon={ShieldCheck} label="Success rate" value={hasData ? formatPercent(summary.success_rate ?? 0) : 'No data'} subtext={`${formatNumber(failed)} failures · ${formatNumber(warning)} warnings`} />
-        <MetricCard icon={Clock3} label="Average duration" value={hasData ? formatDuration(averageDuration) : 'No data'} subtext="Mean runtime" />
-        <MetricCard icon={Timer} label="P95 duration" value={hasData ? formatDuration(p95Duration) : 'No data'} subtext="From visible execution history" />
-        <MetricCard icon={AlertTriangle} label="Failed count" value={hasData ? formatNumber(failed) : 'No data'} subtext={`${formatNumber(warning)} warnings`} />
-        <MetricCard icon={Zap} label="Runs/hour" value={hasData ? formatNumber(runsPerHour, 2) : 'No data'} subtext="Throughput in selected window" />
-        <MetricCard icon={Gauge} label="Last execution" value={lastLog ? formatDate(lastLog.timestamp) : 'No data'} subtext={lastLog ? formatDuration(lastLog.duration) : 'No matching run'} />
-        <MetricCard icon={BarChart3} label="Window" value={isCustom ? 'Custom' : filter.value.toUpperCase()} subtext={`Grouped by ${stats.interval || 'hour'}`} />
+      <section className="grid grid-cols-2 gap-2 md:grid-cols-4 md:gap-3 lg:grid-cols-2 lg:gap-4 xl:grid-cols-4">
+        <MetricCard compact icon={Activity} label="Executions" value={hasData ? formatNumber(totalRuns) : 'No data'} subtext="Selected time window" />
+        <MetricCard compact icon={ShieldCheck} label="Success rate" value={hasData ? formatPercent(summary.success_rate ?? 0) : 'No data'} subtext={`${formatNumber(failed)} failures · ${formatNumber(warning)} warnings`} />
+        <MetricCard compact icon={Clock3} label="Average duration" value={hasData ? formatDuration(averageDuration) : 'No data'} subtext="Mean runtime" />
+        <MetricCard compact icon={Timer} label="P95 duration" value={hasData ? formatDuration(p95Duration) : 'No data'} subtext="From visible execution history" />
+        <MetricCard compact icon={AlertTriangle} label="Failed count" value={hasData ? formatNumber(failed) : 'No data'} subtext={`${formatNumber(warning)} warnings`} />
+        <MetricCard compact icon={Zap} label="Runs/hour" value={hasData ? formatNumber(runsPerHour, 2) : 'No data'} subtext="Throughput in selected window" />
+        <MetricCard compact icon={Gauge} label="Last execution" value={lastLog ? formatDate(lastLog.timestamp) : 'No data'} subtext={lastLog ? formatDuration(lastLog.duration) : 'No matching run'} valueClassName="text-[0.8rem] sm:text-sm md:text-sm lg:text-3xl" />
+        <MetricCard compact icon={BarChart3} label="Window" value={isCustom ? 'Custom' : filter.value.toUpperCase()} subtext={`Grouped by ${stats.interval || 'hour'}`} />
       </section>
 
       <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
