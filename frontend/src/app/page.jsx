@@ -157,6 +157,8 @@ const TIMELINE_MARKER_META = {
     color: '#8b5cf6'
   }
 };
+const TIMELINE_FAILURE_MARKER_THRESHOLD = 1;
+const TIMELINE_WARNING_MARKER_THRESHOLD = 2;
 const VALID_WINDOWS = new Set(['5m', '15m', '30m', '1h', '4h']);
 const VALID_RANGES = new Set(['today', '7d', '30d']);
 const JAKARTA_OFFSET_MS = 7 * 60 * 60 * 1000;
@@ -331,25 +333,46 @@ function timelineMarker(type, bucket, description, overrides = {}) {
   };
 }
 
+function timelineBucketValues(item = {}) {
+  return {
+    bucket: item.bucket,
+    total: Number(item.total || 0),
+    failed: Number(item.failed || 0),
+    warning: Number(item.warning || 0)
+  };
+}
+
+function hasFailureSpike(item = {}) {
+  return timelineBucketValues(item).failed > TIMELINE_FAILURE_MARKER_THRESHOLD;
+}
+
+function hasWarningSurge(item = {}) {
+  return timelineBucketValues(item).warning > TIMELINE_WARNING_MARKER_THRESHOLD;
+}
+
+function hasPlottedFailure(item = {}) {
+  return timelineBucketValues(item).failed > 0;
+}
+
+function hasReducedAnomaly(current = {}, previous = {}) {
+  const currentValues = timelineBucketValues(current);
+  const previousValues = timelineBucketValues(previous);
+  const previousHadAnomaly = previousValues.failed > TIMELINE_FAILURE_MARKER_THRESHOLD
+    || previousValues.warning > TIMELINE_WARNING_MARKER_THRESHOLD;
+
+  if (!previousHadAnomaly) {
+    return false;
+  }
+
+  return currentValues.failed < previousValues.failed || currentValues.warning < previousValues.warning;
+}
+
 function timelineMarkersFromBuckets(timeline = []) {
-  const recent = timeline.filter((item) => Number(item?.total || 0) > 0);
-  const avgFailed = recent.length
-    ? recent.reduce((sum, item) => sum + Number(item.failed || 0), 0) / recent.length
-    : 0;
-  const avgWarning = recent.length
-    ? recent.reduce((sum, item) => sum + Number(item.warning || 0), 0) / recent.length
-    : 0;
-
   return timeline.flatMap((item) => {
-    const total = Number(item.total || 0);
-    const failed = Number(item.failed || 0);
-    const warning = Number(item.warning || 0);
-    const bucket = item.bucket;
+    const { bucket, failed, warning } = timelineBucketValues(item);
     const markers = [];
-    const failureRate = total > 0 ? failed / total : 0;
-    const warningRate = total > 0 ? warning / total : 0;
 
-    if (failed > 0 && ((total >= 3 && failureRate >= 0.3) || failed >= Math.max(2, avgFailed * 2))) {
+    if (hasFailureSpike(item)) {
       markers.push(timelineMarker(
         'failure_spike',
         bucket,
@@ -357,7 +380,7 @@ function timelineMarkersFromBuckets(timeline = []) {
       ));
     }
 
-    if (warning > 0 && ((total >= 3 && warningRate >= 0.3) || warning >= Math.max(2, avgWarning * 2))) {
+    if (hasWarningSurge(item)) {
       markers.push(timelineMarker(
         'warning_surge',
         bucket,
@@ -369,28 +392,41 @@ function timelineMarkersFromBuckets(timeline = []) {
   });
 }
 
-function timelineMarkersFromIncidents(incidents = [], interval = 'hour') {
+function timelineMarkersFromIncidents(incidents = [], interval = 'hour', timelineByBucket = new Map(), orderedTimeline = []) {
   return incidents.map((incident) => {
     const bucket = bucketForTimelineDate(incident.occurred_at || incident.created_at || incident.started_at, interval);
+    const plottedBucket = timelineByBucket.get(bucket);
+
+    if (!plottedBucket) {
+      return null;
+    }
+
     const reliabilityClass = String(incident.reliability_class || incident.impact_type || '').toLowerCase();
     const type = String(incident.type || incident.event_type || '').toLowerCase();
     const incidentType = String(incident.incident_type || '').replaceAll('_', ' ');
     const label = incident.cron_name || incident.title || incident.reason || 'Operational event';
 
     if (['alert_resolved', 'heartbeat_recovered'].includes(type) || incident.incident_status === 'resolved') {
-      return timelineMarker('recovery', bucket, `${label} recovered`, { title: 'Recovery marker' });
+      const currentIndex = orderedTimeline.findIndex((item) => item.bucket === bucket);
+      const previousBucket = currentIndex > 0 ? orderedTimeline[currentIndex - 1] : null;
+
+      if (!hasReducedAnomaly(plottedBucket, previousBucket)) {
+        return null;
+      }
+
+      return timelineMarker('recovery', bucket, `${label} recovered after visible anomaly reduction`, { title: 'Recovery marker' });
     }
 
     if (type.startsWith('maintenance_')) {
-      return timelineMarker('maintenance', bucket, incident.reason || incident.title || 'Maintenance lifecycle event', { title: 'Maintenance marker' });
+      if (timelineBucketValues(plottedBucket).total === 0) {
+        return null;
+      }
+
+      return timelineMarker('maintenance', bucket, incident.reason || incident.title || 'Maintenance lifecycle event aligned with visible activity', { title: 'Maintenance marker' });
     }
 
-    if (reliabilityClass === 'outage' || incident.severity === 'critical') {
+    if ((reliabilityClass === 'outage' || incident.severity === 'critical') && hasPlottedFailure(plottedBucket)) {
       return timelineMarker('failure_spike', bucket, `${label}: ${incidentType || 'outage-class incident'}`, { title: 'Outage marker' });
-    }
-
-    if (reliabilityClass === 'degraded' || incident.severity === 'warning') {
-      return timelineMarker('warning_surge', bucket, `${label}: ${incidentType || 'degraded incident'}`, { title: 'Degradation marker' });
     }
 
     return null;
@@ -399,7 +435,13 @@ function timelineMarkersFromIncidents(incidents = [], interval = 'hour') {
 
 function buildTimelineMarkers(timeline = [], incidents = [], interval = 'hour') {
   const seen = new Set();
-  return [...timelineMarkersFromBuckets(timeline), ...timelineMarkersFromIncidents(incidents, interval)]
+  const orderedTimeline = Array.isArray(timeline) ? timeline : [];
+  const timelineByBucket = new Map(orderedTimeline.map((item) => [item.bucket, item]));
+
+  return [
+    ...timelineMarkersFromBuckets(orderedTimeline),
+    ...timelineMarkersFromIncidents(incidents, interval, timelineByBucket, orderedTimeline)
+  ]
     .filter((marker) => {
       const key = `${marker.type}:${marker.bucket}:${marker.title}:${marker.description}`;
       if (seen.has(key)) {
