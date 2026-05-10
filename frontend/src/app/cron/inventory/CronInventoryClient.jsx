@@ -29,6 +29,10 @@ function jobKey(job) {
 }
 
 function inventoryHealth(job) {
+  if (!job?.managed || job?.health_status === 'unmanaged') {
+    return { label: 'Unmanaged', tone: 'unmanaged' };
+  }
+
   if (!job?.enabled || job?.health_status === 'disabled') {
     return { label: 'Disabled', tone: 'disabled' };
   }
@@ -65,6 +69,7 @@ function InventoryHealthBadge({ job }) {
     unstable: 'bg-orange-50 text-orange-800 ring-orange-200 dark:bg-orange-950/40 dark:text-orange-100 dark:ring-orange-900',
     missing: 'bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-950/40 dark:text-rose-200 dark:ring-rose-900',
     recovering: 'bg-blue-50 text-blue-700 ring-blue-200 dark:bg-blue-950/40 dark:text-blue-100 dark:ring-blue-900',
+    unmanaged: 'bg-violet-50 text-violet-700 ring-violet-200 dark:bg-violet-950/40 dark:text-violet-100 dark:ring-violet-900',
     disabled: 'bg-slate-100 text-slate-600 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-800'
   }[status.tone];
 
@@ -244,12 +249,13 @@ export function CronInventoryClient({
         enabled: schedule.enabled,
         environment: schedule.environment,
         service_group: schedule.service_group || item.service_group,
-        health_status: schedule.enabled ? item.health_status === 'disabled' ? 'healthy' : (item.health_status || 'healthy') : 'disabled',
+        managed: true,
+        health_status: schedule.enabled ? ['disabled', 'unmanaged'].includes(item.health_status) ? 'healthy' : (item.health_status || 'healthy') : 'disabled',
         health_reason: schedule.enabled ? 'Monitoring schedule is enabled' : 'Monitoring intentionally disabled',
         heartbeat: {
           ...(item.heartbeat || {}),
           enabled: schedule.enabled,
-          status: schedule.enabled ? item.heartbeat?.status === 'disabled' ? 'healthy' : (item.heartbeat?.status || 'healthy') : 'disabled'
+          status: schedule.enabled ? ['disabled', 'unmanaged'].includes(item.heartbeat?.status) ? 'healthy' : (item.heartbeat?.status || 'healthy') : 'disabled'
         }
       };
     }));
@@ -400,16 +406,20 @@ export function CronInventoryClient({
       <div className="rounded-lg border border-blue-200 bg-blue-50/70 p-4 text-sm text-blue-900 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-100">
         <p className="font-semibold">Expected operational world</p>
         <p className="mt-1 text-blue-800 dark:text-blue-200">
-          Inventory is the authority for what should run. Runtime Activity shows what actually ran.
+          Inventory is the authority for what exists operationally. Runtime Activity shows what recently ran.
         </p>
       </div>
 
       {actionError ? <p className="whitespace-pre-line rounded-md bg-rose-50 p-3 text-sm font-medium text-rose-700 dark:bg-rose-950/40 dark:text-rose-200">{actionError}</p> : null}
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-7">
         <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950">
-          <p className="text-xs font-medium uppercase tracking-normal text-slate-500">Registered</p>
+          <p className="text-xs font-medium uppercase tracking-normal text-slate-500">Known</p>
           <p className="mt-1 text-xl font-semibold text-ink">{formatNumber(inventorySummary.registered ?? inventoryItems.length)}</p>
+        </div>
+        <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+          <p className="text-xs font-medium uppercase tracking-normal text-slate-500">Unmanaged</p>
+          <p className="mt-1 text-xl font-semibold text-violet-700 dark:text-violet-200">{formatNumber(inventorySummary.unmanaged ?? 0)}</p>
         </div>
         <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950">
           <p className="text-xs font-medium uppercase tracking-normal text-slate-500">Waiting</p>
@@ -435,7 +445,7 @@ export function CronInventoryClient({
 
       <div className="w-full min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
         <div className="border-b border-slate-200 px-4 py-3 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
-          Showing {formatNumber(inventoryItems.length)} registered cron schedules. {inventoryNowWib ? `Inventory evaluated at ${inventoryNowWib} WIB.` : 'Inventory uses schedule-aware heartbeat evaluation.'}
+          Showing {formatNumber(inventoryItems.length)} known cron jobs across registered schedules and discovered runtime history. {inventoryNowWib ? `Inventory evaluated at ${inventoryNowWib} WIB.` : 'Inventory uses schedule-aware heartbeat evaluation.'}
         </div>
         <div className="space-y-4 bg-slate-50/70 px-3 py-4 dark:bg-slate-950/60 lg:hidden">
           {inventoryItems.map((job) => (
@@ -449,11 +459,11 @@ export function CronInventoryClient({
               <div className="grid grid-cols-2 gap-2 text-sm">
                 <div className="min-w-0 rounded-md bg-slate-50 p-2 ring-1 ring-slate-100 dark:bg-slate-900/60 dark:ring-slate-800">
                   <p className="text-xs text-slate-500">Schedule</p>
-                  <p className="mt-1 break-words font-medium text-slate-700 dark:text-slate-300">{job?.schedule_description || job?.schedule_expression || '-'}</p>
+                  <p className="mt-1 break-words font-medium text-slate-700 dark:text-slate-300">{job?.schedule_description || job?.schedule_expression || 'Not configured'}</p>
                 </div>
                 <div className="min-w-0 rounded-md bg-slate-50 p-2 ring-1 ring-slate-100 dark:bg-slate-900/60 dark:ring-slate-800">
                   <p className="text-xs text-slate-500">Next Run</p>
-                  <p className="mt-1 font-medium text-slate-700 dark:text-slate-300">{formatDate(job?.next_run)}</p>
+                  <p className="mt-1 font-medium text-slate-700 dark:text-slate-300">{job?.next_run ? formatDate(job.next_run) : 'No expectation'}</p>
                 </div>
                 <div className="min-w-0 rounded-md bg-slate-50 p-2 ring-1 ring-slate-100 dark:bg-slate-900/60 dark:ring-slate-800">
                   <p className="text-xs text-slate-500">Last Run</p>
@@ -461,7 +471,7 @@ export function CronInventoryClient({
                 </div>
                 <div className="min-w-0 rounded-md bg-slate-50 p-2 ring-1 ring-slate-100 dark:bg-slate-900/60 dark:ring-slate-800">
                   <p className="text-xs text-slate-500">Heartbeat</p>
-                  <p className="mt-1 font-medium text-slate-700 dark:text-slate-300">{job?.enabled ? 'Enabled' : 'Disabled'}</p>
+                  <p className="mt-1 font-medium text-slate-700 dark:text-slate-300">{job?.managed ? job?.enabled ? 'Enabled' : 'Disabled' : 'Not monitored'}</p>
                 </div>
                 <div className="min-w-0 rounded-md bg-slate-50 p-2 ring-1 ring-slate-100 dark:bg-slate-900/60 dark:ring-slate-800">
                   <p className="text-xs text-slate-500">Env</p>
@@ -473,16 +483,22 @@ export function CronInventoryClient({
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
-                <button type="button" onClick={() => openHeartbeat(job)} className="min-h-9 rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900">Configure</button>
-                <button type="button" onClick={() => toggleInventorySchedule(job)} disabled={inventoryActionId === job.id} className="min-h-9 rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900">{job.enabled ? 'Pause Monitoring' : 'Enable Heartbeat'}</button>
+                {!job?.managed ? (
+                  <button type="button" onClick={() => openHeartbeat(job)} className="min-h-9 rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900">Enable Heartbeat</button>
+                ) : (
+                  <>
+                    <button type="button" onClick={() => openHeartbeat(job)} className="min-h-9 rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900">Configure</button>
+                    <button type="button" onClick={() => toggleInventorySchedule(job)} disabled={inventoryActionId === job.id} className="min-h-9 rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900">{job.enabled ? 'Pause Monitoring' : 'Resume Monitoring'}</button>
+                  </>
+                )}
                 <Link href={runtimeHref(job)} className="min-h-9 rounded-md border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900">View Executions</Link>
               </div>
             </article>
           ))}
           {inventoryItems.length === 0 && !error ? (
             <div className="rounded-lg border border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500 shadow-sm dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
-              <p className="font-medium text-slate-700 dark:text-slate-200">No registered cron schedules match the current filters.</p>
-              <p className="mx-auto mt-2 max-w-xl">Cron Inventory shows registered expected schedules. Runtime Activity may still show observed logs that have not been registered for heartbeat monitoring yet.</p>
+              <p className="font-medium text-slate-700 dark:text-slate-200">No known cron jobs match the current filters.</p>
+              <p className="mx-auto mt-2 max-w-xl">Cron Inventory combines registered schedules with historically discovered runtime cron jobs.</p>
             </div>
           ) : null}
         </div>
@@ -504,16 +520,22 @@ export function CronInventoryClient({
               {inventoryItems.map((job) => (
                 <tr key={`inventory-${job.id || jobKey(job)}`} className="align-top">
                   <td className="max-w-[24rem] px-4 py-3 font-medium text-ink dark:text-slate-100"><Link className="block truncate hover:text-blue-700 dark:hover:text-blue-300" href={cronHref(job)}>{job?.cron_name ?? '-'}</Link></td>
-                  <td className="max-w-[18rem] px-4 py-3 text-slate-600 dark:text-slate-300"><span className="block break-words">{job?.schedule_description || job?.schedule_expression || '-'}</span></td>
-                  <td className="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-300">{formatDate(job?.next_run)}</td>
+                  <td className="max-w-[18rem] px-4 py-3 text-slate-600 dark:text-slate-300"><span className="block break-words">{job?.schedule_description || job?.schedule_expression || 'Not configured'}</span></td>
+                  <td className="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-300">{job?.next_run ? formatDate(job.next_run) : 'No expectation'}</td>
                   <td className="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-300">{formatDate(job?.last_run)}</td>
                   <td className="whitespace-nowrap px-4 py-3"><InventoryHealthBadge job={job} /></td>
-                  <td className="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-300">{job?.enabled ? 'Enabled' : 'Disabled'}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-300">{job?.managed ? job?.enabled ? 'Enabled' : 'Disabled' : 'Not monitored'}</td>
                   <td className="px-4 py-3"><div className="flex flex-wrap gap-1.5">{job?.environment ? <EnvironmentBadge env={job.environment} /> : null}<ServiceGroupBadge serviceGroup={job?.service_group} /></div></td>
                   <td className="whitespace-nowrap px-4 py-3">
                     <div className="flex flex-wrap gap-2">
-                      <button type="button" onClick={() => openHeartbeat(job)} className="min-h-9 rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900">Configure</button>
-                      <button type="button" onClick={() => toggleInventorySchedule(job)} disabled={inventoryActionId === job.id} className="min-h-9 rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900">{job.enabled ? 'Pause' : 'Enable'}</button>
+                      {!job?.managed ? (
+                        <button type="button" onClick={() => openHeartbeat(job)} className="min-h-9 rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900">Enable Heartbeat</button>
+                      ) : (
+                        <>
+                          <button type="button" onClick={() => openHeartbeat(job)} className="min-h-9 rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900">Configure</button>
+                          <button type="button" onClick={() => toggleInventorySchedule(job)} disabled={inventoryActionId === job.id} className="min-h-9 rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900">{job.enabled ? 'Pause' : 'Resume'}</button>
+                        </>
+                      )}
                       <Link href={runtimeHref(job)} className="min-h-9 rounded-md border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900">View Executions</Link>
                     </div>
                   </td>
@@ -522,8 +544,8 @@ export function CronInventoryClient({
               {inventoryItems.length === 0 && !error ? (
                 <tr>
                   <td className="px-4 py-8 text-center text-slate-500 dark:text-slate-400" colSpan={8}>
-                    <p className="font-medium text-slate-700 dark:text-slate-200">No registered cron schedules match the current filters.</p>
-                    <p className="mx-auto mt-2 max-w-xl">Cron Inventory shows registered expected schedules. Runtime Activity may still show observed logs that have not been registered for heartbeat monitoring yet.</p>
+                    <p className="font-medium text-slate-700 dark:text-slate-200">No known cron jobs match the current filters.</p>
+                    <p className="mx-auto mt-2 max-w-xl">Cron Inventory combines registered schedules with historically discovered runtime cron jobs.</p>
                   </td>
                 </tr>
               ) : null}

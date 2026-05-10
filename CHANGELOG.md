@@ -32,6 +32,8 @@ See Release History / Version Notes in the NYX About page for official shipped r
 * Expectation-aware heartbeat monitoring grounded in registered cron entities and schedule-aware operational semantics.
 * Dedicated admin-only Cron Inventory page separating operational control-plane management from runtime telemetry.
 * Inventory access flow refined through a Configure Inventory action from the Cron Runtime Activity page.
+* Cron Inventory expanded into a full known-cron registry using historical runtime discovery alongside heartbeat configurations.
+* Unmanaged cron onboarding semantics added so discovered-but-unmonitored jobs can be enrolled into heartbeat monitoring.
 
 ### Timeline Intelligence Expansion
 
