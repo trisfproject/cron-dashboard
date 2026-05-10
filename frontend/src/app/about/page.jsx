@@ -7,8 +7,122 @@ import { appMetadata } from '@/lib/appMetadata';
 
 const RELEASES = [
   {
-    version: '1.1.0',
+    version: '1.2.0',
     label: 'Current release',
+    title: 'Semantic Observability & Operational Intelligence',
+    summary: 'Evolved NYX from cron monitoring into a semantic operational observability platform with reliability-aware incidents, lifecycle persistence, predictive heartbeat states, and cleaner realtime operational correlation.',
+    sections: [
+      {
+        title: 'Semantic Incident Architecture',
+        items: [
+          'Introduced reliability-aware incident semantics that distinguish outage, degraded, and informational operational activity.',
+          'Added incident lifecycle awareness so alert triggers, recoveries, acknowledgements, notes, reminders, and maintenance events carry clearer operational meaning.',
+          'Separated root incident reliability from lifecycle event impact so informational events no longer inflate outage or degradation semantics.',
+          'Unified missing-cron, configured-rule, and lifecycle events into a more consistent semantic incident model.'
+        ]
+      },
+      {
+        title: 'Unified Incident Lifecycle Persistence',
+        items: [
+          'Backfilled configured-rule alert triggers and resolutions into the shared `incident_events` persistence path.',
+          'Added `alert_events.resolved_at` support for resolved alert tracking and lifecycle-aware alert history.',
+          'Persisted incident start, resolution, `downtime_seconds`, and `downtime_minutes` for recovery and reliability analytics.',
+          'Expanded incident storage with lifecycle-aware metadata for resolved incidents, heartbeat recovery, and configured-rule recovery events.'
+        ]
+      },
+      {
+        title: 'Dashboard Improvements',
+        items: [
+          'Redesigned the dashboard flow into a progressive operational drilldown from executive metrics to Timeline, Heartbeat Monitoring, and Active Alerts.',
+          'Positioned live execution activity, schedule continuity, and active incidents as a cohesive realtime operational monitoring cluster.',
+          'Added live/pause mode, custom range panning, and reset zoom behavior to improve realtime timeline investigation.',
+          'Removed duplicate Operational Activity surfaces from the dashboard so operators can focus on the primary observability path.'
+        ]
+      },
+      {
+        title: 'Semantic Active Alerts',
+        items: [
+          'Grouped active alerts by outage, degraded, and informational reliability class instead of presenting all alerts as a flat stream.',
+          'Added reliability-aware counters and section styling so availability-impacting incidents receive the highest visual priority.',
+          'Reduced visual weight for informational lifecycle events to preserve access without competing with active operational incidents.',
+          'Improved alert scanning by preserving owner, state, timestamp, environment, service, and history context inside a semantic incident view.'
+        ]
+      },
+      {
+        title: 'Enhanced Heartbeat Monitoring',
+        items: [
+          'Expanded heartbeat state semantics beyond healthy and missing into Healthy, Delayed, Unstable, Missing, Recovering, and Invalid schedules.',
+          'Added predictive visibility for late-but-not-yet-missing cron schedules before they escalate into missing heartbeat incidents.',
+          'Exposed heartbeat lag and state-reason metadata in dashboard and cron-list views for clearer schedule continuity analysis.',
+          'Added recovery-state monitoring after missing cron incidents resolve so operators can observe stabilization after restoration.'
+        ]
+      },
+      {
+        title: 'Timeline Improvements',
+        items: [
+          'Added contextual operational overlays for failure spikes, warning surges, recoveries, and maintenance lifecycle events.',
+          'Enriched timeline tooltips with semantic operational context while preserving the existing execution activity chart behavior.',
+          'Refined marker rendering so overlays synchronize with visible plotted datapoints and avoid detached incident-only noise.',
+          'Reduced low-signal anomaly visualization so timeline markers remain trustworthy and operationally meaningful.'
+        ]
+      },
+      {
+        title: 'Reports Enhancements',
+        items: [
+          'Added semantic reliability reporting that separates outage, degraded, informational, and recovery activity.',
+          'Refined downtime, availability, MTTR, and MTBF calculations to use outage-class incidents for more accurate reliability interpretation.',
+          'Redesigned incident trends to compare daily outages, degradations, and recoveries in WIB.',
+          'Improved report responsiveness, filtering, summary cards, problematic cron ranking, Cron Health Overview, and slowest cron analytics.'
+        ]
+      },
+      {
+        title: 'Cron Monitoring Improvements',
+        items: [
+          'Improved mobile Cron page readability with stronger card separation, spacing, subtle borders, and metadata grouping.',
+          'Added reliability-aware heartbeat badges for delayed, unstable, missing, recovering, invalid, disabled, and not-configured schedules.',
+          'Preserved dense desktop cron tables while making mobile cron entries feel like independent operational cards.',
+          'Improved operator scanning for cron name, status, heartbeat state, freshness, success rate, run count, and average duration.'
+        ]
+      },
+      {
+        title: 'Audit Simplification',
+        items: [
+          'Removed redundant Operational Activity duplication from audit and dashboard-adjacent workflows.',
+          'Simplified audit review back to focused, filterable Audit Events history with pagination.',
+          'Preserved operational traceability while reducing repeated activity summaries across observability surfaces.'
+        ]
+      },
+      {
+        title: 'Reliability & Operational Semantics',
+        items: [
+          'Added `reliability_class` semantics for outage, degraded, and informational incident classification.',
+          'Added `impact_type` classification to separate event impact from root incident reliability.',
+          'Improved downtime accuracy and operator trust by preventing lifecycle-only events from inheriting outage semantics.',
+          'Strengthened incident analytics with clearer outage/degradation distinctions across reports, dashboards, and timelines.'
+        ]
+      },
+      {
+        title: 'Backend & Database',
+        items: [
+          'Added semantic lifecycle migrations for configured-rule incident unification, impact classification, and reliability refinement.',
+          'Added incident lifecycle indexes for impact and reliability time aggregation.',
+          'Hardened reliability classification backfills for MySQL collation and charset compatibility.',
+          'Improved operational persistence for alert resolution, downtime duration, heartbeat recovery, and maintenance lifecycle events.'
+        ]
+      },
+      {
+        title: 'Upcoming',
+        items: [
+          'System Insights: operational intelligence summaries, anomaly interpretation, and predictive observability.',
+          'Cron Detail Investigation Experience: reliability history, heartbeat lifecycle history, incident drilldown, and retry/failure pattern analysis.',
+          'Timeline Intelligence Expansion: richer contextual operational markers, maintenance overlays, and anomaly intelligence.'
+        ]
+      }
+    ]
+  },
+  {
+    version: '1.1.0',
+    label: 'Previous release',
     title: 'Operational Lifecycle, Security & Alerting',
     summary: 'Expanded NYX into a governed internal operations center with scoped observability, alert lifecycle management, auditability, and stronger account security controls.',
     sections: [
