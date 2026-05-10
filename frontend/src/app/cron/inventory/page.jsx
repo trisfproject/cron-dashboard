@@ -1,12 +1,11 @@
 import crypto from 'node:crypto';
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { CronListClient } from './CronListClient';
-import { getCronList, getCurrentUser, getScopeOptions } from '@/lib/api';
+import { CronInventoryClient } from './CronInventoryClient';
+import { getCronInventory, getCurrentUser, getScopeOptions } from '@/lib/api';
 
 export const dynamic = 'force-dynamic';
 
-const PAGE_SIZE = 20;
 const SESSION_COOKIE = 'nyx_session';
 
 function parseCookie(header) {
@@ -77,7 +76,7 @@ function userFromSessionCookie(cookieHeader) {
   }
 }
 
-export default async function CronListPage({ searchParams }) {
+export default async function CronInventoryPage({ searchParams }) {
   const resolvedSearchParams = await searchParams;
   const requestHeaders = await headers();
   const cookie = requestHeaders.get('cookie') || '';
@@ -91,64 +90,63 @@ export default async function CronListPage({ searchParams }) {
   const filters = {
     cron_name: resolvedSearchParams?.cron_name || '',
     server: resolvedSearchParams?.server || '',
-    status: resolvedSearchParams?.status || '',
     env: resolvedSearchParams?.env || '',
-    service_group: resolvedSearchParams?.service_group || '',
-    range: ['today', '7d', '30d'].includes(resolvedSearchParams?.range)
-      ? resolvedSearchParams.range
-      : 'today'
+    service_group: resolvedSearchParams?.service_group || ''
   };
-  let response = { jobs: [], has_more: false, next_offset: 0, limit: PAGE_SIZE, offset: 0 };
-  let scopeOptions = { environments: [], service_groups: [] };
   let currentUser = userFromSessionCookie(cookie);
+  let inventoryResponse = { inventory: [], summary: {}, now_wib: null };
+  let scopeOptions = { environments: [], service_groups: [] };
   let error = null;
 
   try {
-    const [cronResponse, scopeResponse, userResponse] = await Promise.all([
-      getCronList({ ...filters, limit: PAGE_SIZE, offset: 0 }, apiOptions),
+    const userResponse = await getCurrentUser(apiOptions);
+    currentUser = userResponse?.user || currentUser;
+
+    if (currentUser?.role !== 'admin') {
+      redirect('/cron');
+    }
+
+    const [inventory, scopeResponse] = await Promise.all([
+      getCronInventory(filters, apiOptions),
       getScopeOptions(apiOptions).catch((scopeError) => {
         if (scopeError?.status === 401) {
           throw scopeError;
         }
 
         return { environments: [], service_groups: [] };
-      }),
-      getCurrentUser(apiOptions).catch((userError) => {
-        if (userError?.status === 401) {
-          throw userError;
-        }
-
-        return { user: null };
       })
     ]);
-    response = cronResponse || response;
-    currentUser = userResponse?.user || currentUser;
+
+    inventoryResponse = inventory || inventoryResponse;
     scopeOptions = {
       environments: Array.isArray(scopeResponse?.environments) ? scopeResponse.environments : [],
       service_groups: Array.isArray(scopeResponse?.service_groups) ? scopeResponse.service_groups : []
     };
   } catch (fetchError) {
-    if (fetchError?.status === 401) {
-      redirect('/login?next=/cron');
+    if (String(fetchError?.digest || '').startsWith('NEXT_REDIRECT')) {
+      throw fetchError;
     }
 
-    console.error('Failed to fetch cron list:', fetchError);
-    error = fetchError?.message || 'Failed to load cron jobs';
+    if (fetchError?.status === 401) {
+      redirect('/login?next=/cron/inventory');
+    }
+
+    if (fetchError?.status === 403) {
+      redirect('/cron');
+    }
+
+    console.error('Failed to fetch cron inventory:', fetchError);
+    error = fetchError?.message || 'Failed to load cron inventory';
   }
 
   return (
-    <CronListClient
-      initialJobs={Array.isArray(response?.jobs) ? response.jobs : []}
-      initialPagination={{
-        has_more: Boolean(response?.has_more),
-        next_offset: Number(response?.next_offset || 0),
-        limit: Number(response?.limit || PAGE_SIZE),
-        offset: Number(response?.offset || 0)
-      }}
+    <CronInventoryClient
+      initialInventory={Array.isArray(inventoryResponse?.inventory) ? inventoryResponse.inventory : []}
+      inventorySummary={inventoryResponse?.summary || {}}
+      inventoryNowWib={inventoryResponse?.now_wib || null}
       scopeOptions={scopeOptions}
       filters={filters}
       error={error}
-      canManageInventory={currentUser?.role === 'admin'}
     />
   );
 }

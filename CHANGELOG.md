@@ -30,6 +30,8 @@ See Release History / Version Notes in the NYX About page for official shipped r
 * Reduced operator ambiguity when historical report rows do not appear in current Cron page visibility.
 * Cron Inventory architecture separating registered expected schedules from observed runtime execution activity.
 * Expectation-aware heartbeat monitoring grounded in registered cron entities and schedule-aware operational semantics.
+* Dedicated admin-only Cron Inventory page separating operational control-plane management from runtime telemetry.
+* Inventory access flow refined through a Configure Inventory action from the Cron Runtime Activity page.
 
 ### Timeline Intelligence Expansion
 
