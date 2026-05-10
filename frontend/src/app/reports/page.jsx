@@ -482,7 +482,7 @@ function ReportsContent() {
             </div>
           </section>
 
-          <section className="grid min-w-0 gap-4 xl:grid-cols-2">
+          <section className="grid min-w-0 gap-4">
             <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950 sm:p-5">
               <div className="mb-4">
                 <h2 className="text-base font-semibold text-ink">Cron Health Overview</h2>
