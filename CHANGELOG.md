@@ -35,7 +35,8 @@ See Release History / Version Notes in the NYX About page for official shipped r
 * Refined Incident Trend semantics into operational reliability activity wording.
 * Improved report summary labels to describe reliability pressure and recovery behavior instead of accumulated ticket work.
 * Enhanced report tooltip interpretation with triggered events, recovered events, reliability balance, and operational context.
-* Added lightweight report chart zoom and pan investigation support for reliability activity windows.
+* Added investigative report chart interactions with drag-to-zoom, wheel zoom, post-zoom panning, and double-click reset.
+* Enhanced operational timeline navigation for focused reliability activity investigation windows.
 * Reduced misleading visual severity by aligning chart language and legend copy with transient reliability activity.
 
 ### Advanced Reliability Analytics

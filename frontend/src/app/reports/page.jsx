@@ -1,9 +1,9 @@
 'use client';
 
-import { Suspense, useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { AlertTriangle, Bell, Clock3, Gauge, RotateCcw, Search, ShieldCheck, TimerReset } from 'lucide-react';
-import { Brush, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Brush, CartesianGrid, Line, LineChart, ReferenceArea, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { EnvironmentBadge, ServiceGroupBadge } from '@/components/EnvironmentBadge';
 import { TimeRangeFilter } from '@/components/TimeRangeFilter';
 import { formatApiError, getReliabilityReport, getScopeOptions, getStats } from '@/lib/api';
@@ -234,11 +234,241 @@ function ReliabilityActivityChart({ trend }) {
     incidents: Number(row.incidents || 0),
     recoveries: Number(row.recoveries || 0)
   }));
+  const chartFrameRef = useRef(null);
+  const [visibleRange, setVisibleRange] = useState({ startIndex: 0, endIndex: Math.max(chartData.length - 1, 0) });
+  const [selection, setSelection] = useState(null);
+  const [panState, setPanState] = useState(null);
   const totalActivity = chartData.reduce((sum, row) => sum + row.incidents + row.recoveries, 0);
   const totalIncidents = chartData.reduce((sum, row) => sum + row.incidents, 0);
   const totalRecoveries = chartData.reduce((sum, row) => sum + row.recoveries, 0);
   const activityState = getReliabilityActivityState(totalIncidents, totalRecoveries);
   const pressureElevated = activityState.tone === 'elevated';
+  const maxIndex = Math.max(chartData.length - 1, 0);
+  const normalizedStart = Math.max(0, Math.min(visibleRange.startIndex, maxIndex));
+  const normalizedEnd = Math.max(normalizedStart, Math.min(visibleRange.endIndex, maxIndex));
+  const isZoomed = normalizedStart > 0 || normalizedEnd < maxIndex;
+  const visibleCount = normalizedEnd - normalizedStart + 1;
+  const selectionStart = selection ? chartData[Math.min(selection.startIndex, selection.endIndex)]?.day : null;
+  const selectionEnd = selection ? chartData[Math.max(selection.startIndex, selection.endIndex)]?.day : null;
+
+  useEffect(() => {
+    setVisibleRange((current) => {
+      const nextMaxIndex = Math.max(chartData.length - 1, 0);
+      const startIndex = Math.max(0, Math.min(current.startIndex, nextMaxIndex));
+      const endIndex = Math.max(startIndex, Math.min(current.endIndex, nextMaxIndex));
+
+      if (startIndex === current.startIndex && endIndex === current.endIndex) {
+        return current;
+      }
+
+      return { startIndex, endIndex };
+    });
+  }, [chartData.length]);
+
+  function normalizeRange(startIndex, endIndex) {
+    const nextStart = Math.max(0, Math.min(startIndex, maxIndex));
+    const nextEnd = Math.max(nextStart, Math.min(endIndex, maxIndex));
+
+    return { startIndex: nextStart, endIndex: nextEnd };
+  }
+
+  function clampRange(startIndex, endIndex) {
+    const width = Math.max(0, endIndex - startIndex);
+    let nextStart = Math.round(startIndex);
+    let nextEnd = Math.round(endIndex);
+
+    if (nextStart < 0) {
+      nextStart = 0;
+      nextEnd = Math.min(maxIndex, width);
+    }
+
+    if (nextEnd > maxIndex) {
+      nextEnd = maxIndex;
+      nextStart = Math.max(0, maxIndex - width);
+    }
+
+    return normalizeRange(nextStart, nextEnd);
+  }
+
+  function resetZoom() {
+    setVisibleRange({ startIndex: 0, endIndex: maxIndex });
+    setSelection(null);
+    setPanState(null);
+  }
+
+  function zoomAroundIndex(centerIndex, direction) {
+    if (chartData.length <= 2) {
+      return;
+    }
+
+    const currentCount = normalizedEnd - normalizedStart + 1;
+    const nextCount = direction < 0
+      ? Math.max(2, Math.round(currentCount * 0.72))
+      : Math.min(chartData.length, Math.round(currentCount * 1.32));
+
+    if (nextCount >= chartData.length) {
+      resetZoom();
+      return;
+    }
+
+    const centerRatio = currentCount > 1 ? (centerIndex - normalizedStart) / (currentCount - 1) : 0.5;
+    const nextStart = Math.round(centerIndex - (nextCount - 1) * centerRatio);
+    const nextEnd = nextStart + nextCount - 1;
+    setVisibleRange(clampRange(nextStart, nextEnd));
+  }
+
+  function activeIndexFromEvent(event) {
+    const labelIndex = chartData.findIndex((item) => item.day === event?.activeLabel);
+
+    if (labelIndex >= 0) {
+      return labelIndex;
+    }
+
+    const index = Number(event?.activeTooltipIndex);
+
+    if (!Number.isFinite(index)) {
+      return null;
+    }
+
+    return Math.max(0, Math.min(index, maxIndex));
+  }
+
+  function indexFromPointerEvent(event) {
+    const rect = chartFrameRef.current?.getBoundingClientRect();
+
+    if (!rect || chartData.length === 0) {
+      return null;
+    }
+
+    const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+    return Math.round(normalizedStart + ratio * Math.max(visibleCount - 1, 0));
+  }
+
+  function handleWheel(event) {
+    event.preventDefault();
+
+    if (isZoomed && Math.abs(event.deltaX) > Math.abs(event.deltaY)) {
+      const shift = Math.sign(event.deltaX) * Math.max(1, Math.round(visibleCount * 0.12));
+      setVisibleRange(clampRange(normalizedStart + shift, normalizedEnd + shift));
+      return;
+    }
+
+    const centerIndex = indexFromPointerEvent(event) ?? Math.round((normalizedStart + normalizedEnd) / 2);
+    zoomAroundIndex(centerIndex, event.deltaY);
+  }
+
+  function handleMouseDown(event) {
+    const activeIndex = activeIndexFromEvent(event);
+
+    if (activeIndex === null) {
+      return;
+    }
+
+    if (isZoomed) {
+      setPanState({ anchorIndex: activeIndex, startIndex: normalizedStart, endIndex: normalizedEnd });
+      setSelection(null);
+      return;
+    }
+
+    setSelection({ startIndex: activeIndex, endIndex: activeIndex });
+  }
+
+  function handleMouseMove(event) {
+    const activeIndex = activeIndexFromEvent(event);
+
+    if (activeIndex === null) {
+      return;
+    }
+
+    if (panState) {
+      const delta = panState.anchorIndex - activeIndex;
+      setVisibleRange(clampRange(panState.startIndex + delta, panState.endIndex + delta));
+      return;
+    }
+
+    if (selection) {
+      setSelection((current) => current ? { ...current, endIndex: activeIndex } : current);
+    }
+  }
+
+  function handleMouseUp() {
+    if (panState) {
+      setPanState(null);
+      return;
+    }
+
+    if (!selection) {
+      return;
+    }
+
+    const startIndex = Math.min(selection.startIndex, selection.endIndex);
+    const endIndex = Math.max(selection.startIndex, selection.endIndex);
+
+    if (endIndex - startIndex >= 1) {
+      setVisibleRange({ startIndex, endIndex });
+    }
+
+    setSelection(null);
+  }
+
+  function handleMouseLeave() {
+    setSelection(null);
+    setPanState(null);
+  }
+
+  function handleTouchStart(event) {
+    if (event.touches.length !== 1) {
+      return;
+    }
+
+    const activeIndex = indexFromPointerEvent(event.touches[0]);
+
+    if (activeIndex === null) {
+      return;
+    }
+
+    if (isZoomed) {
+      setPanState({ anchorIndex: activeIndex, startIndex: normalizedStart, endIndex: normalizedEnd });
+      setSelection(null);
+      return;
+    }
+
+    setSelection({ startIndex: activeIndex, endIndex: activeIndex });
+  }
+
+  function handleTouchMove(event) {
+    if (event.touches.length !== 1 || (!selection && !panState)) {
+      return;
+    }
+
+    const activeIndex = indexFromPointerEvent(event.touches[0]);
+
+    if (activeIndex === null) {
+      return;
+    }
+
+    event.preventDefault();
+
+    if (panState) {
+      const delta = panState.anchorIndex - activeIndex;
+      setVisibleRange(clampRange(panState.startIndex + delta, panState.endIndex + delta));
+      return;
+    }
+
+    setSelection((current) => current ? { ...current, endIndex: activeIndex } : current);
+  }
+
+  function handleTouchEnd() {
+    handleMouseUp();
+  }
+
+  function handleBrushChange(range) {
+    if (!range || !Number.isFinite(range.startIndex) || !Number.isFinite(range.endIndex)) {
+      return;
+    }
+
+    setVisibleRange(normalizeRange(range.startIndex, range.endIndex));
+  }
 
   if (trend.length === 0 || totalActivity === 0) {
     return <div className="px-4 py-8 text-center text-sm text-slate-500 dark:text-slate-400">No reliability activity data for this range.</div>;
@@ -260,11 +490,26 @@ function ReliabilityActivityChart({ trend }) {
         </span>
       </div>
       <div className="overflow-x-auto">
-        <div className="h-72 min-w-[36rem] px-3 py-5 sm:h-80">
+        <div
+          ref={chartFrameRef}
+          className={`h-72 min-w-[36rem] touch-pan-y px-3 py-5 sm:h-80 ${isZoomed ? 'cursor-grab active:cursor-grabbing' : 'cursor-crosshair'}`}
+          onWheel={handleWheel}
+          onDoubleClick={resetZoom}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+        >
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={chartData} margin={{ top: 10, right: 18, left: 0, bottom: 24 }}>
+            <LineChart
+              data={chartData}
+              margin={{ top: 10, right: 18, left: 0, bottom: 24 }}
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseUp={handleMouseUp}
+              onMouseLeave={handleMouseLeave}
+            >
               <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
-              <XAxis dataKey="day" tick={{ fontSize: 11 }} stroke="var(--chart-axis)" minTickGap={28} tickFormatter={(value) => String(value).slice(5)} />
+              <XAxis dataKey="day" tick={{ fontSize: 11 }} stroke="var(--chart-axis)" minTickGap={28} tickFormatter={(value) => String(value).slice(5)} interval="preserveStartEnd" />
               <YAxis tick={{ fontSize: 11 }} stroke="var(--chart-axis)" allowDecimals={false} width={42} tickCount={5} />
               <Tooltip content={<ReliabilityActivityTooltip />} />
               <Line
@@ -275,7 +520,9 @@ function ReliabilityActivityChart({ trend }) {
                 strokeWidth={2.25}
                 dot={{ r: 4, strokeWidth: 2, fill: 'var(--chart-tooltip-bg)' }}
                 activeDot={{ r: 6, strokeWidth: 2 }}
-                isAnimationActive={false}
+                isAnimationActive
+                animationDuration={220}
+                animationEasing="ease-out"
               />
               <Line
                 type="monotone"
@@ -285,10 +532,18 @@ function ReliabilityActivityChart({ trend }) {
                 strokeWidth={2.25}
                 dot={{ r: 4, strokeWidth: 2, fill: 'var(--chart-tooltip-bg)' }}
                 activeDot={{ r: 6, strokeWidth: 2 }}
-                isAnimationActive={false}
+                isAnimationActive
+                animationDuration={220}
+                animationEasing="ease-out"
               />
+              {selectionStart && selectionEnd ? (
+                <ReferenceArea x1={selectionStart} x2={selectionEnd} strokeOpacity={0.2} fill="#2563eb" fillOpacity={0.14} />
+              ) : null}
               <Brush
                 dataKey="day"
+                startIndex={normalizedStart}
+                endIndex={normalizedEnd}
+                onChange={handleBrushChange}
                 height={22}
                 travellerWidth={8}
                 stroke="#64748b"
@@ -302,7 +557,9 @@ function ReliabilityActivityChart({ trend }) {
       <div className="flex flex-wrap items-center gap-4 border-t border-slate-200 px-4 py-3 text-xs font-medium text-slate-500 dark:border-slate-800 dark:text-slate-400">
         <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-amber-500" /> Triggered events</span>
         <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-emerald-500" /> Recovered events</span>
-        <span className="text-slate-400 dark:text-slate-500">Compare reliability pressure and recovery behavior without framing transient signals as accumulated work.</span>
+        <span className="text-slate-400 dark:text-slate-500">
+          {isZoomed ? 'Drag to pan the focused window, scroll to zoom, double-click to reset.' : 'Drag across the plot to zoom into a reliability window, scroll to zoom around the pointer.'}
+        </span>
       </div>
     </div>
   );
