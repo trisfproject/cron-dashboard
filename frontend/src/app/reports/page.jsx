@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { AlertTriangle, Bell, Clock3, Gauge, RotateCcw, Search, ShieldCheck, TimerReset } from 'lucide-react';
+import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { EnvironmentBadge, ServiceGroupBadge } from '@/components/EnvironmentBadge';
 import { TimeRangeFilter } from '@/components/TimeRangeFilter';
 import { formatApiError, getReliabilityReport, getScopeOptions, getStats } from '@/lib/api';
@@ -145,11 +146,47 @@ function SummaryCard({ icon: Icon, label, value, subtext }) {
   );
 }
 
-function TrendBars({ trend }) {
-  const maxValue = Math.max(1, ...trend.map((row) => Math.max(Number(row.incidents || 0), Number(row.recoveries || 0))));
-  const totalActivity = trend.reduce((sum, row) => sum + Number(row.incidents || 0) + Number(row.recoveries || 0), 0);
-  const totalIncidents = trend.reduce((sum, row) => sum + Number(row.incidents || 0), 0);
-  const totalRecoveries = trend.reduce((sum, row) => sum + Number(row.recoveries || 0), 0);
+function IncidentTrendTooltip({ active, payload, label }) {
+  if (!active || !Array.isArray(payload) || payload.length === 0) {
+    return null;
+  }
+
+  const row = payload[0]?.payload || {};
+  const triggered = Number(row.incidents || 0);
+  const resolved = Number(row.recoveries || 0);
+  const delta = triggered - resolved;
+  const deltaLabel = `${delta > 0 ? '+' : ''}${formatNumber(delta)}`;
+
+  return (
+    <div className="rounded-md border border-[var(--chart-tooltip-border)] bg-[var(--chart-tooltip-bg)] p-3 text-sm text-[var(--chart-tooltip-text)] shadow-lg">
+      <p className="font-medium">Date: {label}</p>
+      <div className="mt-2 space-y-1">
+        <div className="flex items-center justify-between gap-6">
+          <span className="text-rose-500 dark:text-rose-300">Triggered</span>
+          <span className="font-semibold">{formatNumber(triggered)}</span>
+        </div>
+        <div className="flex items-center justify-between gap-6">
+          <span className="text-emerald-600 dark:text-emerald-300">Resolved</span>
+          <span className="font-semibold">{formatNumber(resolved)}</span>
+        </div>
+        <div className="flex items-center justify-between gap-6 border-t border-[var(--chart-tooltip-border)] pt-1">
+          <span>Delta</span>
+          <span className={`font-semibold ${delta > 0 ? 'text-amber-500 dark:text-amber-300' : 'text-emerald-600 dark:text-emerald-300'}`}>{deltaLabel}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function IncidentTrendChart({ trend }) {
+  const chartData = trend.map((row) => ({
+    ...row,
+    incidents: Number(row.incidents || 0),
+    recoveries: Number(row.recoveries || 0)
+  }));
+  const totalActivity = chartData.reduce((sum, row) => sum + row.incidents + row.recoveries, 0);
+  const totalIncidents = chartData.reduce((sum, row) => sum + row.incidents, 0);
+  const totalRecoveries = chartData.reduce((sum, row) => sum + row.recoveries, 0);
   const trendHealthy = totalRecoveries >= totalIncidents;
 
   if (trend.length === 0 || totalActivity === 0) {
@@ -168,55 +205,45 @@ function TrendBars({ trend }) {
             : 'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-900'
         }`}
         >
-          {trendHealthy ? 'Recoveries are keeping pace' : 'New incidents are outpacing recoveries'}
+          {trendHealthy ? 'Recovery pace stable' : 'Incident backlog growing'}
         </span>
       </div>
       <div className="overflow-x-auto">
-        <div className="flex min-w-[36rem] items-end gap-3 px-4 py-5">
-          {trend.map((row) => {
-            const incidents = Number(row.incidents || 0);
-            const recoveries = Number(row.recoveries || 0);
-            const outageIncidents = Number(row.outage_incidents || 0);
-            const degradedIncidents = Number(row.degraded_incidents || 0);
-            const incidentHeight = incidents > 0 ? Math.max(4, (incidents / maxValue) * 96) : 0;
-            const recoveryHeight = recoveries > 0 ? Math.max(4, (recoveries / maxValue) * 96) : 0;
-            const incidentTitle = [
-              row.day,
-              `${formatNumber(incidents)} incidents triggered`,
-              `${formatNumber(outageIncidents)} outage-class`,
-              `${formatNumber(degradedIncidents)} degradation-class`
-            ].join('\n');
-            const recoveryTitle = [
-              row.day,
-              `${formatNumber(recoveries)} incidents resolved`
-            ].join('\n');
-
-            return (
-              <div key={row.day} className="flex min-w-16 flex-1 flex-col items-center gap-2">
-                <div className="flex h-28 items-end gap-1.5">
-                  <span
-                    className="w-3 rounded-t bg-rose-500 dark:bg-rose-400"
-                    style={{ height: `${incidentHeight}px` }}
-                    title={incidentTitle}
-                    aria-label={incidentTitle}
-                  />
-                  <span
-                    className="w-3 rounded-t bg-emerald-500 dark:bg-emerald-400"
-                    style={{ height: `${recoveryHeight}px` }}
-                    title={recoveryTitle}
-                    aria-label={recoveryTitle}
-                  />
-                </div>
-                <p className="text-center text-xs font-medium text-slate-500 dark:text-slate-400">{row.day.slice(5)}</p>
-              </div>
-            );
-          })}
+        <div className="h-72 min-w-[36rem] px-3 py-5 sm:h-80">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={chartData} margin={{ top: 10, right: 18, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
+              <XAxis dataKey="day" tick={{ fontSize: 11 }} stroke="var(--chart-axis)" minTickGap={28} tickFormatter={(value) => String(value).slice(5)} />
+              <YAxis tick={{ fontSize: 11 }} stroke="var(--chart-axis)" allowDecimals={false} width={42} tickCount={5} />
+              <Tooltip content={<IncidentTrendTooltip />} />
+              <Line
+                type="monotone"
+                dataKey="incidents"
+                name="New incidents"
+                stroke="#f43f5e"
+                strokeWidth={2.5}
+                dot={{ r: 4, strokeWidth: 2, fill: 'var(--chart-tooltip-bg)' }}
+                activeDot={{ r: 6, strokeWidth: 2 }}
+                isAnimationActive={false}
+              />
+              <Line
+                type="monotone"
+                dataKey="recoveries"
+                name="Recovered incidents"
+                stroke="#10b981"
+                strokeWidth={2.5}
+                dot={{ r: 4, strokeWidth: 2, fill: 'var(--chart-tooltip-bg)' }}
+                activeDot={{ r: 6, strokeWidth: 2 }}
+                isAnimationActive={false}
+              />
+            </LineChart>
+          </ResponsiveContainer>
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-4 border-t border-slate-200 px-4 py-3 text-xs font-medium text-slate-500 dark:border-slate-800 dark:text-slate-400">
-        <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded bg-rose-500" /> Incidents Triggered</span>
-        <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded bg-emerald-500" /> Incidents Resolved</span>
-        <span className="text-slate-400 dark:text-slate-500">Green keeping pace with red means the incident queue is stabilizing.</span>
+        <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-rose-500" /> New incidents</span>
+        <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-emerald-500" /> Recovered incidents</span>
+        <span className="text-slate-400 dark:text-slate-500">When recovered incidents meet or exceed new incidents, operational pressure is stabilizing.</span>
       </div>
     </div>
   );
@@ -411,7 +438,7 @@ function ReportsContent() {
               <h2 className="text-base font-semibold text-ink">Incident Trend</h2>
               <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Compare daily triggered incidents against resolved incidents in WIB to see whether operations are stabilizing or accumulating unresolved work.</p>
             </div>
-            <TrendBars trend={trend} />
+            <IncidentTrendChart trend={trend} />
           </section>
 
           <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
