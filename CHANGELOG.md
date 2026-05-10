@@ -4,7 +4,7 @@ Current Target:
 Unreleased
 
 Released History:
-See Release History / Version Notes in the NYX About page for official shipped releases, including NYX v1.2.0.
+See Release History / Version Notes in the NYX About page for official shipped releases, including NYX v1.2.1.
 
 ---
 
@@ -22,19 +22,6 @@ See Release History / Version Notes in the NYX About page for official shipped r
 * Heartbeat lifecycle history for delayed, unstable, missing, and recovering state transitions.
 * Incident drilldown connecting cron executions, retries, failures, alerts, acknowledgements, and recovery events.
 * Retry and failure pattern analysis for recurring operational instability.
-
-### Cron Visibility Semantics
-
-* Clearer operational distinction between realtime Cron page execution windows and Reports historical analytics.
-* Cron activity context messaging for jobs with no executions in the selected operational window.
-* Reduced operator ambiguity when historical report rows do not appear in current Cron page visibility.
-* Cron Inventory architecture separating registered expected schedules from observed runtime execution activity.
-* Expectation-aware heartbeat monitoring grounded in registered cron entities and schedule-aware operational semantics.
-* Dedicated admin-only Cron Inventory page separating operational control-plane management from runtime telemetry.
-* Inventory access flow refined through a Configure Inventory action from the Cron Runtime Activity page.
-* Cron Inventory expanded into a full known-cron registry using historical runtime discovery alongside heartbeat configurations.
-* Unmanaged cron onboarding semantics added so discovered-but-unmonitored jobs can be enrolled into heartbeat monitoring.
-* Inventory UX simplified into operational governance and configuration management, reducing runtime telemetry noise.
 
 ### Timeline Intelligence Expansion
 

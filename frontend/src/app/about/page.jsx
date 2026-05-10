@@ -7,8 +7,52 @@ import { appMetadata } from '@/lib/appMetadata';
 
 const RELEASES = [
   {
-    version: '1.2.0',
+    version: '1.2.1',
     label: 'Current release',
+    title: 'Operational Governance & Cron Inventory',
+    summary: 'Expanded NYX operational governance with dedicated cron inventory management, runtime and configuration separation, unmanaged cron discovery, and enterprise-style heartbeat onboarding workflows.',
+    sections: [
+      {
+        title: 'Cron Inventory & Governance',
+        items: [
+          'Introduced dedicated `/cron/inventory` operational registry for schedule governance and heartbeat onboarding workflows.',
+          'Expanded inventory visibility to include managed, unmanaged, historical, and runtime-discovered cron jobs.',
+          'Added operational lifecycle states including unmanaged, delayed, missing, recovering, waiting, and disabled monitoring states.',
+          'Enabled heartbeat enrollment, monitoring configuration, pause controls, and execution visibility through inventory governance actions.'
+        ]
+      },
+      {
+        title: 'Runtime & Configuration Separation',
+        items: [
+          'Separated realtime runtime observability from operational configuration management between `/cron` and `/cron/inventory`.',
+          'Refined inventory semantics to focus on governance, onboarding, and operational ownership instead of runtime telemetry.',
+          'Removed telemetry-heavy execution context from inventory views to improve operational clarity and scalability.',
+          'Improved runtime activity messaging to distinguish observed execution activity from expected operational schedules.'
+        ]
+      },
+      {
+        title: 'Operational UX Improvements',
+        items: [
+          'Improved cron onboarding readability and operational scanning efficiency across inventory and runtime views.',
+          'Enhanced mobile cron layout spacing, grouping, and visual separation for responsive operational workflows.',
+          'Refined realtime timeline anomaly rendering and tooltip synchronization for cleaner operational investigation.',
+          'Improved operational messaging consistency across dashboard, reports, inventory, and alert management surfaces.'
+        ]
+      },
+      {
+        title: 'Monitoring Architecture',
+        items: [
+          'Improved inventory normalization and cron discovery architecture for expanded operational coverage.',
+          'Refined monitoring lifecycle semantics for cleaner heartbeat governance and operational ownership boundaries.',
+          'Reduced runtime and configuration overlap to support scalable enterprise operational workflows.',
+          'Expanded operational control-plane capabilities for future governance and SLA-aware monitoring enhancements.'
+        ]
+      }
+    ]
+  },
+  {
+    version: '1.2.0',
+    label: 'Previous release',
     title: 'Semantic Observability & Operational Intelligence',
     summary: 'Evolved NYX from cron monitoring into a semantic operational observability platform with reliability-aware incidents, lifecycle persistence, predictive heartbeat states, and cleaner realtime operational correlation.',
     sections: [
