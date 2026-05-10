@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { AlertTriangle, Bell, Clock3, Gauge, RotateCcw, Search, ShieldCheck, TimerReset } from 'lucide-react';
-import { Brush, CartesianGrid, Line, LineChart, ReferenceArea, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { CartesianGrid, Line, LineChart, ReferenceArea, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { EnvironmentBadge, ServiceGroupBadge } from '@/components/EnvironmentBadge';
 import { TimeRangeFilter } from '@/components/TimeRangeFilter';
 import { formatApiError, getReliabilityReport, getScopeOptions, getStats } from '@/lib/api';
@@ -462,14 +462,6 @@ function ReliabilityActivityChart({ trend }) {
     handleMouseUp();
   }
 
-  function handleBrushChange(range) {
-    if (!range || !Number.isFinite(range.startIndex) || !Number.isFinite(range.endIndex)) {
-      return;
-    }
-
-    setVisibleRange(normalizeRange(range.startIndex, range.endIndex));
-  }
-
   if (trend.length === 0 || totalActivity === 0) {
     return <div className="px-4 py-8 text-center text-sm text-slate-500 dark:text-slate-400">No reliability activity data for this range.</div>;
   }
@@ -502,7 +494,7 @@ function ReliabilityActivityChart({ trend }) {
           <ResponsiveContainer width="100%" height="100%">
             <LineChart
               data={chartData}
-              margin={{ top: 10, right: 18, left: 0, bottom: 24 }}
+              margin={{ top: 10, right: 18, left: 0, bottom: 0 }}
               onMouseDown={handleMouseDown}
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
@@ -539,17 +531,6 @@ function ReliabilityActivityChart({ trend }) {
               {selectionStart && selectionEnd ? (
                 <ReferenceArea x1={selectionStart} x2={selectionEnd} strokeOpacity={0.2} fill="#2563eb" fillOpacity={0.14} />
               ) : null}
-              <Brush
-                dataKey="day"
-                startIndex={normalizedStart}
-                endIndex={normalizedEnd}
-                onChange={handleBrushChange}
-                height={22}
-                travellerWidth={8}
-                stroke="#64748b"
-                fill="var(--chart-tooltip-bg)"
-                tickFormatter={(value) => String(value).slice(5)}
-              />
             </LineChart>
           </ResponsiveContainer>
         </div>
