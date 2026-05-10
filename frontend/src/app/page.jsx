@@ -972,6 +972,75 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
         </div>
       </section>
 
+      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-ink">Timeline</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            {isCustom && customRange?.start && customRange?.end && `Custom window from ${formatJakartaDisplay(customRange.start)} to ${formatJakartaDisplay(customRange.end)} WIB.`}
+            {!isCustom && filter.type === 'window' && `Rolling ${filter.value.toUpperCase()} realtime window.`}
+            {!isCustom && filter.type === 'range' && filter.value === 'today' && 'Today in WIB, grouped by hour.'}
+            {!isCustom && filter.type === 'range' && filter.value === '7d' && 'Last seven days, grouped by hour.'}
+            {!isCustom && filter.type === 'range' && filter.value === '30d' && 'Last thirty days, grouped by day.'}
+            {loading ? ' Refreshing...' : ''}
+          </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                if (!liveMode && isCustom) {
+                  resetZoom();
+                  return;
+                }
+
+                setLiveMode((value) => !value);
+              }}
+              className={`inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                liveMode
+                  ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+              title="Toggle live mode"
+            >
+              <Radio className="h-4 w-4" aria-hidden="true" />
+              {liveMode ? 'Live' : 'Paused'}
+            </button>
+            <button
+              type="button"
+              onClick={() => panCustomRange(-1)}
+              disabled={!isCustom}
+              className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
+              title="Pan backward by the selected window"
+            >
+              <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+              Pan
+            </button>
+            <button
+              type="button"
+              onClick={() => panCustomRange(1)}
+              disabled={!isCustom}
+              className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
+              title="Pan forward by the selected window"
+            >
+              Pan
+              <ChevronRight className="h-4 w-4" aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              onClick={resetZoom}
+              disabled={!isCustom && filter.type === 'window' && filter.value === '30m'}
+              className="inline-flex items-center gap-1 rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+              title="Reset zoom to the default 30m live window"
+            >
+              <RotateCcw className="h-4 w-4" aria-hidden="true" />
+              Reset Zoom
+            </button>
+          </div>
+        </div>
+        <TimelineChart data={timeline} interval={timelineInterval} onRangeSelect={applySelectedTimelineRange} />
+      </section>
+
       <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
@@ -1060,75 +1129,6 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
             </tbody>
           </table>
         </div>
-      </section>
-
-      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <h2 className="text-base font-semibold text-ink">Timeline</h2>
-          <p className="mt-1 text-sm text-slate-500">
-            {isCustom && customRange?.start && customRange?.end && `Custom window from ${formatJakartaDisplay(customRange.start)} to ${formatJakartaDisplay(customRange.end)} WIB.`}
-            {!isCustom && filter.type === 'window' && `Rolling ${filter.value.toUpperCase()} realtime window.`}
-            {!isCustom && filter.type === 'range' && filter.value === 'today' && 'Today in WIB, grouped by hour.'}
-            {!isCustom && filter.type === 'range' && filter.value === '7d' && 'Last seven days, grouped by hour.'}
-            {!isCustom && filter.type === 'range' && filter.value === '30d' && 'Last thirty days, grouped by day.'}
-            {loading ? ' Refreshing...' : ''}
-          </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                if (!liveMode && isCustom) {
-                  resetZoom();
-                  return;
-                }
-
-                setLiveMode((value) => !value);
-              }}
-              className={`inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-                liveMode
-                  ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-              title="Toggle live mode"
-            >
-              <Radio className="h-4 w-4" aria-hidden="true" />
-              {liveMode ? 'Live' : 'Paused'}
-            </button>
-            <button
-              type="button"
-              onClick={() => panCustomRange(-1)}
-              disabled={!isCustom}
-              className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
-              title="Pan backward by the selected window"
-            >
-              <ChevronLeft className="h-4 w-4" aria-hidden="true" />
-              Pan
-            </button>
-            <button
-              type="button"
-              onClick={() => panCustomRange(1)}
-              disabled={!isCustom}
-              className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
-              title="Pan forward by the selected window"
-            >
-              Pan
-              <ChevronRight className="h-4 w-4" aria-hidden="true" />
-            </button>
-            <button
-              type="button"
-              onClick={resetZoom}
-              disabled={!isCustom && filter.type === 'window' && filter.value === '30m'}
-              className="inline-flex items-center gap-1 rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-              title="Reset zoom to the default 30m live window"
-            >
-              <RotateCcw className="h-4 w-4" aria-hidden="true" />
-              Reset Zoom
-            </button>
-          </div>
-        </div>
-        <TimelineChart data={timeline} interval={timelineInterval} onRangeSelect={applySelectedTimelineRange} />
       </section>
 
       <section className="grid min-w-0 gap-4 xl:grid-cols-2">
