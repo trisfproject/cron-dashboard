@@ -256,40 +256,42 @@ export default function AlertsPage() {
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        {['active', 'acknowledged', 'resolved', 'all'].map((item) => (
-          <button
-            key={item}
-            type="button"
-            onClick={() => setState(item)}
-            className={`min-h-10 rounded-md px-3 py-2 text-sm font-medium capitalize ring-1 ${
-              state === item
-                ? 'bg-blue-600 text-white ring-blue-600'
-                : 'bg-white text-slate-600 ring-slate-200 hover:bg-slate-50 dark:bg-slate-950 dark:text-slate-300 dark:ring-slate-800'
-            }`}
-          >
-            {item}
-          </button>
-        ))}
-      </div>
+      <div className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white p-2.5 shadow-sm dark:border-slate-800 dark:bg-slate-950 lg:flex-row lg:items-start lg:justify-between lg:p-3">
+        <div className="flex gap-1 overflow-x-auto rounded-md bg-slate-100 p-1 dark:bg-slate-800/70">
+          {['active', 'acknowledged', 'resolved', 'all'].map((item) => (
+            <button
+              key={item}
+              type="button"
+              onClick={() => setState(item)}
+              className={`min-h-10 shrink-0 rounded px-3 py-1.5 text-sm font-medium capitalize transition-colors ${
+                state === item
+                  ? 'bg-blue-600 text-white'
+                  : 'text-slate-700 hover:bg-white dark:text-slate-200 dark:hover:bg-slate-700'
+              }`}
+            >
+              {item}
+            </button>
+          ))}
+        </div>
 
-      <div className="grid gap-2 rounded-lg border border-slate-200 bg-white p-3 shadow-sm sm:grid-cols-2 lg:max-w-xl dark:border-slate-800 dark:bg-slate-950">
-        <select
-          value={scope.env}
-          onChange={(event) => setScope((current) => ({ ...current, env: event.target.value }))}
-          className="min-h-10 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-950"
-        >
-          <option value="">All environments</option>
-          {scopeOptions.environments.map((option) => <option key={option.value} value={option.value}>{option.value}</option>)}
-        </select>
-        <select
-          value={scope.service_group}
-          onChange={(event) => setScope((current) => ({ ...current, service_group: event.target.value }))}
-          className="min-h-10 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-950"
-        >
-          <option value="">All services</option>
-          {scopeOptions.service_groups.map((option) => <option key={option.value} value={option.value}>{option.value}</option>)}
-        </select>
+        <div className="grid min-w-0 grid-cols-1 gap-2 min-[520px]:grid-cols-2 lg:flex lg:shrink-0">
+          <select
+            value={scope.env}
+            onChange={(event) => setScope((current) => ({ ...current, env: event.target.value }))}
+            className="min-h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-950 lg:w-48"
+          >
+            <option value="">All environments</option>
+            {scopeOptions.environments.map((option) => <option key={option.value} value={option.value}>{option.value}</option>)}
+          </select>
+          <select
+            value={scope.service_group}
+            onChange={(event) => setScope((current) => ({ ...current, service_group: event.target.value }))}
+            className="min-h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-950 lg:w-48"
+          >
+            <option value="">All services</option>
+            {scopeOptions.service_groups.map((option) => <option key={option.value} value={option.value}>{option.value}</option>)}
+          </select>
+        </div>
       </div>
 
       <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">

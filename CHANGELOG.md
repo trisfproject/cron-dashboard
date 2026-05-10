@@ -30,6 +30,7 @@ See Release History / Version Notes in the NYX About page for official shipped r
 * Maintenance overlays that show active windows and lifecycle context inside timeline investigation flows.
 * Anomaly intelligence that differentiates transient noise from sustained operational degradation.
 * Marker grouping and filtering controls for dense operational windows.
+* Refined Alerts toolbar grouping with clearer lifecycle/filter separation and compact responsive alert filtering controls.
 
 ### Reports Reliability Activity
 
