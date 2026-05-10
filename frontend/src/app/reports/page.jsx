@@ -12,7 +12,7 @@ import { formatDuration, formatNumber, formatPercent } from '@/lib/format';
 const VALID_RANGES = new Set(['today', '7d', '30d']);
 const VALID_SORTS = new Set(['downtime', 'incidents']);
 const REPORT_TIME_PATTERN = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$/;
-const selectClass = 'h-12 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 sm:w-44 lg:w-48 xl:w-52';
+const selectClass = 'h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 sm:h-11 sm:w-40 lg:w-44 xl:w-48';
 const REPORT_TIME_OPTIONS = [
   { type: 'range', value: 'today', label: 'Today' },
   { type: 'range', value: '7d', label: '7D' },
@@ -131,17 +131,17 @@ function getPerformanceSeverity(job) {
 
 function SummaryCard({ icon: Icon, label, value, subtext }) {
   return (
-    <section className="min-h-[7.5rem] rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950">
-      <div className="flex items-start justify-between gap-3">
+    <section className="min-h-[6rem] rounded-lg border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950 sm:min-h-[7rem] sm:p-4">
+      <div className="flex items-start justify-between gap-2 sm:gap-3">
         <div className="min-w-0">
-          <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{label}</p>
-          <p className="mt-2 break-words text-2xl font-semibold leading-tight tracking-normal text-ink">{value}</p>
+          <p className="text-xs font-medium text-slate-500 dark:text-slate-400 sm:text-sm">{label}</p>
+          <p className="mt-1 break-words text-xl font-semibold leading-tight tracking-normal text-ink sm:mt-2 sm:text-2xl">{value}</p>
         </div>
-        <span className="rounded-md bg-slate-100 p-2 text-slate-700 dark:bg-slate-900 dark:text-slate-200">
-          <Icon className="h-5 w-5" aria-hidden="true" />
+        <span className="rounded-md bg-slate-100 p-1.5 text-slate-700 dark:bg-slate-900 dark:text-slate-200 sm:p-2">
+          <Icon className="h-4 w-4 sm:h-5 sm:w-5" aria-hidden="true" />
         </span>
       </div>
-      <p className="mt-3 text-sm leading-5 text-slate-500 dark:text-slate-400">{subtext}</p>
+      <p className="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400 sm:mt-3 sm:text-sm">{subtext}</p>
     </section>
   );
 }
@@ -720,11 +720,11 @@ function ReportsContent() {
   const activeRangeLabel = rangeLabel(report?.range || filters.range, filters.start, filters.end);
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+    <div className="space-y-4 sm:space-y-6">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between sm:gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-normal text-ink">Reports</h1>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+          <h1 className="text-xl font-semibold tracking-normal text-ink sm:text-2xl">Reports</h1>
+          <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400 sm:text-sm">
             Historical operational analytics across the selected report range. Cron entries here may not appear on the realtime Cron page when they have no executions in that operational window.
           </p>
         </div>
@@ -738,10 +738,10 @@ function ReportsContent() {
 
       <form
         key={`${filters.range}:${filters.start}:${filters.end}:${filters.env}:${filters.service_group}:${filters.sort}`}
-        className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950 sm:flex-row sm:flex-wrap sm:items-start sm:p-4"
+        className="grid grid-cols-1 gap-2 rounded-lg border border-slate-200 bg-white p-2.5 shadow-sm dark:border-slate-800 dark:bg-slate-950 min-[520px]:grid-cols-2 sm:flex sm:flex-wrap sm:items-start sm:gap-2 sm:p-3"
         onSubmit={applyFilters}
       >
-        <div className="min-w-0 sm:shrink-0">
+        <div className="min-w-0 min-[520px]:col-span-2 sm:col-span-1 sm:shrink-0">
           <TimeRangeFilter
             selectedFilter={selectedFilter}
             customRange={customRange}
@@ -766,7 +766,7 @@ function ReportsContent() {
           <option value="downtime">Sort by downtime</option>
           <option value="incidents">Sort by incidents</option>
         </select>
-        <button className="inline-flex h-12 w-full min-w-32 flex-1 items-center justify-center gap-2 rounded-md bg-ink px-5 text-sm font-semibold text-white transition hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:bg-blue-600 dark:hover:bg-blue-500 dark:focus:ring-offset-slate-950 sm:w-auto" type="submit">
+        <button className="inline-flex h-10 w-full min-w-32 flex-1 items-center justify-center gap-2 rounded-md bg-ink px-4 text-sm font-semibold text-white transition hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:bg-blue-600 dark:hover:bg-blue-500 dark:focus:ring-offset-slate-950 min-[520px]:col-span-2 sm:h-11 sm:w-auto sm:px-5" type="submit">
           <Search className="h-4 w-4" aria-hidden="true" />
           <span>Apply</span>
         </button>
@@ -780,7 +780,7 @@ function ReportsContent() {
 
       {!loading ? (
         <>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-6">
+          <div className="grid grid-cols-2 gap-2 sm:gap-3 md:grid-cols-3 xl:grid-cols-6">
             <SummaryCard icon={ShieldCheck} label="Availability" value={formatPercent(summary.availability_percent)} subtext={scopeText} />
             <SummaryCard icon={AlertTriangle} label="Total incidents" value={formatNumber(summary.total_incidents)} subtext={`${formatNumber(summary.outage_incidents)} outage / ${formatNumber(summary.degraded_incidents)} degraded`} />
             <SummaryCard icon={Clock3} label="Total downtime" value={formatMinutes(summary.total_downtime_minutes)} subtext="Outage-class incidents only" />
@@ -790,18 +790,18 @@ function ReportsContent() {
           </div>
 
           <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
-            <div className="border-b border-slate-200 px-4 py-4 dark:border-slate-800">
+            <div className="border-b border-slate-200 px-3 py-3 dark:border-slate-800 sm:px-4 sm:py-4">
               <h2 className="text-base font-semibold text-ink">Reliability Activity</h2>
-              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Compare triggered operational events against recoveries in WIB to inspect reliability pressure, recovery behavior, and transient anomaly patterns.</p>
+              <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400 sm:text-sm">Compare triggered operational events against recoveries in WIB to inspect reliability pressure, recovery behavior, and transient anomaly patterns.</p>
             </div>
             <ReliabilityActivityChart trend={trend} />
           </section>
 
           <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
-            <div className="flex flex-col gap-1 border-b border-slate-200 px-4 py-4 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-1 border-b border-slate-200 px-3 py-3 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between sm:px-4 sm:py-4">
               <div>
                 <h2 className="text-base font-semibold text-ink">Most Problematic Cron</h2>
-                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400 sm:text-sm">
                   Ranked by {filters.sort === 'incidents' ? 'incident count' : 'downtime'} for {activeRangeLabel.toLowerCase()} using historical incident activity.
                 </p>
               </div>
@@ -840,20 +840,20 @@ function ReportsContent() {
             </div>
           </section>
 
-          <section className="grid min-w-0 gap-4">
-            <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950 sm:p-5">
-              <div className="mb-4">
+          <section className="grid min-w-0 gap-3 sm:gap-4">
+            <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950 sm:p-5">
+              <div className="mb-3 sm:mb-4">
                 <h2 className="text-base font-semibold text-ink">Cron Health Overview</h2>
-                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Aggregated historical cron reliability for {activeRangeLabel.toLowerCase()}.</p>
+                <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400 sm:text-sm">Aggregated historical cron reliability for {activeRangeLabel.toLowerCase()}.</p>
               </div>
-              <div className="space-y-3 sm:hidden">
+              <div className="space-y-2 sm:hidden">
                 {attentionHealthJobs.map((job, index) => (
-                  <article key={`${job?.cron_name ?? 'cron'}-${index}-mobile`} className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
-                    <div className="space-y-1">
+                  <article key={`${job?.cron_name ?? 'cron'}-${index}-mobile`} className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950">
+                    <div className="space-y-0.5">
                       <p className="text-xs font-medium uppercase tracking-normal text-slate-500 dark:text-slate-400">Cron</p>
                       <p className="min-w-0 break-words text-sm font-semibold text-ink">{job?.cron_name ?? '-'}</p>
                     </div>
-                    <div className="grid grid-cols-1 gap-3 text-sm min-[420px]:grid-cols-2">
+                    <div className="grid grid-cols-2 gap-2 text-sm">
                       <div className="min-w-0">
                         <p className="text-xs text-slate-500">Health</p>
                         <span className={`mt-1 inline-flex rounded-md px-2 py-1 text-xs font-medium ring-1 ${job.health.className}`}>{job.health.label}</span>
@@ -866,9 +866,9 @@ function ReportsContent() {
                         </div>
                       </div>
                     </div>
-                    <div className="grid grid-cols-1 gap-2 text-sm min-[420px]:grid-cols-3">
+                    <div className="grid grid-cols-3 gap-1.5 text-sm">
                       <div className="rounded-md bg-white p-2 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
-                        <p className="text-xs text-slate-500">Success rate</p>
+                        <p className="text-xs text-slate-500">Success</p>
                         <p className="mt-1 font-medium text-slate-700 dark:text-slate-200">{formatPercent(job?.success_rate ?? 0)}</p>
                       </div>
                       <div className="rounded-md bg-white p-2 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
@@ -934,24 +934,24 @@ function ReportsContent() {
               </div>
             </div>
 
-            <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950 sm:p-5">
-              <div className="mb-4">
+            <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950 sm:p-5">
+              <div className="mb-3 sm:mb-4">
                 <h2 className="text-base font-semibold text-ink">Slowest cron jobs</h2>
-                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400 sm:text-sm">
                   Highest average duration for {activeRangeLabel.toLowerCase()}. Historical rows may include crons without current-window activity on the Cron page.
                 </p>
               </div>
-              <div className="space-y-3 sm:hidden">
+              <div className="space-y-2 sm:hidden">
                 {slowestJobs.map((job, index) => {
                   const severity = getPerformanceSeverity(job);
 
                   return (
-                    <article key={`${job?.cron_name ?? 'cron'}-${index}-mobile`} className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
-                      <div className="space-y-1">
+                    <article key={`${job?.cron_name ?? 'cron'}-${index}-mobile`} className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950">
+                      <div className="space-y-0.5">
                         <p className="text-xs font-medium uppercase tracking-normal text-slate-500 dark:text-slate-400">Cron</p>
                         <p className="min-w-0 break-words text-sm font-semibold text-ink">{job?.cron_name ?? '-'}</p>
                       </div>
-                      <div className="grid grid-cols-1 gap-2 text-sm min-[420px]:grid-cols-2">
+                      <div className="grid grid-cols-2 gap-1.5 text-sm">
                         <div className="min-w-0 rounded-md bg-white p-2 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
                           <p className="text-xs text-slate-500">Status</p>
                           <span className={`mt-1 inline-flex rounded-md px-2 py-1 text-xs font-medium ring-1 ${severity.className}`}>{severity.label}</span>

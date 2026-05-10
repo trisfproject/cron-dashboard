@@ -42,6 +42,7 @@ See Release History / Version Notes in the NYX About page for official shipped r
 * Fixed custom report range popover boundary handling with viewport-aware positioning and responsive collision behavior.
 * Refined adaptive custom window popover alignment with trigger-aware sizing, anchored positioning, and dashboard/report filter consistency.
 * Rebuilt custom window positioning with trigger-anchored desktop/tablet popovers and mobile-safe viewport filter dialogs.
+* Improved Reports mobile responsiveness with compact operational filters, tighter metric cards, and denser mobile/tablet observability spacing.
 * Reduced misleading visual severity by aligning chart language and legend copy with transient reliability activity.
 
 ### Advanced Reliability Analytics
