@@ -9,7 +9,7 @@ import { EnvironmentBadge, ServiceGroupBadge } from '@/components/EnvironmentBad
 import { MetricCard } from '@/components/MetricCard';
 import { TimelineChart } from '@/components/TimelineChart';
 import { TimeRangeFilter } from '@/components/TimeRangeFilter';
-import { getAlerts, getCurrentUser, getMaintenanceWindows, getScopeOptions, getStats } from '@/lib/api';
+import { getAlerts, getCurrentUser, getIncidents, getMaintenanceWindows, getScopeOptions, getStats } from '@/lib/api';
 import { formatDuration, formatNumber, formatPercent } from '@/lib/format';
 
 const emptyStats = {
@@ -34,6 +34,7 @@ const POLL_INTERVALS = {
   stats: 10000,
   alerts: 10000,
   auth: 60000,
+  incidents: 30000,
   maintenance: 60000
 };
 const VALID_RELIABILITY_CLASSES = new Set(['outage', 'degraded', 'informational']);
@@ -134,6 +135,28 @@ const HEARTBEAT_STATUS_META = {
   }
 };
 const HEARTBEAT_STATUS_ORDER = ['healthy', 'delayed', 'unstable', 'missing', 'recovering'];
+const TIMELINE_MARKER_META = {
+  failure_spike: {
+    title: 'Failure spike',
+    shortLabel: 'Fail',
+    color: '#f43f5e'
+  },
+  warning_surge: {
+    title: 'Warning surge',
+    shortLabel: 'Warn',
+    color: '#f97316'
+  },
+  recovery: {
+    title: 'Recovery',
+    shortLabel: 'Rec',
+    color: '#3b82f6'
+  },
+  maintenance: {
+    title: 'Maintenance event',
+    shortLabel: 'Maint',
+    color: '#8b5cf6'
+  }
+};
 const VALID_WINDOWS = new Set(['5m', '15m', '30m', '1h', '4h']);
 const VALID_RANGES = new Set(['today', '7d', '30d']);
 const JAKARTA_OFFSET_MS = 7 * 60 * 60 * 1000;
@@ -156,6 +179,7 @@ function resourceLabel(resource) {
   return {
     stats: 'Stats',
     alerts: 'Alerts',
+    incidents: 'Incident context',
     auth: 'Session',
     maintenance: 'Maintenance status'
   }[resource] || 'Dashboard data';
@@ -224,6 +248,166 @@ function heartbeatStatusMeta(status) {
     rowClass: '',
     description: 'State unavailable'
   };
+}
+
+function parseWibDate(value) {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = typeof value === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(value)
+    ? `${value.replace(' ', 'T')}+07:00`
+    : value;
+  const date = new Date(normalized);
+
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function padDatePart(value) {
+  return String(value).padStart(2, '0');
+}
+
+function bucketForTimelineDate(value, interval = 'hour') {
+  const date = parseWibDate(value);
+
+  if (!date) {
+    return null;
+  }
+
+  const jakartaDate = new Date(date.getTime() + JAKARTA_OFFSET_MS);
+  const year = jakartaDate.getUTCFullYear();
+  const month = jakartaDate.getUTCMonth() + 1;
+  const day = jakartaDate.getUTCDate();
+  const hour = jakartaDate.getUTCHours();
+  const minute = jakartaDate.getUTCMinutes();
+  const second = jakartaDate.getUTCSeconds();
+  const datePart = `${year}-${padDatePart(month)}-${padDatePart(day)}`;
+
+  if (interval === 'day') {
+    return datePart;
+  }
+
+  if (interval === 'hour') {
+    return `${datePart} ${padDatePart(hour)}:00:00`;
+  }
+
+  if (interval === '15m') {
+    return `${datePart} ${padDatePart(hour)}:${padDatePart(Math.floor(minute / 15) * 15)}:00`;
+  }
+
+  if (interval === '5m') {
+    return `${datePart} ${padDatePart(hour)}:${padDatePart(Math.floor(minute / 5) * 5)}:00`;
+  }
+
+  if (interval === '1m') {
+    return `${datePart} ${padDatePart(hour)}:${padDatePart(minute)}:00`;
+  }
+
+  if (interval === '30s') {
+    return `${datePart} ${padDatePart(hour)}:${padDatePart(minute)}:${padDatePart(Math.floor(second / 30) * 30)}`;
+  }
+
+  if (interval === '10s') {
+    return `${datePart} ${padDatePart(hour)}:${padDatePart(minute)}:${padDatePart(Math.floor(second / 10) * 10)}`;
+  }
+
+  return `${datePart} ${padDatePart(hour)}:${padDatePart(minute)}:00`;
+}
+
+function timelineMarker(type, bucket, description, overrides = {}) {
+  const meta = TIMELINE_MARKER_META[type];
+
+  if (!meta || !bucket) {
+    return null;
+  }
+
+  return {
+    type,
+    bucket,
+    title: overrides.title || meta.title,
+    shortLabel: meta.shortLabel,
+    color: meta.color,
+    description
+  };
+}
+
+function timelineMarkersFromBuckets(timeline = []) {
+  const recent = timeline.filter((item) => Number(item?.total || 0) > 0);
+  const avgFailed = recent.length
+    ? recent.reduce((sum, item) => sum + Number(item.failed || 0), 0) / recent.length
+    : 0;
+  const avgWarning = recent.length
+    ? recent.reduce((sum, item) => sum + Number(item.warning || 0), 0) / recent.length
+    : 0;
+
+  return timeline.flatMap((item) => {
+    const total = Number(item.total || 0);
+    const failed = Number(item.failed || 0);
+    const warning = Number(item.warning || 0);
+    const bucket = item.bucket;
+    const markers = [];
+    const failureRate = total > 0 ? failed / total : 0;
+    const warningRate = total > 0 ? warning / total : 0;
+
+    if (failed > 0 && ((total >= 3 && failureRate >= 0.3) || failed >= Math.max(2, avgFailed * 2))) {
+      markers.push(timelineMarker(
+        'failure_spike',
+        bucket,
+        `${formatNumber(failed)} failed run${failed === 1 ? '' : 's'} in this bucket`
+      ));
+    }
+
+    if (warning > 0 && ((total >= 3 && warningRate >= 0.3) || warning >= Math.max(2, avgWarning * 2))) {
+      markers.push(timelineMarker(
+        'warning_surge',
+        bucket,
+        `${formatNumber(warning)} warning run${warning === 1 ? '' : 's'} in this bucket`
+      ));
+    }
+
+    return markers.filter(Boolean);
+  });
+}
+
+function timelineMarkersFromIncidents(incidents = [], interval = 'hour') {
+  return incidents.map((incident) => {
+    const bucket = bucketForTimelineDate(incident.occurred_at || incident.created_at || incident.started_at, interval);
+    const reliabilityClass = String(incident.reliability_class || incident.impact_type || '').toLowerCase();
+    const type = String(incident.type || incident.event_type || '').toLowerCase();
+    const incidentType = String(incident.incident_type || '').replaceAll('_', ' ');
+    const label = incident.cron_name || incident.title || incident.reason || 'Operational event';
+
+    if (['alert_resolved', 'heartbeat_recovered'].includes(type) || incident.incident_status === 'resolved') {
+      return timelineMarker('recovery', bucket, `${label} recovered`, { title: 'Recovery marker' });
+    }
+
+    if (type.startsWith('maintenance_')) {
+      return timelineMarker('maintenance', bucket, incident.reason || incident.title || 'Maintenance lifecycle event', { title: 'Maintenance marker' });
+    }
+
+    if (reliabilityClass === 'outage' || incident.severity === 'critical') {
+      return timelineMarker('failure_spike', bucket, `${label}: ${incidentType || 'outage-class incident'}`, { title: 'Outage marker' });
+    }
+
+    if (reliabilityClass === 'degraded' || incident.severity === 'warning') {
+      return timelineMarker('warning_surge', bucket, `${label}: ${incidentType || 'degraded incident'}`, { title: 'Degradation marker' });
+    }
+
+    return null;
+  }).filter(Boolean);
+}
+
+function buildTimelineMarkers(timeline = [], incidents = [], interval = 'hour') {
+  const seen = new Set();
+  return [...timelineMarkersFromBuckets(timeline), ...timelineMarkersFromIncidents(incidents, interval)]
+    .filter((marker) => {
+      const key = `${marker.type}:${marker.bucket}:${marker.title}:${marker.description}`;
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
 }
 
 async function retryOnce(label, requestFactory) {
@@ -432,6 +616,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
   const [customRange, setCustomRange] = useState(isValidCustomRange(initialCustomRange) ? initialCustomRange : null);
   const [stats, setStats] = useState(emptyStats);
   const [alerts, setAlerts] = useState([]);
+  const [incidents, setIncidents] = useState([]);
   const [maintenanceWindows, setMaintenanceWindows] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
   const [scope, setScope] = useState(initialScope);
@@ -664,6 +849,15 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
       );
     }
 
+    function runIncidents() {
+      const { scopeParams } = dashboardParams();
+      return runResource(
+        'incidents',
+        (signal) => getIncidents({ limit: 100, ...scopeParams }, { signal }),
+        (incidentData) => setIncidents(Array.isArray(incidentData?.incidents) ? incidentData.incidents : [])
+      );
+    }
+
     function runMaintenance() {
       const { scopeParams } = dashboardParams();
       return runResource(
@@ -698,6 +892,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
     function scheduleAll() {
       schedule('stats', runStats);
       schedule('alerts', runAlerts);
+      schedule('incidents', runIncidents);
       schedule('auth', runAuth);
       schedule('maintenance', runMaintenance);
     }
@@ -706,7 +901,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
       setLoading(true);
       setPollWarnings({});
 
-      await Promise.all([runAuth(), runStats(), runMaintenance()]);
+      await Promise.all([runAuth(), runStats(), runMaintenance(), runIncidents()]);
       await runAlerts();
 
       if (!cancelled) {
@@ -722,6 +917,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
       await runAuth();
       runStats();
       runAlerts();
+      runIncidents();
       runMaintenance();
       scheduleAll();
     };
@@ -818,6 +1014,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
   const summary = stats?.summary ?? {};
   const timeline = Array.isArray(stats?.timeline) ? stats.timeline : [];
   const timelineInterval = stats?.interval || 'hour';
+  const timelineMarkers = buildTimelineMarkers(timeline, incidents, timelineInterval);
   const heartbeat = stats?.heartbeat && typeof stats.heartbeat === 'object' ? stats.heartbeat : { summary: {}, schedules: [] };
   const heartbeatSummary = heartbeat.summary || {};
   const heartbeatSchedules = Array.isArray(heartbeat.schedules) ? heartbeat.schedules : [];
@@ -1038,7 +1235,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
             </button>
           </div>
         </div>
-        <TimelineChart data={timeline} interval={timelineInterval} onRangeSelect={applySelectedTimelineRange} />
+        <TimelineChart data={timeline} interval={timelineInterval} markers={timelineMarkers} onRangeSelect={applySelectedTimelineRange} />
       </section>
 
       <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">

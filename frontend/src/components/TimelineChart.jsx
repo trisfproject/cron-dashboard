@@ -8,6 +8,7 @@ import {
   Line,
   LineChart,
   ReferenceArea,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -16,8 +17,49 @@ import {
 import { useState } from 'react';
 
 const MAX_RENDERED_POINTS = 720;
+const MAX_RENDERED_MARKERS = 14;
 
-function normalizeTimeline(data) {
+function markerPriority(marker) {
+  return {
+    failure_spike: 0,
+    warning_surge: 1,
+    recovery: 2,
+    maintenance: 3
+  }[marker?.type] ?? 9;
+}
+
+function normalizeMarkers(markers = [], renderedBuckets = new Set()) {
+  const grouped = new Map();
+
+  if (!Array.isArray(markers)) {
+    return [];
+  }
+
+  markers.forEach((marker) => {
+    if (!marker?.bucket || !renderedBuckets.has(marker.bucket)) {
+      return;
+    }
+
+    const current = grouped.get(marker.bucket) || [];
+    current.push(marker);
+    grouped.set(marker.bucket, current);
+  });
+
+  return [...grouped.entries()]
+    .map(([bucket, bucketMarkers]) => {
+      const sortedMarkers = bucketMarkers.sort((left, right) => markerPriority(left) - markerPriority(right));
+
+      return {
+        bucket,
+        markers: sortedMarkers,
+        primary: sortedMarkers[0]
+      };
+    })
+    .sort((left, right) => String(left.bucket).localeCompare(String(right.bucket)))
+    .slice(-MAX_RENDERED_MARKERS);
+}
+
+function normalizeTimeline(data, markers = []) {
   const normalized = Array.isArray(data)
     ? data.map((item) => ({
         ...item,
@@ -29,12 +71,17 @@ function normalizeTimeline(data) {
       }))
     : [];
 
-  if (normalized.length <= MAX_RENDERED_POINTS) {
-    return normalized;
-  }
+  const rendered = normalized.length <= MAX_RENDERED_POINTS
+    ? normalized
+    : normalized.filter((_, index) => index % Math.ceil(normalized.length / MAX_RENDERED_POINTS) === 0);
+  const bucketSet = new Set(rendered.map((item) => item.bucket));
+  const normalizedMarkers = normalizeMarkers(markers, bucketSet);
+  const markersByBucket = new Map(normalizedMarkers.map((item) => [item.bucket, item.markers]));
 
-  const step = Math.ceil(normalized.length / MAX_RENDERED_POINTS);
-  return normalized.filter((_, index) => index % step === 0);
+  return rendered.map((item) => ({
+    ...item,
+    markers: markersByBucket.get(item.bucket) || []
+  }));
 }
 
 function toJakartaOffsetTimestamp(label) {
@@ -68,6 +115,7 @@ function TimelineTooltip({ active, payload, label, interval = 'hour' }) {
     hour: 'hour',
     day: 'day'
   }[interval] || interval;
+  const markerItems = Array.isArray(payload?.[0]?.payload?.markers) ? payload[0].payload.markers : [];
 
   return (
     <div className="rounded-md border border-[var(--chart-tooltip-border)] bg-[var(--chart-tooltip-bg)] p-3 text-sm text-[var(--chart-tooltip-text)] shadow-lg">
@@ -81,12 +129,35 @@ function TimelineTooltip({ active, payload, label, interval = 'hour' }) {
           </div>
         ))}
       </div>
+      {markerItems.length > 0 ? (
+        <div className="mt-3 border-t border-[var(--chart-tooltip-border)] pt-2">
+          <p className="text-xs font-semibold text-[var(--chart-tooltip-muted)]">Operational context</p>
+          <div className="mt-1 space-y-1.5">
+            {markerItems.map((marker, index) => (
+              <div key={`${marker.type}-${marker.title}-${marker.bucket}-${index}`} className="flex gap-2 text-xs">
+                <span className="mt-1 h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: marker.color }} aria-hidden="true" />
+                <div>
+                  <p className="font-medium">{marker.title}</p>
+                  {marker.description ? <p className="text-[var(--chart-tooltip-muted)]">{marker.description}</p> : null}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
 
-export function TimelineChart({ data = [], interval = 'hour', onRangeSelect }) {
-  const chartData = normalizeTimeline(data);
+export function TimelineChart({ data = [], interval = 'hour', markers = [], onRangeSelect }) {
+  const chartData = normalizeTimeline(data, markers);
+  const markerGroups = chartData
+    .filter((item) => Array.isArray(item.markers) && item.markers.length > 0)
+    .map((item) => ({
+      bucket: item.bucket,
+      markers: item.markers,
+      primary: item.markers[0]
+    }));
   const [selectionStart, setSelectionStart] = useState(null);
   const [selectionEnd, setSelectionEnd] = useState(null);
 
@@ -156,6 +227,23 @@ export function TimelineChart({ data = [], interval = 'hour', onRangeSelect }) {
           <Line type="linear" dataKey="success" name="Success" stroke="#10b981" strokeWidth={2} dot={false} isAnimationActive={false} />
           <Line type="linear" dataKey="failed" name="Failed" stroke="#f43f5e" strokeWidth={2} dot={false} isAnimationActive={false} />
           <Line type="linear" dataKey="warning" name="Warning" stroke="#f59e0b" strokeWidth={2} dot={false} isAnimationActive={false} />
+          {markerGroups.map((group) => (
+            <ReferenceLine
+              key={`timeline-marker-${group.bucket}-${group.primary.type}`}
+              x={group.bucket}
+              stroke={group.primary.color}
+              strokeDasharray="4 4"
+              strokeOpacity={0.72}
+              ifOverflow="extendDomain"
+              label={{
+                value: group.markers.length > 1 ? `${group.primary.shortLabel}+${group.markers.length - 1}` : group.primary.shortLabel,
+                position: 'top',
+                fill: group.primary.color,
+                fontSize: 10,
+                fontWeight: 600
+              }}
+            />
+          ))}
           {selectionStart && selectionEnd ? (
             <ReferenceArea x1={selectionStart} x2={selectionEnd} strokeOpacity={0.2} fill="#2563eb" fillOpacity={0.14} />
           ) : null}
