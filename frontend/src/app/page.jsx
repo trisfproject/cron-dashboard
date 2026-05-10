@@ -500,6 +500,13 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
     }
 
     function runLogs() {
+      if (currentUserRef.current?.role !== 'admin') {
+        setLogs([]);
+        setHasMoreLogs(false);
+        setLogsError(null);
+        return Promise.resolve();
+      }
+
       const { params, scopeParams } = dashboardParams();
       return runResource(
         'logs',
@@ -528,6 +535,9 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
 
           if (user?.role !== 'admin') {
             setAlerts([]);
+            setLogs([]);
+            setHasMoreLogs(false);
+            setLogsError(null);
           }
         }
       );
@@ -591,7 +601,8 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
       setLoading(true);
       setPollWarnings({});
 
-      await Promise.all([runAuth(), runStats(), runLogs(), runMaintenance()]);
+      await Promise.all([runAuth(), runStats(), runMaintenance()]);
+      await runLogs();
       await runAlerts();
 
       if (!cancelled) {
@@ -603,11 +614,11 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
     Object.values(timersRef.current).forEach((timer) => window.clearTimeout(timer));
     timersRef.current = {};
     Object.keys(controllersRef.current).forEach(abortResource);
-    resumePollingRef.current = () => {
+    resumePollingRef.current = async () => {
+      await runAuth();
       runStats();
       runAlerts();
       runLogs();
-      runAuth();
       runMaintenance();
       scheduleAll();
     };
@@ -632,7 +643,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
   }
 
   async function loadMoreLogs() {
-    if (logsLoadingMore || !hasMoreLogs) {
+    if (currentUserRef.current?.role !== 'admin' || logsLoadingMore || !hasMoreLogs) {
       return;
     }
 
@@ -748,6 +759,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
   const visibleHeartbeatSchedules = heartbeatSchedules.slice(0, 6);
   const logsArray = Array.isArray(logs) ? logs : [];
   const activeAlerts = Array.isArray(alerts) ? alerts : [];
+  const isAdmin = currentUser?.role === 'admin';
   const isCustom = filter.type === 'custom';
   const windowMinutes = getWindowMinutes(filter, customRange);
   const totalRuns = Number(summary.total_runs || 0);
@@ -1042,7 +1054,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
       </section>
 
       <section className="grid min-w-0 gap-4 xl:grid-cols-2">
-        {currentUser?.role === 'admin' ? (
+        {isAdmin ? (
         <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:p-5 xl:col-span-2">
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
@@ -1127,11 +1139,12 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
 
       </section>
 
+      {isAdmin ? (
       <section className="space-y-4">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h2 className="text-base font-semibold text-ink">Recent logs</h2>
-            <p className="mt-1 text-sm text-slate-500">Latest ingested executions. Showing {formatNumber(logsArray.length)} entries.</p>
+            <h2 className="text-base font-semibold text-ink">Operational Activity</h2>
+            <p className="mt-1 text-sm text-slate-500">Recent lifecycle stream, administrative operations, and ingested execution activity. Showing {formatNumber(logsArray.length)} entries.</p>
           </div>
         </div>
         <LogsTable logs={logsArray} variant="activity" />
@@ -1156,6 +1169,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
           )}
         </div>
       </section>
+      ) : null}
     </div>
   );
 }
