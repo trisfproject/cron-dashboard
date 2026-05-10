@@ -238,6 +238,7 @@ function ReliabilityActivityChart({ trend }) {
   const [visibleRange, setVisibleRange] = useState({ startIndex: 0, endIndex: Math.max(chartData.length - 1, 0) });
   const [selection, setSelection] = useState(null);
   const [panState, setPanState] = useState(null);
+  const [pinchState, setPinchState] = useState(null);
   const totalActivity = chartData.reduce((sum, row) => sum + row.incidents + row.recoveries, 0);
   const totalIncidents = chartData.reduce((sum, row) => sum + row.incidents, 0);
   const totalRecoveries = chartData.reduce((sum, row) => sum + row.recoveries, 0);
@@ -248,6 +249,7 @@ function ReliabilityActivityChart({ trend }) {
   const normalizedEnd = Math.max(normalizedStart, Math.min(visibleRange.endIndex, maxIndex));
   const isZoomed = normalizedStart > 0 || normalizedEnd < maxIndex;
   const visibleCount = normalizedEnd - normalizedStart + 1;
+  const visibleChartData = chartData.slice(normalizedStart, normalizedEnd + 1);
   const selectionStart = selection ? chartData[Math.min(selection.startIndex, selection.endIndex)]?.day : null;
   const selectionEnd = selection ? chartData[Math.max(selection.startIndex, selection.endIndex)]?.day : null;
 
@@ -294,6 +296,7 @@ function ReliabilityActivityChart({ trend }) {
     setVisibleRange({ startIndex: 0, endIndex: maxIndex });
     setSelection(null);
     setPanState(null);
+    setPinchState(null);
   }
 
   function zoomAroundIndex(centerIndex, direction) {
@@ -330,7 +333,7 @@ function ReliabilityActivityChart({ trend }) {
       return null;
     }
 
-    return Math.max(0, Math.min(index, maxIndex));
+    return Math.max(0, Math.min(normalizedStart + index, maxIndex));
   }
 
   function indexFromPointerEvent(event) {
@@ -367,10 +370,12 @@ function ReliabilityActivityChart({ trend }) {
     if (isZoomed) {
       setPanState({ anchorIndex: activeIndex, startIndex: normalizedStart, endIndex: normalizedEnd });
       setSelection(null);
+      setPinchState(null);
       return;
     }
 
     setSelection({ startIndex: activeIndex, endIndex: activeIndex });
+    setPinchState(null);
   }
 
   function handleMouseMove(event) {
@@ -414,9 +419,30 @@ function ReliabilityActivityChart({ trend }) {
   function handleMouseLeave() {
     setSelection(null);
     setPanState(null);
+    setPinchState(null);
   }
 
   function handleTouchStart(event) {
+    if (event.touches.length === 2) {
+      const firstIndex = indexFromPointerEvent(event.touches[0]);
+      const secondIndex = indexFromPointerEvent(event.touches[1]);
+      const distance = Math.abs(event.touches[0].clientX - event.touches[1].clientX);
+
+      if (firstIndex === null || secondIndex === null || distance <= 0) {
+        return;
+      }
+
+      setPinchState({
+        distance,
+        centerIndex: Math.round((firstIndex + secondIndex) / 2),
+        startIndex: normalizedStart,
+        endIndex: normalizedEnd
+      });
+      setSelection(null);
+      setPanState(null);
+      return;
+    }
+
     if (event.touches.length !== 1) {
       return;
     }
@@ -430,13 +456,39 @@ function ReliabilityActivityChart({ trend }) {
     if (isZoomed) {
       setPanState({ anchorIndex: activeIndex, startIndex: normalizedStart, endIndex: normalizedEnd });
       setSelection(null);
+      setPinchState(null);
       return;
     }
 
     setSelection({ startIndex: activeIndex, endIndex: activeIndex });
+    setPinchState(null);
   }
 
   function handleTouchMove(event) {
+    if (event.touches.length === 2 && pinchState) {
+      const distance = Math.abs(event.touches[0].clientX - event.touches[1].clientX);
+
+      if (distance <= 0) {
+        return;
+      }
+
+      event.preventDefault();
+
+      const initialCount = pinchState.endIndex - pinchState.startIndex + 1;
+      const nextCount = Math.max(2, Math.min(chartData.length, Math.round(initialCount * (pinchState.distance / distance))));
+
+      if (nextCount >= chartData.length) {
+        resetZoom();
+        return;
+      }
+
+      const centerRatio = initialCount > 1 ? (pinchState.centerIndex - pinchState.startIndex) / (initialCount - 1) : 0.5;
+      const nextStart = Math.round(pinchState.centerIndex - (nextCount - 1) * centerRatio);
+      const nextEnd = nextStart + nextCount - 1;
+      setVisibleRange(clampRange(nextStart, nextEnd));
+      return;
+    }
+
     if (event.touches.length !== 1 || (!selection && !panState)) {
       return;
     }
@@ -459,6 +511,11 @@ function ReliabilityActivityChart({ trend }) {
   }
 
   function handleTouchEnd() {
+    if (pinchState) {
+      setPinchState(null);
+      return;
+    }
+
     handleMouseUp();
   }
 
@@ -484,7 +541,7 @@ function ReliabilityActivityChart({ trend }) {
       <div className="overflow-x-auto">
         <div
           ref={chartFrameRef}
-          className={`h-72 min-w-[36rem] touch-pan-y px-3 py-5 sm:h-80 ${isZoomed ? 'cursor-grab active:cursor-grabbing' : 'cursor-crosshair'}`}
+          className={`h-72 min-w-[36rem] touch-none px-3 py-5 sm:h-80 ${isZoomed ? 'cursor-grab active:cursor-grabbing' : 'cursor-crosshair'}`}
           onWheel={handleWheel}
           onDoubleClick={resetZoom}
           onTouchStart={handleTouchStart}
@@ -493,7 +550,7 @@ function ReliabilityActivityChart({ trend }) {
         >
           <ResponsiveContainer width="100%" height="100%">
             <LineChart
-              data={chartData}
+              data={visibleChartData}
               margin={{ top: 10, right: 18, left: 0, bottom: 0 }}
               onMouseDown={handleMouseDown}
               onMouseMove={handleMouseMove}

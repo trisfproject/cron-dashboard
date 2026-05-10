@@ -36,6 +36,7 @@ See Release History / Version Notes in the NYX About page for official shipped r
 * Improved report summary labels to describe reliability pressure and recovery behavior instead of accumulated ticket work.
 * Enhanced report tooltip interpretation with triggered events, recovered events, reliability balance, and operational context.
 * Added investigative report chart interactions with drag-to-zoom, wheel zoom, post-zoom panning, and double-click reset.
+* Restored inside-only Reliability Activity navigation after slider removal, preserving wheel zoom, focused panning, and touch pinch behavior without the legacy navigator UI.
 * Enhanced operational timeline navigation for focused reliability activity investigation windows.
 * Streamlined Reliability Activity chart interaction by removing the legacy bottom slider navigator in favor of direct chart manipulation.
 * Fixed custom report range popover boundary handling with viewport-aware positioning and responsive collision behavior.
