@@ -67,9 +67,11 @@ function normalizeStatsResponse(data) {
   const source = data?.data && typeof data.data === 'object' ? data.data : data;
 
   return {
+    summary: source?.summary && typeof source.summary === 'object' ? source.summary : {},
     insights: source?.insights && typeof source.insights === 'object'
       ? source.insights
-      : { problematic_jobs: [], slowest_jobs: [] }
+      : { problematic_jobs: [], slowest_jobs: [] },
+    heartbeat: source?.heartbeat && typeof source.heartbeat === 'object' ? source.heartbeat : { summary: {} }
   };
 }
 
@@ -141,6 +143,90 @@ function SummaryCard({ icon: Icon, label, value, subtext }) {
         </span>
       </div>
       <p className="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400 sm:mt-3 sm:text-sm">{subtext}</p>
+    </section>
+  );
+}
+
+function distributionPercent(value, total) {
+  if (!total) return 0;
+  return Math.max(0, Math.min(100, (Number(value || 0) / total) * 100));
+}
+
+function ReliabilityDistribution({ statsSummary = {}, heartbeatSummary = {}, activeRangeLabel }) {
+  const successCount = Number(statsSummary.success_count || 0);
+  const warningCount = Number(statsSummary.warning_count || 0);
+  const failedCount = Number(statsSummary.failed_count || 0);
+  const totalRuns = Math.max(Number(statsSummary.total_runs || 0), successCount + warningCount + failedCount);
+  const segments = [
+    { label: 'Healthy', value: successCount, className: 'bg-emerald-500', chipClassName: 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:ring-emerald-900' },
+    { label: 'Degraded', value: warningCount, className: 'bg-amber-500', chipClassName: 'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-900' },
+    { label: 'Critical', value: failedCount, className: 'bg-rose-500', chipClassName: 'bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-950/40 dark:text-rose-200 dark:ring-rose-900' }
+  ];
+  const heartbeatMissing = Number(heartbeatSummary.missing || 0);
+  const heartbeatRecovering = Number(heartbeatSummary.recovering || 0);
+
+  return (
+    <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
+      <div className="border-b border-slate-200 px-3 py-3 dark:border-slate-800 sm:px-4">
+        <h2 className="text-base font-semibold text-ink">Reliability Distribution</h2>
+        <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400 sm:text-sm">
+          Runtime health composition for {activeRangeLabel.toLowerCase()} before deeper trend investigation.
+        </p>
+      </div>
+      <div className="space-y-3 px-3 py-3 sm:px-4">
+        <div className="flex h-3 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800" aria-label="Runtime reliability distribution">
+          {segments.map((segment) => {
+            const width = distributionPercent(segment.value, totalRuns);
+            return width > 0 ? <span key={segment.label} className={segment.className} style={{ width: `${width}%` }} title={`${segment.label}: ${formatNumber(segment.value)}`} /> : null;
+          })}
+          {totalRuns === 0 ? <span className="w-full bg-slate-200 dark:bg-slate-800" /> : null}
+        </div>
+        <div className="grid gap-2 sm:grid-cols-3">
+          {segments.map((segment) => (
+            <div key={segment.label} className={`rounded-md px-3 py-2 text-xs font-medium ring-1 ${segment.chipClassName}`}>
+              <div className="flex items-center justify-between gap-2">
+                <span>{segment.label}</span>
+                <span className="font-semibold">{formatNumber(segment.value)}</span>
+              </div>
+              <p className="mt-1 text-[0.7rem] opacity-80">{formatNumber(distributionPercent(segment.value, totalRuns), 1)}% of runs</p>
+            </div>
+          ))}
+        </div>
+        <div className="flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
+          <span className="rounded-md bg-slate-50 px-2 py-1 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">Missing heartbeat: {formatNumber(heartbeatMissing)}</span>
+          <span className="rounded-md bg-slate-50 px-2 py-1 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">Recovering: {formatNumber(heartbeatRecovering)}</span>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function IncidentClassificationBreakdown({ summary = {}, activeRangeLabel }) {
+  const items = [
+    { label: 'Outage', value: Number(summary.outage_incidents || 0), className: 'bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-950/40 dark:text-rose-200 dark:ring-rose-900' },
+    { label: 'Degraded', value: Number(summary.degraded_incidents || 0), className: 'bg-orange-50 text-orange-700 ring-orange-200 dark:bg-orange-950/40 dark:text-orange-200 dark:ring-orange-900' },
+    { label: 'Informational', value: Number(summary.informational_incidents || 0), className: 'bg-blue-50 text-blue-700 ring-blue-200 dark:bg-blue-950/40 dark:text-blue-200 dark:ring-blue-900' },
+    { label: 'Recoveries', value: Number(summary.total_recoveries || 0), className: 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:ring-emerald-900' }
+  ];
+  const totalClassified = items.reduce((sum, item) => sum + item.value, 0);
+
+  return (
+    <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
+      <div className="border-b border-slate-200 px-3 py-3 dark:border-slate-800 sm:px-4">
+        <h2 className="text-base font-semibold text-ink">Incident Classification Breakdown</h2>
+        <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400 sm:text-sm">
+          Semantic incident mix for {activeRangeLabel.toLowerCase()}, separating outage impact, degradation, informational events, and recovery activity.
+        </p>
+      </div>
+      <div className="grid gap-2 px-3 py-3 sm:grid-cols-4 sm:px-4">
+        {items.map((item) => (
+          <div key={item.label} className={`rounded-md px-3 py-2 ring-1 ${item.className}`}>
+            <p className="text-xs font-medium">{item.label}</p>
+            <p className="mt-1 text-xl font-semibold leading-tight">{formatNumber(item.value)}</p>
+            <p className="mt-1 text-[0.7rem] opacity-80">{formatNumber(distributionPercent(item.value, totalClassified), 1)}% of classified events</p>
+          </div>
+        ))}
+      </div>
     </section>
   );
 }
@@ -606,7 +692,7 @@ function ReportsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [report, setReport] = useState(null);
-  const [operationalStats, setOperationalStats] = useState({ insights: { problematic_jobs: [], slowest_jobs: [] } });
+  const [operationalStats, setOperationalStats] = useState({ summary: {}, insights: { problematic_jobs: [], slowest_jobs: [] }, heartbeat: { summary: {} } });
   const [scopeOptions, setScopeOptions] = useState({ environments: [], service_groups: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -705,6 +791,8 @@ function ReportsContent() {
   }
 
   const summary = report?.summary || {};
+  const statsSummary = operationalStats?.summary && typeof operationalStats.summary === 'object' ? operationalStats.summary : {};
+  const heartbeatSummary = operationalStats?.heartbeat?.summary && typeof operationalStats.heartbeat.summary === 'object' ? operationalStats.heartbeat.summary : {};
   const insights = operationalStats?.insights && typeof operationalStats.insights === 'object' ? operationalStats.insights : {};
   const scopeText = metricSubtext(filters.range, filters);
   const problematicCrons = Array.isArray(report?.problematic_crons) ? report.problematic_crons : [];
@@ -783,6 +871,10 @@ function ReportsContent() {
             <SummaryCard icon={Gauge} label="MTBF" value={formatMinutes(summary.mtbf_minutes)} subtext={scopeText} />
             <SummaryCard icon={Bell} label="Total alerts" value={formatNumber(summary.total_alerts)} subtext="Alert history in range" />
           </div>
+
+          <ReliabilityDistribution statsSummary={statsSummary} heartbeatSummary={heartbeatSummary} activeRangeLabel={activeRangeLabel} />
+
+          <IncidentClassificationBreakdown summary={summary} activeRangeLabel={activeRangeLabel} />
 
           <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
             <div className="border-b border-slate-200 px-3 py-3 dark:border-slate-800 sm:px-4 sm:py-4">
