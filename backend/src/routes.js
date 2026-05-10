@@ -233,7 +233,7 @@ export async function registerRoutes(app) {
       return;
     }
 
-    const adminRoutePrefixes = ['/alerts', '/alert-rules', '/cron-inventory', '/cron-schedules', '/users', '/audit-logs', '/audit'];
+    const adminRoutePrefixes = ['/alerts', '/alert-rules', '/cron-inventory', '/cron-schedules', '/reports', '/users', '/audit-logs', '/audit'];
     const routePath = request.url.split('?')[0];
 
     if (adminRoutePrefixes.some((prefix) => routePath === prefix || routePath.startsWith(`${prefix}/`))) {

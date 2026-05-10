@@ -13,7 +13,7 @@ import { getCurrentUser, recordPasswordReminderShown } from '@/lib/api';
 const NAV_ITEMS = [
   { href: '/', label: 'Dashboard', icon: Activity, adminOnly: false },
   { href: '/cron', label: 'Cron', icon: ListChecks, adminOnly: false },
-  { href: '/reports', label: 'Reports', icon: BarChart3, adminOnly: false },
+  { href: '/reports', label: 'Reports', icon: BarChart3, adminOnly: true },
   { href: '/alerts', label: 'Alerts', icon: Bell, adminOnly: true },
   { href: '/users', label: 'Users', icon: Users, adminOnly: true },
   { href: '/audit', label: 'Audit', icon: ClipboardList, adminOnly: true },

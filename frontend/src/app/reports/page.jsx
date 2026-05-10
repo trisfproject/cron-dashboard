@@ -6,7 +6,7 @@ import { AlertTriangle, Bell, Clock3, Gauge, RotateCcw, Search, ShieldCheck, Tim
 import { CartesianGrid, Line, LineChart, ReferenceArea, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { EnvironmentBadge, ServiceGroupBadge } from '@/components/EnvironmentBadge';
 import { TimeRangeFilter } from '@/components/TimeRangeFilter';
-import { formatApiError, getReliabilityReport, getScopeOptions, getStats } from '@/lib/api';
+import { formatApiError, getCurrentUser, getReliabilityReport, getScopeOptions, getStats } from '@/lib/api';
 import { formatDuration, formatNumber, formatPercent } from '@/lib/format';
 
 const VALID_RANGES = new Set(['today', '7d', '30d']);
@@ -939,12 +939,24 @@ function ReportsContent() {
     setLoading(true);
     setError('');
 
-    Promise.all([
-      getReliabilityReport(filters),
-      getStats(statsFilters).catch(() => ({ insights: { problematic_jobs: [], slowest_jobs: [] } })),
-      getScopeOptions().catch(() => ({ environments: [], service_groups: [] }))
-    ])
-      .then(([reportData, statsData, scopeData]) => {
+    getCurrentUser()
+      .then((userData) => {
+        if (cancelled) return null;
+
+        if (userData?.user?.role !== 'admin') {
+          router.replace('/');
+          return null;
+        }
+
+        return Promise.all([
+          getReliabilityReport(filters),
+          getStats(statsFilters).catch(() => ({ insights: { problematic_jobs: [], slowest_jobs: [] } })),
+          getScopeOptions().catch(() => ({ environments: [], service_groups: [] }))
+        ]);
+      })
+      .then((reportResult) => {
+        if (!reportResult || cancelled) return;
+        const [reportData, statsData, scopeData] = reportResult;
         if (cancelled) return;
         setReport(reportData);
         setOperationalStats(normalizeStatsResponse(statsData));
@@ -964,7 +976,7 @@ function ReportsContent() {
     return () => {
       cancelled = true;
     };
-  }, [filters, statsFilters]);
+  }, [filters, router, statsFilters]);
 
   function applyFilters(event) {
     event.preventDefault();
