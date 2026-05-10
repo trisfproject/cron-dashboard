@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useCallback, useState, useEffect, useRef } from 'react';
+import { Fragment, Suspense, useCallback, useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Activity, AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Clock3, DatabaseZap, ListChecks, Radio, RotateCcw, TrendingUp } from 'lucide-react';
@@ -36,6 +36,53 @@ const POLL_INTERVALS = {
   auth: 60000,
   maintenance: 60000
 };
+const VALID_RELIABILITY_CLASSES = new Set(['outage', 'degraded', 'informational']);
+const LIFECYCLE_ALERT_TYPES = new Set([
+  'alert_resolved',
+  'reminder_sent',
+  'incident_acknowledged',
+  'incident_note_added',
+  'maintenance_enabled',
+  'maintenance_disabled',
+  'maintenance_expired'
+]);
+const OUTAGE_ALERT_TYPES = new Set(['missing_cron', 'failed_threshold', 'cron_silence', 'missing_detected', 'heartbeat_recovered']);
+const DEGRADED_ALERT_TYPES = new Set(['success_rate_degradation', 'retry_storm', 'duration_anomaly', 'warning_threshold']);
+const ALERT_RELIABILITY_SECTIONS = [
+  {
+    key: 'outage',
+    label: 'Outages',
+    description: 'Availability impact, downtime, MTTR/SLA exposure',
+    Icon: AlertTriangle,
+    badgeClass: 'bg-rose-600 text-white ring-rose-600 dark:bg-rose-500 dark:ring-rose-500',
+    headerClass: 'border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-900 dark:bg-rose-950/35 dark:text-rose-100',
+    cardClass: 'border-rose-200 bg-rose-50/80 shadow-sm dark:border-rose-900 dark:bg-rose-950/35',
+    rowClass: 'bg-rose-50/45 dark:bg-rose-950/20',
+    iconClass: 'text-rose-600 dark:text-rose-300'
+  },
+  {
+    key: 'degraded',
+    label: 'Degraded',
+    description: 'Reliability degradation or non-outage incident',
+    Icon: TrendingUp,
+    badgeClass: 'bg-amber-100 text-amber-800 ring-amber-200 dark:bg-amber-950/60 dark:text-amber-100 dark:ring-amber-900',
+    headerClass: 'border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100',
+    cardClass: 'border-amber-200 bg-amber-50/60 dark:border-amber-900 dark:bg-amber-950/25',
+    rowClass: 'bg-amber-50/35 dark:bg-amber-950/15',
+    iconClass: 'text-amber-600 dark:text-amber-300'
+  },
+  {
+    key: 'informational',
+    label: 'Informational',
+    description: 'Lifecycle or acknowledgement context only',
+    Icon: Activity,
+    badgeClass: 'bg-sky-50 text-sky-700 ring-sky-200 dark:bg-sky-950/50 dark:text-sky-100 dark:ring-sky-900',
+    headerClass: 'border-sky-100 bg-sky-50/70 text-sky-900 dark:border-sky-900/70 dark:bg-sky-950/20 dark:text-sky-100',
+    cardClass: 'border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950/70',
+    rowClass: 'bg-white dark:bg-slate-950/30',
+    iconClass: 'text-sky-600 dark:text-sky-300'
+  }
+];
 const VALID_WINDOWS = new Set(['5m', '15m', '30m', '1h', '4h']);
 const VALID_RANGES = new Set(['today', '7d', '30d']);
 const JAKARTA_OFFSET_MS = 7 * 60 * 60 * 1000;
@@ -61,6 +108,60 @@ function resourceLabel(resource) {
     auth: 'Session',
     maintenance: 'Maintenance status'
   }[resource] || 'Dashboard data';
+}
+
+function getAlertReliabilityClass(alert = {}) {
+  const reliabilityClass = String(alert.reliability_class || '').toLowerCase();
+  const impactType = String(alert.impact_type || '').toLowerCase();
+
+  if (VALID_RELIABILITY_CLASSES.has(reliabilityClass)) {
+    return reliabilityClass;
+  }
+
+  if (VALID_RELIABILITY_CLASSES.has(impactType)) {
+    return impactType;
+  }
+
+  const type = String(alert.type || alert.incident_type || '').toLowerCase();
+  const severity = String(alert.severity || '').toLowerCase();
+
+  if (LIFECYCLE_ALERT_TYPES.has(type)) {
+    return 'informational';
+  }
+
+  if (OUTAGE_ALERT_TYPES.has(type)) {
+    return 'outage';
+  }
+
+  if (DEGRADED_ALERT_TYPES.has(type)) {
+    return 'degraded';
+  }
+
+  if (severity === 'critical') {
+    return 'outage';
+  }
+
+  if (severity === 'warning') {
+    return 'degraded';
+  }
+
+  return 'informational';
+}
+
+function groupAlertsByReliability(alerts = []) {
+  const grouped = ALERT_RELIABILITY_SECTIONS.reduce((acc, section) => {
+    acc[section.key] = [];
+    return acc;
+  }, {});
+
+  alerts.forEach((alert) => {
+    grouped[getAlertReliabilityClass(alert)].push(alert);
+  });
+
+  return ALERT_RELIABILITY_SECTIONS.map((section) => ({
+    ...section,
+    alerts: grouped[section.key] || []
+  }));
 }
 
 async function retryOnce(label, requestFactory) {
@@ -663,6 +764,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
   const activeMaintenance = maintenanceWindows[0] || null;
   const visibleHeartbeatSchedules = heartbeatSchedules.slice(0, 6);
   const activeAlerts = Array.isArray(alerts) ? alerts : [];
+  const activeAlertSections = groupAlertsByReliability(activeAlerts);
   const isAdmin = currentUser?.role === 'admin';
   const isCustom = filter.type === 'custom';
   const windowMinutes = getWindowMinutes(filter, customRange);
@@ -969,30 +1071,69 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
               View history
             </Link>
           </div>
-          <div className="space-y-3 md:hidden">
-            {activeAlerts.map((alert) => (
-              <article key={alert.id} className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
-                <div className="flex flex-col gap-2 min-[420px]:flex-row min-[420px]:items-start min-[420px]:justify-between">
-                  <p className="min-w-0 break-words text-sm font-semibold text-ink">{alert.cron_name || 'All monitored cron jobs'}</p>
-                  <span className="shrink-0"><AlertSeverityBadge severity={alert.severity} /></span>
+          <div className="mb-4 grid gap-2 sm:grid-cols-3">
+            {activeAlertSections.map((section) => {
+              const Icon = section.Icon;
+
+              return (
+                <div key={section.key} className={`flex min-w-0 items-center justify-between gap-3 rounded-md border px-3 py-2 ${section.headerClass}`}>
+                  <div className="flex min-w-0 items-center gap-2">
+                    <Icon className={`h-4 w-4 shrink-0 ${section.iconClass}`} aria-hidden="true" />
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold">{section.label}</p>
+                      <p className="truncate text-xs opacity-75">{section.description}</p>
+                    </div>
+                  </div>
+                  <span className={`shrink-0 rounded-md px-2 py-1 text-xs font-semibold ring-1 ${section.badgeClass}`}>
+                    {section.alerts.length}
+                  </span>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  {alert.env ? <EnvironmentBadge env={alert.env} /> : null}
-                  <ServiceGroupBadge serviceGroup={alert.service_group} />
-                </div>
-                <p className="break-words text-sm text-slate-600 dark:text-slate-300">{alert.reason}</p>
-                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                  <AlertStateBadge state={alert.state} />
-                  <span>{alert.triggered_at || '-'}</span>
-                  {alert.acknowledged_at ? (
-                    <span>Acknowledged by {alert.acknowledged_by_name || alert.acknowledged_by_email || 'operator'} at {alert.acknowledged_at}</span>
-                  ) : null}
-                </div>
-              </article>
-            ))}
-            {activeAlerts.length === 0 ? (
+              );
+            })}
+          </div>
+          <div className="space-y-4 md:hidden">
+            {activeAlerts.length > 0 ? activeAlertSections.map((section) => {
+              const Icon = section.Icon;
+
+              if (section.alerts.length === 0) {
+                return null;
+              }
+
+              return (
+                <section key={section.key} className="space-y-2">
+                  <div className={`flex items-center justify-between rounded-md border px-3 py-2 ${section.headerClass}`}>
+                    <div className="flex items-center gap-2">
+                      <Icon className={`h-4 w-4 ${section.iconClass}`} aria-hidden="true" />
+                      <h3 className="text-sm font-semibold">{section.label} ({section.alerts.length})</h3>
+                    </div>
+                  </div>
+                  <div className={section.key === 'informational' ? 'space-y-2' : 'space-y-3'}>
+                    {section.alerts.map((alert) => (
+                      <article key={alert.id} className={`${section.key === 'informational' ? 'space-y-2 rounded-md p-3' : 'space-y-3 rounded-lg p-4'} border ${section.cardClass}`}>
+                        <div className="flex flex-col gap-2 min-[420px]:flex-row min-[420px]:items-start min-[420px]:justify-between">
+                          <p className={`min-w-0 break-words font-semibold text-ink ${section.key === 'informational' ? 'text-xs' : 'text-sm'}`}>{alert.cron_name || 'All monitored cron jobs'}</p>
+                          <span className="shrink-0"><AlertSeverityBadge severity={alert.severity} /></span>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {alert.env ? <EnvironmentBadge env={alert.env} /> : null}
+                          <ServiceGroupBadge serviceGroup={alert.service_group} />
+                        </div>
+                        <p className={`break-words text-slate-600 dark:text-slate-300 ${section.key === 'informational' ? 'text-xs' : 'text-sm'}`}>{alert.reason}</p>
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                          <AlertStateBadge state={alert.state} />
+                          <span>{alert.triggered_at || '-'}</span>
+                          {alert.acknowledged_at ? (
+                            <span>Acknowledged by {alert.acknowledged_by_name || alert.acknowledged_by_email || 'operator'} at {alert.acknowledged_at}</span>
+                          ) : null}
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              );
+            }) : (
               <div className="rounded-lg bg-emerald-50 px-3 py-8 text-center text-sm text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:ring-emerald-900">No active alerts. Cron monitoring is quiet.</div>
-            ) : null}
+            )}
           </div>
           <div className="hidden min-w-0 overflow-x-auto rounded-md md:block">
             <table className="min-w-[72rem] divide-y divide-slate-200 text-sm dark:divide-slate-800">
@@ -1008,28 +1149,54 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {activeAlerts.map((alert) => (
-                  <tr key={alert.id} className="align-top">
-                    <td className="max-w-[18rem] truncate px-3 py-2 font-medium text-ink">{alert.cron_name || 'All monitored cron jobs'}</td>
-                    <td className="whitespace-nowrap px-3 py-2"><AlertSeverityBadge severity={alert.severity} /></td>
-                    <td className="whitespace-nowrap px-3 py-2">
-                      <div className="flex flex-wrap gap-1.5">
-                        {alert.env ? <EnvironmentBadge env={alert.env} /> : null}
-                        <ServiceGroupBadge serviceGroup={alert.service_group} />
-                      </div>
-                    </td>
-                    <td className="min-w-[18rem] max-w-[28rem] px-3 py-2 text-slate-600 dark:text-slate-300">
-                      <p className="break-words">{alert.reason}</p>
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-2 text-slate-600 dark:text-slate-300">{alert.triggered_at || '-'}</td>
-                    <td className="whitespace-nowrap px-3 py-2"><AlertStateBadge state={alert.state} /></td>
-                    <td className="whitespace-nowrap px-3 py-2 text-slate-600 dark:text-slate-300">
-                      {alert.acknowledged_at ? (
-                        <span>{alert.acknowledged_by_name || alert.acknowledged_by_email || 'operator'} · {alert.acknowledged_at}</span>
-                      ) : '-'}
-                    </td>
-                  </tr>
-                ))}
+                {activeAlertSections.map((section) => {
+                  const Icon = section.Icon;
+
+                  if (section.alerts.length === 0) {
+                    return null;
+                  }
+
+                  return (
+                    <Fragment key={section.key}>
+                      <tr className={`${section.headerClass} border-y`}>
+                        <td className="px-3 py-2" colSpan={7}>
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex min-w-0 items-center gap-2">
+                              <Icon className={`h-4 w-4 shrink-0 ${section.iconClass}`} aria-hidden="true" />
+                              <span className="font-semibold">{section.label} ({section.alerts.length})</span>
+                              <span className="truncate text-xs opacity-75">{section.description}</span>
+                            </div>
+                            <span className={`rounded-md px-2 py-1 text-xs font-semibold ring-1 ${section.badgeClass}`}>
+                              {section.alerts.length}
+                            </span>
+                          </div>
+                        </td>
+                      </tr>
+                      {section.alerts.map((alert) => (
+                        <tr key={alert.id} className={`align-top ${section.rowClass}`}>
+                          <td className={`max-w-[18rem] truncate px-3 font-medium text-ink ${section.key === 'informational' ? 'py-1.5 text-xs' : 'py-2'}`}>{alert.cron_name || 'All monitored cron jobs'}</td>
+                          <td className={`whitespace-nowrap px-3 ${section.key === 'informational' ? 'py-1.5' : 'py-2'}`}><AlertSeverityBadge severity={alert.severity} /></td>
+                          <td className={`whitespace-nowrap px-3 ${section.key === 'informational' ? 'py-1.5' : 'py-2'}`}>
+                            <div className="flex flex-wrap gap-1.5">
+                              {alert.env ? <EnvironmentBadge env={alert.env} /> : null}
+                              <ServiceGroupBadge serviceGroup={alert.service_group} />
+                            </div>
+                          </td>
+                          <td className={`min-w-[18rem] max-w-[28rem] px-3 text-slate-600 dark:text-slate-300 ${section.key === 'informational' ? 'py-1.5 text-xs' : 'py-2'}`}>
+                            <p className="break-words">{alert.reason}</p>
+                          </td>
+                          <td className={`whitespace-nowrap px-3 text-slate-600 dark:text-slate-300 ${section.key === 'informational' ? 'py-1.5 text-xs' : 'py-2'}`}>{alert.triggered_at || '-'}</td>
+                          <td className={`whitespace-nowrap px-3 ${section.key === 'informational' ? 'py-1.5' : 'py-2'}`}><AlertStateBadge state={alert.state} /></td>
+                          <td className={`whitespace-nowrap px-3 text-slate-600 dark:text-slate-300 ${section.key === 'informational' ? 'py-1.5 text-xs' : 'py-2'}`}>
+                            {alert.acknowledged_at ? (
+                              <span>{alert.acknowledged_by_name || alert.acknowledged_by_email || 'operator'} · {alert.acknowledged_at}</span>
+                            ) : '-'}
+                          </td>
+                        </tr>
+                      ))}
+                    </Fragment>
+                  );
+                })}
                 {activeAlerts.length === 0 ? (
                   <tr>
                     <td className="px-3 py-8 text-center text-emerald-700 dark:text-emerald-200" colSpan={7}>No active alerts. Cron monitoring is quiet.</td>
