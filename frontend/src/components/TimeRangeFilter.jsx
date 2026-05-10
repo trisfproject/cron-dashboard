@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Calendar, RefreshCw, X } from 'lucide-react';
 
 const OPTIONS = [
@@ -24,6 +24,9 @@ const REFRESH_OPTIONS = [
 const MAX_DAYS = 365;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const JAKARTA_OFFSET_MS = 7 * 60 * 60 * 1000;
+const POPOVER_MARGIN = 16;
+const POPOVER_GAP = 8;
+const POPOVER_MAX_WIDTH = 448;
 
 function parseJakartaDateTime(value) {
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value || '')) {
@@ -99,7 +102,18 @@ export function TimeRangeFilter({
   const [open, setOpen] = useState(false);
   const [draftStart, setDraftStart] = useState(toJakartaInputValue(customRange?.start));
   const [draftEnd, setDraftEnd] = useState(toJakartaInputValue(customRange?.end));
+  const [popoverPosition, setPopoverPosition] = useState(null);
   const popoverRef = useRef(null);
+  const customTriggerRef = useRef(null);
+  const panelRef = useRef(null);
+
+  const error = useMemo(() => {
+    if (!draftStart && !draftEnd) {
+      return null;
+    }
+
+    return validateRange(draftStart, draftEnd);
+  }, [draftStart, draftEnd]);
 
   useEffect(() => {
     setDraftStart(toJakartaInputValue(customRange?.start));
@@ -117,13 +131,58 @@ export function TimeRangeFilter({
     return () => document.removeEventListener('pointerdown', onPointerDown);
   }, []);
 
-  const error = useMemo(() => {
-    if (!draftStart && !draftEnd) {
-      return null;
+  useEffect(() => {
+    function onKeyDown(event) {
+      if (event.key === 'Escape') {
+        setOpen(false);
+      }
     }
 
-    return validateRange(draftStart, draftEnd);
-  }, [draftStart, draftEnd]);
+    if (!open) {
+      return undefined;
+    }
+
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [open]);
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setPopoverPosition(null);
+      return undefined;
+    }
+
+    function updatePopoverPosition() {
+      const triggerRect = customTriggerRef.current?.getBoundingClientRect();
+
+      if (!triggerRect) {
+        return;
+      }
+
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      const width = Math.min(POPOVER_MAX_WIDTH, Math.max(280, viewportWidth - POPOVER_MARGIN * 2));
+      const measuredHeight = panelRef.current?.offsetHeight || 320;
+      const centeredLeft = triggerRect.left + triggerRect.width / 2 - width / 2;
+      const left = Math.min(Math.max(centeredLeft, POPOVER_MARGIN), viewportWidth - width - POPOVER_MARGIN);
+      const belowTop = triggerRect.bottom + POPOVER_GAP;
+      const aboveTop = triggerRect.top - measuredHeight - POPOVER_GAP;
+      const shouldPlaceAbove = belowTop + measuredHeight > viewportHeight - POPOVER_MARGIN && aboveTop >= POPOVER_MARGIN;
+      const unclampedTop = shouldPlaceAbove ? aboveTop : belowTop;
+      const top = Math.min(Math.max(unclampedTop, POPOVER_MARGIN), Math.max(POPOVER_MARGIN, viewportHeight - measuredHeight - POPOVER_MARGIN));
+
+      setPopoverPosition({ left, top, width });
+    }
+
+    updatePopoverPosition();
+    window.addEventListener('resize', updatePopoverPosition);
+    window.addEventListener('scroll', updatePopoverPosition, true);
+
+    return () => {
+      window.removeEventListener('resize', updatePopoverPosition);
+      window.removeEventListener('scroll', updatePopoverPosition, true);
+    };
+  }, [customDescription, draftEnd, draftStart, error, open]);
 
   const isCustom = selectedFilter?.type === 'custom';
   const activeLabel = isCustom && customRange?.start && customRange?.end
@@ -172,8 +231,11 @@ export function TimeRangeFilter({
           })}
 
           <button
+            ref={customTriggerRef}
             type="button"
             onClick={() => setOpen((value) => !value)}
+            aria-expanded={open}
+            aria-haspopup="dialog"
             className={`compact-control inline-flex shrink-0 items-center gap-1 rounded px-2.5 py-1 text-xs font-medium transition-colors sm:min-h-10 sm:px-3 sm:py-1.5 sm:text-sm ${
               isCustom
                 ? 'bg-blue-600 text-white'
@@ -214,7 +276,19 @@ export function TimeRangeFilter({
       ) : null}
 
       {open ? (
-        <div className="absolute left-0 right-auto top-full z-20 mt-2 w-[calc(100vw-2rem)] max-w-md rounded-lg border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900 sm:left-auto sm:right-0">
+        <div
+          ref={panelRef}
+          role="dialog"
+          aria-label="Custom report time window"
+          className="fixed z-20 rounded-lg border border-slate-200 bg-white p-4 shadow-xl transition-[opacity,transform] duration-150 ease-out dark:border-slate-700 dark:bg-slate-900"
+          style={{
+            left: popoverPosition ? `${popoverPosition.left}px` : '50%',
+            top: popoverPosition ? `${popoverPosition.top}px` : '50%',
+            width: popoverPosition ? `${popoverPosition.width}px` : `min(${POPOVER_MAX_WIDTH}px, calc(100vw - ${POPOVER_MARGIN * 2}px))`,
+            opacity: popoverPosition ? 1 : 0,
+            transform: popoverPosition ? 'translateY(0)' : 'translate(-50%, -50%)'
+          }}
+        >
           <div className="mb-3">
             <p className="text-sm font-semibold text-ink dark:text-slate-100">Custom window</p>
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{customDescription}</p>
