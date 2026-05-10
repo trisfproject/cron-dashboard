@@ -15,9 +15,9 @@ const ACTIVITY_PAGE_SIZE = 5;
 
 function PasswordField({ id, label, value, onChange, visible, onToggle, autoComplete }) {
   return (
-    <label className="block space-y-1.5">
-      <span className="text-sm font-medium text-slate-600 dark:text-slate-300">{label}</span>
-      <span className="flex min-h-11 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-100 dark:border-slate-800 dark:bg-slate-950 dark:focus-within:border-blue-400 dark:focus-within:ring-blue-950">
+    <label className="block space-y-1 lg:space-y-1.5">
+      <span className="text-xs font-medium text-slate-600 dark:text-slate-300 lg:text-sm">{label}</span>
+      <span className="flex min-h-10 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-100 dark:border-slate-800 dark:bg-slate-950 dark:focus-within:border-blue-400 dark:focus-within:ring-blue-950 lg:min-h-11">
         <input
           id={id}
           type={visible ? 'text' : 'password'}
@@ -209,37 +209,37 @@ export default function AccountPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-5 lg:space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-normal text-ink">Session Security</h1>
-        <p className="mt-1 text-sm text-slate-500">Review your current NYX session and recent authentication activity.</p>
+        <h1 className="text-xl font-semibold tracking-normal text-ink lg:text-2xl">Session Security</h1>
+        <p className="mt-1 text-xs leading-5 text-slate-500 lg:text-sm">Review your current NYX session and recent authentication activity.</p>
       </div>
 
       {error ? <p className="rounded-md bg-rose-50 p-3 text-sm font-medium text-rose-700 dark:bg-rose-950/40 dark:text-rose-200">{error}</p> : null}
-      {loading ? <div className="rounded-lg border border-slate-200 bg-white p-8 text-center text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-950">Loading session...</div> : null}
+      {loading ? <div className="rounded-lg border border-slate-200 bg-white p-6 text-center text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-950 lg:p-8">Loading session...</div> : null}
 
       {user ? (
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-          <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+        <section className="grid gap-2 md:grid-cols-2 md:gap-3 xl:grid-cols-5 xl:gap-4">
+          <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950 lg:p-4">
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Current user</p>
-            <p className="mt-2 font-semibold text-ink">{user.name}</p>
-            <p className="text-sm text-slate-500">{user.email}</p>
+            <p className="mt-1.5 font-semibold text-ink lg:mt-2">{user.name}</p>
+            <p className="text-xs text-slate-500 lg:text-sm">{user.email}</p>
           </div>
-          <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+          <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950 lg:p-4">
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Role</p>
-            <p className="mt-2 font-semibold uppercase text-ink">{user.role}</p>
+            <p className="mt-1.5 font-semibold uppercase text-ink lg:mt-2">{user.role}</p>
           </div>
-          <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+          <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950 lg:p-4">
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Session</p>
-            <p className="mt-2 font-semibold text-emerald-700 dark:text-emerald-200">Active</p>
+            <p className="mt-1.5 font-semibold text-emerald-700 dark:text-emerald-200 lg:mt-2">Active</p>
           </div>
-          <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+          <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950 lg:p-4">
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Last login</p>
-            <p className="mt-2 font-semibold text-ink">{user.last_login_at || 'Current session'}</p>
+            <p className="mt-1.5 font-semibold text-ink lg:mt-2">{user.last_login_at || 'Current session'}</p>
           </div>
-          <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+          <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950 lg:p-4">
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Password age</p>
-            <p className="mt-2 font-semibold text-ink">{passwordAgeLabel(user.password_security)}</p>
+            <p className="mt-1.5 font-semibold text-ink lg:mt-2">{passwordAgeLabel(user.password_security)}</p>
             <p className={`mt-1 text-xs font-medium ${
               user.password_security?.password_reminder_stage === 'force_ready'
                 ? 'text-rose-600 dark:text-rose-300'
@@ -254,20 +254,20 @@ export default function AccountPage() {
         </section>
       ) : null}
 
-      <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
-        <form onSubmit={handlePasswordSubmit} className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950 sm:p-5">
-          <div className="mb-5 flex items-start gap-3">
-            <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-blue-50 text-blue-700 ring-1 ring-blue-200 dark:bg-blue-950/40 dark:text-blue-200 dark:ring-blue-900">
-              <ShieldCheck className="h-5 w-5" aria-hidden="true" />
+      <section className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_22rem] lg:gap-4">
+        <form onSubmit={handlePasswordSubmit} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950 md:p-4 lg:p-5">
+          <div className="mb-3 flex items-start gap-2.5 md:mb-4 lg:mb-5 lg:gap-3">
+            <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-blue-50 text-blue-700 ring-1 ring-blue-200 dark:bg-blue-950/40 dark:text-blue-200 dark:ring-blue-900 lg:h-9 lg:w-9">
+              <ShieldCheck className="h-4 w-4 lg:h-5 lg:w-5" aria-hidden="true" />
             </span>
             <div>
               <h2 className="text-base font-semibold text-ink">Change Password</h2>
-              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Update your NYX password and invalidate other active sessions.</p>
+              <p className="mt-0.5 text-xs leading-5 text-slate-500 dark:text-slate-400 lg:mt-1 lg:text-sm">Update your NYX password and invalidate other active sessions.</p>
             </div>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="md:col-span-2">
+          <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-2 lg:gap-4">
+            <div className="lg:col-span-2">
               <PasswordField
                 id="current-password"
                 label="Current password"
@@ -299,37 +299,37 @@ export default function AccountPage() {
           </div>
 
           {!confirmationMatches ? (
-            <p className="mt-3 rounded-md bg-amber-50 p-3 text-sm font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-200">New password confirmation does not match.</p>
+            <p className="mt-3 rounded-md bg-amber-50 p-2.5 text-sm font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-200 lg:p-3">New password confirmation does not match.</p>
           ) : null}
           {reusedPassword ? (
-            <p className="mt-3 rounded-md bg-amber-50 p-3 text-sm font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-200">New password must be different from your current password.</p>
+            <p className="mt-3 rounded-md bg-amber-50 p-2.5 text-sm font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-200 lg:p-3">New password must be different from your current password.</p>
           ) : null}
           {passwordError ? (
-            <p className="mt-3 whitespace-pre-line rounded-md bg-rose-50 p-3 text-sm font-medium text-rose-700 dark:bg-rose-950/40 dark:text-rose-200">{passwordError}</p>
+            <p className="mt-3 whitespace-pre-line rounded-md bg-rose-50 p-2.5 text-sm font-medium text-rose-700 dark:bg-rose-950/40 dark:text-rose-200 lg:p-3">{passwordError}</p>
           ) : null}
           {passwordSuccess ? (
-            <p className="mt-3 rounded-md bg-emerald-50 p-3 text-sm font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-200">{passwordSuccess}</p>
+            <p className="mt-3 rounded-md bg-emerald-50 p-2.5 text-sm font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-200 lg:p-3">{passwordSuccess}</p>
           ) : null}
 
           <button
             type="submit"
             disabled={passwordSubmitDisabled}
-            className="mt-5 flex min-h-11 w-full items-center justify-center rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300 dark:bg-blue-600 dark:hover:bg-blue-500 dark:disabled:bg-slate-800 sm:w-auto"
+            className="mt-4 flex min-h-11 w-full items-center justify-center rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300 dark:bg-blue-600 dark:hover:bg-blue-500 dark:disabled:bg-slate-800 sm:w-auto lg:mt-5"
           >
             {passwordLoading ? 'Changing password...' : 'Change password'}
           </button>
         </form>
 
-        <aside className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+        <aside className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950 md:p-4">
           <h3 className="text-sm font-semibold text-ink">Password Policy</h3>
-          <div className="mt-3 space-y-2">
-            <PasswordPolicyChecklist password={passwordForm.new_password} className="border-0 bg-transparent p-0 dark:bg-transparent" />
+          <div className="mt-2 lg:mt-3">
+            <PasswordPolicyChecklist password={passwordForm.new_password} compact className="border-0 bg-transparent p-0 dark:bg-transparent" />
           </div>
-          <p className="mt-4 text-sm leading-6 text-slate-500 dark:text-slate-400">
+          <p className="mt-3 text-xs leading-5 text-slate-500 dark:text-slate-400 lg:mt-4 lg:text-sm lg:leading-6">
             Changing your password updates your security stamp. Existing sessions on other devices will be rejected on their next request.
           </p>
           {user?.password_security ? (
-            <div className="mt-4 rounded-md bg-slate-50 p-3 text-sm text-slate-600 dark:bg-slate-900/60 dark:text-slate-300">
+            <div className="mt-3 rounded-md bg-slate-50 p-2.5 text-xs text-slate-600 dark:bg-slate-900/60 dark:text-slate-300 lg:mt-4 lg:p-3 lg:text-sm">
               <p className="font-medium text-ink">Current password age</p>
               <p className="mt-1">{passwordAgeLabel(user.password_security)} since last change.</p>
               {user.password_security.password_expires_at ? (

@@ -37,9 +37,13 @@ const strengthTextClasses = {
   strong: 'text-emerald-700 dark:text-emerald-300'
 };
 
-export function PasswordPolicyChecklist({ password, className = '' }) {
+export function PasswordPolicyChecklist({ password, className = '', compact = false }) {
   const checks = passwordPolicyChecks(password);
   const strength = passwordStrength(password);
+  const barSpacing = compact ? 'mt-1.5 lg:mt-2' : 'mt-2';
+  const checkGridClass = compact ? 'mt-2 grid gap-1.5 text-xs sm:grid-cols-2 lg:mt-3 lg:gap-2 lg:text-sm' : 'mt-3 grid gap-2 text-sm sm:grid-cols-2';
+  const checkItemClass = compact ? 'flex items-center gap-1.5 lg:gap-2' : 'flex items-center gap-2';
+  const iconClass = compact ? 'h-3.5 w-3.5 shrink-0 lg:h-4 lg:w-4' : 'h-4 w-4 shrink-0';
 
   return (
     <div className={`rounded-md border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900/60 ${className}`}>
@@ -47,7 +51,7 @@ export function PasswordPolicyChecklist({ password, className = '' }) {
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Password strength</p>
         <p className={`text-xs font-semibold ${strengthTextClasses[strength.tone]}`}>{strength.label}</p>
       </div>
-      <div className="mt-2 grid grid-cols-5 gap-1" aria-hidden="true">
+      <div className={`${barSpacing} grid grid-cols-5 gap-1`} aria-hidden="true">
         {checks.map((check, index) => (
           <span
             key={check.key}
@@ -55,13 +59,13 @@ export function PasswordPolicyChecklist({ password, className = '' }) {
           />
         ))}
       </div>
-      <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+      <div className={checkGridClass}>
         {checks.map((check) => {
           const Icon = check.valid ? Check : X;
 
           return (
-            <div key={check.key} className={check.valid ? 'flex items-center gap-2 text-emerald-700 dark:text-emerald-300' : 'flex items-center gap-2 text-slate-500 dark:text-slate-400'}>
-              <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+            <div key={check.key} className={check.valid ? `${checkItemClass} text-emerald-700 dark:text-emerald-300` : `${checkItemClass} text-slate-500 dark:text-slate-400`}>
+              <Icon className={iconClass} aria-hidden="true" />
               <span>{check.label}</span>
             </div>
           );
