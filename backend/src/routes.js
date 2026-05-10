@@ -1025,6 +1025,143 @@ export async function registerRoutes(app) {
   );
 
   app.get(
+    '/cron-inventory',
+    {
+      schema: {
+        querystring: {
+          type: 'object',
+          properties: {
+            env: { type: 'string' },
+            service_group: { type: 'string' },
+            cron_name: { type: 'string' },
+            server: { type: 'string' }
+          }
+        }
+      }
+    },
+    async (request) => {
+      const [heartbeat, schedules] = await Promise.all([
+        heartbeatSummary({
+          env: request.query.env,
+          service_group: request.query.service_group
+        }),
+        listCronSchedules({
+          env: request.query.env,
+          service_group: request.query.service_group
+        })
+      ]);
+      const scopedSchedules = schedules.filter((schedule) => {
+        if (request.query.cron_name && !String(schedule.cron_name || '').toLowerCase().includes(String(request.query.cron_name).toLowerCase())) return false;
+        return true;
+      });
+      const healthByScope = new Map((heartbeat.schedules || []).map((schedule) => [
+        `${schedule.cron_name}|${String(schedule.environment || schedule.env || '').toLowerCase()}`,
+        schedule
+      ]));
+      const names = [...new Set(scopedSchedules.map((schedule) => schedule.cron_name).filter(Boolean))];
+      let latestRows = [];
+
+      if (names.length > 0) {
+        const [rows] = await pool.query(`
+          SELECT latest.cron_name, latest.env, latest.service_group, latest.server, latest.status AS last_status,
+            latest.duration AS last_duration,
+            DATE_FORMAT(CONVERT_TZ(latest.timestamp, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s') AS last_run
+          FROM cron_logs latest
+          INNER JOIN (
+            SELECT cron_name, env, MAX(timestamp) AS last_run
+            FROM cron_logs
+            WHERE cron_name IN (${names.map(() => '?').join(',')})
+            GROUP BY cron_name, env
+          ) grouped
+            ON grouped.cron_name = latest.cron_name
+            AND grouped.env <=> latest.env
+            AND grouped.last_run = latest.timestamp
+        `, names);
+        latestRows = rows;
+      }
+
+      const latestByScope = new Map();
+
+      for (const row of latestRows) {
+        const scopedKey = `${row.cron_name}|${String(row.env || '').toLowerCase()}`;
+
+        if (!latestByScope.has(scopedKey)) {
+          latestByScope.set(scopedKey, row);
+        }
+
+        if (!latestByScope.has(row.cron_name)) {
+          latestByScope.set(row.cron_name, row);
+        }
+      }
+
+      const inventory = scopedSchedules
+        .map((schedule) => {
+          const scopeKey = `${schedule.cron_name}|${String(schedule.environment || '').toLowerCase()}`;
+          const health = healthByScope.get(scopeKey);
+          const latest = latestByScope.get(scopeKey) || latestByScope.get(schedule.cron_name) || null;
+
+          return {
+            id: schedule.id,
+            cron_name: schedule.cron_name,
+            environment: schedule.environment,
+            env: latest?.env || schedule.environment,
+            service_group: schedule.service_group || latest?.service_group || null,
+            schedule_expression: schedule.schedule_expression,
+            schedule_description: health?.schedule_description || schedule.schedule_description,
+            timezone: schedule.timezone,
+            grace_period_minutes: schedule.grace_period_minutes,
+            cooldown_minutes: schedule.cooldown_minutes,
+            severity: schedule.severity,
+            enabled: Boolean(schedule.enabled),
+            description: schedule.description,
+            health_status: schedule.enabled ? (health?.heartbeat_status || 'healthy') : 'disabled',
+            health_reason: schedule.enabled ? (health?.heartbeat_state_reason || 'Monitoring schedule is enabled') : 'Monitoring intentionally disabled',
+            schedule_window_state: schedule.enabled ? (health?.schedule_window_state || 'outside_window') : 'disabled',
+            next_run: health?.next_expected_at || null,
+            expected_at: health?.expected_at || null,
+            overdue_at: health?.overdue_at || null,
+            last_run: latest?.last_run || health?.last_heartbeat_at || null,
+            last_status: latest?.last_status ?? null,
+            last_duration: latest?.last_duration ?? null,
+            server: latest?.server || null,
+            heartbeat: {
+              enabled: Boolean(schedule.enabled),
+              status: schedule.enabled ? (health?.heartbeat_status || 'healthy') : 'disabled',
+              last_heartbeat_at: health?.last_heartbeat_at || null,
+              heartbeat_lag_minutes: health?.heartbeat_lag_minutes ?? null,
+              missing_duration_minutes: health?.missing_duration_minutes ?? 0
+            }
+          };
+        })
+        .filter((item) => {
+          if (request.query.server && !String(item.server || '').toLowerCase().includes(String(request.query.server).toLowerCase())) return false;
+          return true;
+        })
+        .sort((left, right) => {
+          const rank = { missing: 0, delayed: 1, unstable: 2, recovering: 3, healthy: 4, disabled: 5 };
+          return (rank[left.health_status] ?? 9) - (rank[right.health_status] ?? 9)
+            || String(left.service_group || '').localeCompare(String(right.service_group || ''))
+            || String(left.cron_name || '').localeCompare(String(right.cron_name || ''));
+        });
+
+      return {
+        inventory,
+        summary: {
+          registered: inventory.length,
+          healthy: inventory.filter((item) => item.health_status === 'healthy' && item.schedule_window_state !== 'outside_window').length,
+          waiting_window: inventory.filter((item) => item.enabled && item.schedule_window_state === 'outside_window').length,
+          delayed: inventory.filter((item) => item.health_status === 'delayed').length,
+          missing: inventory.filter((item) => item.health_status === 'missing').length,
+          recovering: inventory.filter((item) => item.health_status === 'recovering').length,
+          disabled: inventory.filter((item) => item.health_status === 'disabled').length
+        },
+        now_wib: heartbeat.now_wib || null,
+        timezone: 'Asia/Jakarta'
+      };
+    }
+  );
+
+  app.get(
     '/cron-schedules',
     {
       schema: {

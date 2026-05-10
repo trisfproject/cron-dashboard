@@ -28,6 +28,8 @@ See Release History / Version Notes in the NYX About page for official shipped r
 * Clearer operational distinction between realtime Cron page execution windows and Reports historical analytics.
 * Cron activity context messaging for jobs with no executions in the selected operational window.
 * Reduced operator ambiguity when historical report rows do not appear in current Cron page visibility.
+* Cron Inventory architecture separating registered expected schedules from observed runtime execution activity.
+* Expectation-aware heartbeat monitoring grounded in registered cron entities and schedule-aware operational semantics.
 
 ### Timeline Intelligence Expansion
 

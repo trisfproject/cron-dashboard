@@ -259,6 +259,19 @@ export function getHeartbeatHealth(params = {}, options = {}) {
   return request(`/heartbeat-health${suffix}`, options);
 }
 
+export function getCronInventory(params = {}, options = {}) {
+  const query = new URLSearchParams();
+
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== '') {
+      query.set(key, String(value));
+    }
+  }
+
+  const suffix = query.toString() ? `?${query.toString()}` : '';
+  return request(`/cron-inventory${suffix}`, options);
+}
+
 export function getCronSchedule(params = {}, options = {}) {
   const query = new URLSearchParams();
 

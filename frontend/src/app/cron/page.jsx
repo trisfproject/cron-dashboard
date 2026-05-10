@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { CronListClient } from './CronListClient';
-import { getCronList, getCurrentUser, getScopeOptions } from '@/lib/api';
+import { getCronInventory, getCronList, getCurrentUser, getScopeOptions } from '@/lib/api';
 
 export const dynamic = 'force-dynamic';
 
@@ -89,6 +89,9 @@ export default async function CronListPage({ searchParams }) {
     }
   };
   const filters = {
+    view: ['inventory', 'runtime'].includes(resolvedSearchParams?.view)
+      ? resolvedSearchParams.view
+      : 'inventory',
     cron_name: resolvedSearchParams?.cron_name || '',
     server: resolvedSearchParams?.server || '',
     status: resolvedSearchParams?.status || '',
@@ -99,13 +102,22 @@ export default async function CronListPage({ searchParams }) {
       : 'today'
   };
   let response = { jobs: [], has_more: false, next_offset: 0, limit: PAGE_SIZE, offset: 0 };
+  let inventoryResponse = { inventory: [], summary: {}, now_wib: null };
   let scopeOptions = { environments: [], service_groups: [] };
   let currentUser = userFromSessionCookie(cookie);
   let error = null;
 
   try {
-    const [cronResponse, scopeResponse, userResponse] = await Promise.all([
-      getCronList({ ...filters, limit: PAGE_SIZE, offset: 0 }, apiOptions),
+    const [cronResponse, inventory, scopeResponse, userResponse] = await Promise.all([
+      filters.view === 'runtime'
+        ? getCronList({ ...filters, limit: PAGE_SIZE, offset: 0 }, apiOptions)
+        : Promise.resolve(response),
+      getCronInventory({
+        cron_name: filters.cron_name,
+        server: filters.server,
+        env: filters.env,
+        service_group: filters.service_group
+      }, apiOptions),
       getScopeOptions(apiOptions).catch((scopeError) => {
         if (scopeError?.status === 401) {
           throw scopeError;
@@ -122,6 +134,7 @@ export default async function CronListPage({ searchParams }) {
       })
     ]);
     response = cronResponse || response;
+    inventoryResponse = inventory || inventoryResponse;
     currentUser = userResponse?.user || currentUser;
     scopeOptions = {
       environments: Array.isArray(scopeResponse?.environments) ? scopeResponse.environments : [],
@@ -145,6 +158,9 @@ export default async function CronListPage({ searchParams }) {
         limit: Number(response?.limit || PAGE_SIZE),
         offset: Number(response?.offset || 0)
       }}
+      initialInventory={Array.isArray(inventoryResponse?.inventory) ? inventoryResponse.inventory : []}
+      inventorySummary={inventoryResponse?.summary || {}}
+      inventoryNowWib={inventoryResponse?.now_wib || null}
       scopeOptions={scopeOptions}
       filters={filters}
       error={error}
