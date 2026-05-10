@@ -7,8 +7,70 @@ import { appMetadata } from '@/lib/appMetadata';
 
 const RELEASES = [
   {
-    version: '1.2.1',
+    version: '1.2.2',
     label: 'Current release',
+    title: 'Operational Governance & Reliability Analytics',
+    summary: 'Expanded NYX operational intelligence with richer historical reliability analytics, cleaner investigative report interactions, stronger governance workflows, and more compact responsive operational dashboards.',
+    sections: [
+      {
+        title: 'Reports & Reliability Analytics',
+        items: [
+          'Added Reliability Distribution and Incident Classification Breakdown sections to clarify operational health composition before trend investigation.',
+          'Introduced Reliability Heatmap analytics for service-group operational density, degradation concentration, and historical hotspot analysis.',
+          'Refined Reliability Activity semantics, tooltips, summary language, and visual interpretation around reliability pressure and recovery behavior.',
+          'Improved report filtering, responsive density, toolbar grouping, and analytical section sequencing across desktop, tablet, and mobile layouts.'
+        ]
+      },
+      {
+        title: 'Cron Inventory & Governance',
+        items: [
+          'Expanded cron inventory governance for unmanaged cron discovery, heartbeat onboarding, and operational registry coverage.',
+          'Refined runtime versus configuration separation so `/cron` remains realtime telemetry while `/cron/inventory` focuses on control-plane management.',
+          'Improved operational ownership mapping, monitoring policy visibility, inventory filtering, and heartbeat governance semantics.',
+          'Enhanced cron inventory visibility for managed, unmanaged, historical, and runtime-discovered cron jobs.'
+        ]
+      },
+      {
+        title: 'Alerts',
+        items: [
+          'Refined alert toolbar grouping so lifecycle states and scoped filters remain visually distinct.',
+          'Improved responsive alert filtering controls for desktop, tablet, and mobile operational workflows.',
+          'Enhanced operational alert lifecycle presentation with clearer filtering density and scanning behavior.',
+          'Reduced toolbar ambiguity across active, acknowledged, resolved, and all-alert review modes.'
+        ]
+      },
+      {
+        title: 'Account & Security',
+        items: [
+          'Refined the account and session security dashboard for more compact mobile and tablet operational review.',
+          'Added compact operational metadata tile behavior for Current User, Role, Session, Last Login, and Password Age summaries.',
+          'Improved Change Password form responsiveness, password policy density, and mobile/tablet spacing while preserving security semantics.',
+          'Enhanced account-security layout consistency with NYX operational dashboard patterns.'
+        ]
+      },
+      {
+        title: 'Reliability Activity',
+        items: [
+          'Added direct investigative chart interactions including drag-to-zoom, wheel zoom, post-zoom panning, double-click reset, and touch-friendly navigation.',
+          'Removed the legacy bottom navigator slider so reliability investigation uses direct chart manipulation instead of BI-style controls.',
+          'Restored inside-only zoom and pan mechanics after navigator removal, including touchpad and pinch gesture support where available.',
+          'Improved chart wording and operational interpretation so transient reliability activity no longer reads like ticket backlog growth.'
+        ]
+      },
+      {
+        title: 'UI & Responsiveness',
+        items: [
+          'Improved responsive operational density across Reports, Alerts, Cron, and Account pages.',
+          'Rebuilt and refined custom range popover positioning with viewport-safe, trigger-aware behavior for desktop, tablet, and mobile screens.',
+          'Enhanced tablet breakpoint handling for operational dashboard toolbars, filters, metadata cards, and report investigation surfaces.',
+          'Improved compact mobile and tablet layouts while preserving touch-friendly controls, dark/light theme compatibility, and enterprise observability styling.'
+        ]
+      }
+    ]
+  },
+  {
+    version: '1.2.1',
+    label: 'Previous release',
     title: 'Operational Governance & Cron Inventory',
     summary: 'Expanded NYX operational governance with dedicated cron inventory management, runtime and configuration separation, unmanaged cron discovery, and enterprise-style heartbeat onboarding workflows.',
     sections: [
