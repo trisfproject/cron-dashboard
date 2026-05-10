@@ -83,6 +83,57 @@ const ALERT_RELIABILITY_SECTIONS = [
     iconClass: 'text-sky-600 dark:text-sky-300'
   }
 ];
+const HEARTBEAT_STATUS_META = {
+  healthy: {
+    label: 'Healthy',
+    Icon: CheckCircle2,
+    badgeClass: 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-200 dark:ring-emerald-900',
+    cardClass: 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:ring-emerald-900',
+    rowClass: '',
+    description: 'On schedule'
+  },
+  delayed: {
+    label: 'Delayed',
+    Icon: Clock3,
+    badgeClass: 'bg-yellow-50 text-yellow-800 ring-yellow-200 dark:bg-yellow-950/50 dark:text-yellow-100 dark:ring-yellow-900',
+    cardClass: 'bg-yellow-50 text-yellow-800 ring-yellow-200 dark:bg-yellow-950/40 dark:text-yellow-100 dark:ring-yellow-900',
+    rowClass: 'bg-yellow-50/35 dark:bg-yellow-950/15',
+    description: 'Late, inside tolerance'
+  },
+  unstable: {
+    label: 'Unstable',
+    Icon: AlertTriangle,
+    badgeClass: 'bg-orange-50 text-orange-800 ring-orange-200 dark:bg-orange-950/50 dark:text-orange-100 dark:ring-orange-900',
+    cardClass: 'bg-orange-50 text-orange-800 ring-orange-200 dark:bg-orange-950/40 dark:text-orange-100 dark:ring-orange-900',
+    rowClass: 'bg-orange-50/35 dark:bg-orange-950/15',
+    description: 'Schedule jitter'
+  },
+  missing: {
+    label: 'Missing',
+    Icon: AlertTriangle,
+    badgeClass: 'bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-950/50 dark:text-rose-200 dark:ring-rose-900',
+    cardClass: 'bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-950/40 dark:text-rose-200 dark:ring-rose-900',
+    rowClass: 'bg-rose-50/45 dark:bg-rose-950/20',
+    description: 'Past tolerance'
+  },
+  recovering: {
+    label: 'Recovering',
+    Icon: RotateCcw,
+    badgeClass: 'bg-sky-50 text-sky-700 ring-sky-200 dark:bg-sky-950/50 dark:text-sky-100 dark:ring-sky-900',
+    cardClass: 'bg-sky-50 text-sky-700 ring-sky-200 dark:bg-sky-950/40 dark:text-sky-100 dark:ring-sky-900',
+    rowClass: 'bg-sky-50/35 dark:bg-sky-950/15',
+    description: 'Recently restored'
+  },
+  invalid_schedule: {
+    label: 'Invalid',
+    Icon: AlertTriangle,
+    badgeClass: 'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-950/50 dark:text-amber-200 dark:ring-amber-900',
+    cardClass: 'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-900',
+    rowClass: 'bg-amber-50/35 dark:bg-amber-950/15',
+    description: 'Configuration issue'
+  }
+};
+const HEARTBEAT_STATUS_ORDER = ['healthy', 'delayed', 'unstable', 'missing', 'recovering'];
 const VALID_WINDOWS = new Set(['5m', '15m', '30m', '1h', '4h']);
 const VALID_RANGES = new Set(['today', '7d', '30d']);
 const JAKARTA_OFFSET_MS = 7 * 60 * 60 * 1000;
@@ -162,6 +213,17 @@ function groupAlertsByReliability(alerts = []) {
     ...section,
     alerts: grouped[section.key] || []
   }));
+}
+
+function heartbeatStatusMeta(status) {
+  return HEARTBEAT_STATUS_META[status] || {
+    label: status ? String(status).replaceAll('_', ' ') : 'Unknown',
+    Icon: Activity,
+    badgeClass: 'bg-slate-100 text-slate-600 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-800',
+    cardClass: 'bg-slate-50 text-slate-600 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-800',
+    rowClass: '',
+    description: 'State unavailable'
+  };
 }
 
 async function retryOnce(label, requestFactory) {
@@ -760,6 +822,10 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
   const heartbeatSummary = heartbeat.summary || {};
   const heartbeatSchedules = Array.isArray(heartbeat.schedules) ? heartbeat.schedules : [];
   const missingHeartbeatSchedules = heartbeatSchedules.filter((schedule) => schedule.heartbeat_status === 'missing');
+  const attentionHeartbeatSchedules = heartbeatSchedules.filter((schedule) => ['missing', 'delayed', 'unstable'].includes(schedule.heartbeat_status));
+  const heartbeatAttentionBannerClass = missingHeartbeatSchedules.length > 0
+    ? 'border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200'
+    : 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100';
   const pollWarningMessages = Object.values(pollWarnings).filter(Boolean);
   const activeMaintenance = maintenanceWindows[0] || null;
   const visibleHeartbeatSchedules = heartbeatSchedules.slice(0, 6);
@@ -910,27 +976,35 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h2 className="text-base font-semibold text-ink">Heartbeat Monitoring</h2>
-            <p className="mt-1 text-sm text-slate-500">Schedule-aware missing cron detection for monitored production entries.</p>
+            <p className="mt-1 text-sm text-slate-500">Per-cron schedule adherence, timing drift, and recovery state for monitored entries.</p>
           </div>
-          <div className="grid grid-cols-3 gap-2 text-center text-xs sm:min-w-[18rem]">
+          <div className="grid grid-cols-3 gap-2 text-center text-xs sm:min-w-[28rem] lg:grid-cols-6">
             <div className="rounded-md bg-slate-50 p-2 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
               <p className="font-semibold text-ink">{formatNumber(heartbeatSummary.monitored_schedules || 0)}</p>
               <p className="text-slate-500">Monitored</p>
             </div>
-            <div className="rounded-md bg-rose-50 p-2 text-rose-700 ring-1 ring-rose-200 dark:bg-rose-950/40 dark:text-rose-200 dark:ring-rose-900">
-              <p className="font-semibold">{formatNumber(heartbeatSummary.missing || 0)}</p>
-              <p>Missing</p>
-            </div>
-            <div className="rounded-md bg-emerald-50 p-2 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:ring-emerald-900">
-              <p className="font-semibold">{formatNumber(heartbeatSummary.healthy || 0)}</p>
-              <p>Healthy</p>
-            </div>
+            {HEARTBEAT_STATUS_ORDER.map((status) => {
+              const meta = heartbeatStatusMeta(status);
+              const Icon = meta.Icon;
+
+              return (
+                <div key={status} className={`rounded-md p-2 ring-1 ${meta.cardClass}`}>
+                  <div className="flex items-center justify-center gap-1">
+                    <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+                    <p className="font-semibold">{formatNumber(heartbeatSummary[status] || 0)}</p>
+                  </div>
+                  <p>{meta.label}</p>
+                </div>
+              );
+            })}
           </div>
         </div>
 
-        {missingHeartbeatSchedules.length > 0 ? (
-          <div className="mb-4 rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200">
-            {formatNumber(missingHeartbeatSchedules.length)} cron schedule{missingHeartbeatSchedules.length === 1 ? '' : 's'} missing expected heartbeat.
+        {attentionHeartbeatSchedules.length > 0 ? (
+          <div className={`mb-4 rounded-md border p-3 text-sm ${heartbeatAttentionBannerClass}`}>
+            {missingHeartbeatSchedules.length > 0
+              ? `${formatNumber(missingHeartbeatSchedules.length)} cron schedule${missingHeartbeatSchedules.length === 1 ? '' : 's'} missing expected heartbeat.`
+              : `${formatNumber(attentionHeartbeatSchedules.length)} cron schedule${attentionHeartbeatSchedules.length === 1 ? '' : 's'} showing timing risk before outage escalation.`}
           </div>
         ) : null}
 
@@ -947,32 +1021,30 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {visibleHeartbeatSchedules.map((schedule) => {
-                const statusStyle = {
-                  missing: 'bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-950/50 dark:text-rose-200 dark:ring-rose-900',
-                  healthy: 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-200 dark:ring-emerald-900',
-                  outside_window: 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-200 dark:ring-emerald-900',
-                  invalid_schedule: 'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-950/50 dark:text-amber-200 dark:ring-amber-900'
-                }[schedule.heartbeat_status] || 'bg-slate-100 text-slate-600 ring-slate-200';
-                const statusLabel = {
-                  missing: 'Missing',
-                  healthy: 'Healthy',
-                  outside_window: 'Healthy',
-                  invalid_schedule: 'Invalid'
-                }[schedule.heartbeat_status] || schedule.heartbeat_status;
+                const statusMeta = heartbeatStatusMeta(schedule.heartbeat_status);
+                const StatusIcon = statusMeta.Icon;
 
                 return (
-                  <tr key={schedule.id || schedule.cron_name} className="align-top">
+                  <tr key={schedule.id || schedule.cron_name} className={`align-top ${statusMeta.rowClass}`}>
                     <td className="max-w-[18rem] px-3 py-2">
                       <p className="truncate font-medium text-ink">{schedule.cron_name}</p>
                       <p className="mt-1 text-xs text-slate-500">{schedule.environment || schedule.env || '-'}</p>
                     </td>
                     <td className="whitespace-nowrap px-3 py-2">
-                      <span className={`inline-flex rounded-md px-2 py-1 text-xs font-medium ring-1 ${statusStyle}`}>{statusLabel}</span>
+                      <span className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium capitalize ring-1 ${statusMeta.badgeClass}`}>
+                        <StatusIcon className="h-3.5 w-3.5" aria-hidden="true" />
+                        {statusMeta.label}
+                      </span>
+                      <p className="mt-1 text-xs text-slate-500">{statusMeta.description}</p>
                     </td>
                     <td className="whitespace-nowrap px-3 py-2 text-slate-600 dark:text-slate-300">
                       {schedule.last_heartbeat_at ? `${formatRelativeTime(schedule.last_heartbeat_at)} (${schedule.last_heartbeat_at} WIB)` : 'No heartbeat'}
                     </td>
-                    <td className="whitespace-nowrap px-3 py-2 text-slate-600 dark:text-slate-300">{schedule.expected_at || '-'}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-slate-600 dark:text-slate-300">
+                      <p>{schedule.expected_at || '-'}</p>
+                      {schedule.heartbeat_lag_minutes ? <p className="mt-1 text-xs text-slate-500">Lag {formatNumber(schedule.heartbeat_lag_minutes)}m</p> : null}
+                      {schedule.heartbeat_state_reason ? <p className="mt-1 max-w-[18rem] whitespace-normal text-xs text-slate-500">{schedule.heartbeat_state_reason}</p> : null}
+                    </td>
                     <td className="min-w-[16rem] px-3 py-2 text-slate-600 dark:text-slate-300">
                       <p className="font-mono text-xs text-slate-700 dark:text-slate-200">{schedule.schedule_expression || '-'}</p>
                       {schedule.schedule_description ? <p className="mt-1 text-xs text-slate-500">{schedule.schedule_description}</p> : null}

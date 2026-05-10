@@ -70,6 +70,22 @@ function heartbeatStatus(job) {
     return { label: 'Missing', tone: 'missing' };
   }
 
+  if (heartbeat.status === 'delayed') {
+    return { label: 'Delayed', tone: 'delayed' };
+  }
+
+  if (heartbeat.status === 'unstable') {
+    return { label: 'Unstable', tone: 'unstable' };
+  }
+
+  if (heartbeat.status === 'recovering') {
+    return { label: 'Recovering', tone: 'recovering' };
+  }
+
+  if (heartbeat.status === 'invalid_schedule') {
+    return { label: 'Invalid', tone: 'invalid' };
+  }
+
   if (heartbeat.status === 'healthy') {
     return { label: 'Healthy', tone: 'healthy' };
   }
@@ -85,7 +101,11 @@ function HeartbeatBadge({ job }) {
   const status = heartbeatStatus(job);
   const className = {
     healthy: 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:ring-emerald-900',
+    delayed: 'bg-yellow-50 text-yellow-800 ring-yellow-200 dark:bg-yellow-950/40 dark:text-yellow-100 dark:ring-yellow-900',
+    unstable: 'bg-orange-50 text-orange-800 ring-orange-200 dark:bg-orange-950/40 dark:text-orange-100 dark:ring-orange-900',
     missing: 'bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-950/40 dark:text-rose-200 dark:ring-rose-900',
+    recovering: 'bg-sky-50 text-sky-700 ring-sky-200 dark:bg-sky-950/40 dark:text-sky-100 dark:ring-sky-900',
+    invalid: 'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-900',
     disabled: 'bg-slate-100 text-slate-600 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-800',
     not_configured: 'bg-slate-50 text-slate-500 ring-slate-200 dark:bg-slate-950 dark:text-slate-400 dark:ring-slate-800'
   }[status.tone];

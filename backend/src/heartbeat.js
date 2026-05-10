@@ -6,6 +6,8 @@ import { isNotificationSilenced } from './maintenance.js';
 const DEFAULT_TIMEZONE = 'Asia/Jakarta';
 const DEFAULT_GRACE_MINUTES = 10;
 const DEFAULT_COOLDOWN_MINUTES = 30;
+const MIN_RECOVERY_WINDOW_MINUTES = 15;
+const MAX_RECOVERY_WINDOW_MINUTES = 60;
 const UTC_SQL_TIMEZONE = '+00:00';
 const JAKARTA_SQL_TIMEZONE = '+07:00';
 const JAKARTA_NOW_SQL = `DATE_FORMAT(CONVERT_TZ(UTC_TIMESTAMP(), '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:%i:%s')`;
@@ -77,6 +79,14 @@ function toMysqlDateTime(date) {
 
 function addMinutes(date, minutes) {
   return new Date(date.getTime() + Number(minutes || 0) * 60000);
+}
+
+function minutesLate(actual, expected) {
+  if (!actual || !expected) {
+    return 0;
+  }
+
+  return Math.max(0, Math.floor((actual.getTime() - expected.getTime()) / 60000));
 }
 
 function formatWibDate(date) {
@@ -686,11 +696,122 @@ async function latestHeartbeats(schedules) {
   return byCron;
 }
 
+async function recentMissingRecoveries(rule, schedules) {
+  if (!rule || schedules.length === 0) {
+    return new Map();
+  }
+
+  const keys = [...new Set(schedules.map((schedule) => missingAlertKey(rule, schedule)))];
+
+  if (keys.length === 0) {
+    return new Map();
+  }
+
+  const [rows] = await query(`
+    SELECT alert_key, resolved_at
+    FROM alert_events
+    WHERE alert_key IN (${keys.map(() => '?').join(',')})
+      AND type = 'missing_cron'
+      AND state = 'resolved'
+      AND resolved_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ${MAX_RECOVERY_WINDOW_MINUTES} MINUTE)
+  `, keys);
+
+  return new Map(rows.map((row) => [row.alert_key, row.resolved_at]));
+}
+
+function classifyHeartbeatState({
+  missing,
+  runtime,
+  now,
+  lastHeartbeatAt,
+  missedExpectedAt,
+  overdueAt,
+  recentlyResolvedAt
+}) {
+  if (missing) {
+    return {
+      status: 'missing',
+      reason: 'No heartbeat received beyond the configured tolerance window',
+      lagMinutes: minutesBetween(now, missedExpectedAt)
+    };
+  }
+
+  if (!runtime.activeWindow) {
+    return {
+      status: 'healthy',
+      reason: 'Schedule is outside its active heartbeat window',
+      lagMinutes: 0
+    };
+  }
+
+  const delayed = missedExpectedAt
+    && overdueAt
+    && now.getTime() > missedExpectedAt.getTime()
+    && now.getTime() <= overdueAt.getTime();
+
+  if (delayed) {
+    return {
+      status: 'delayed',
+      reason: 'Expected heartbeat window is open and not yet past tolerance',
+      lagMinutes: minutesBetween(now, missedExpectedAt)
+    };
+  }
+
+  const recoveryWindowMinutes = Math.min(
+    MAX_RECOVERY_WINDOW_MINUTES,
+    Math.max(MIN_RECOVERY_WINDOW_MINUTES, runtime.cadenceMinutes * 2)
+  );
+  const recentRecoveryAt = toDate(recentlyResolvedAt);
+
+  if (recentRecoveryAt && minutesBetween(now, recentRecoveryAt) <= recoveryWindowMinutes) {
+    return {
+      status: 'recovering',
+      reason: 'Missing heartbeat incident recently resolved',
+      lagMinutes: minutesBetween(now, recentRecoveryAt)
+    };
+  }
+
+  const previousOverdueAt = addMinutes(runtime.previousDueAt, runtime.graceMinutes);
+  const arrivedAfterMissingWindow = lastHeartbeatAt
+    && lastHeartbeatAt.getTime() > previousOverdueAt.getTime()
+    && minutesBetween(now, lastHeartbeatAt) <= recoveryWindowMinutes;
+
+  if (arrivedAfterMissingWindow) {
+    return {
+      status: 'recovering',
+      reason: 'Heartbeat recently returned after crossing the missing threshold',
+      lagMinutes: minutesLate(lastHeartbeatAt, runtime.previousDueAt)
+    };
+  }
+
+  const arrivalLagMinutes = minutesLate(lastHeartbeatAt, runtime.previousDueAt);
+  const unstableLagThreshold = Math.max(2, Math.ceil(runtime.cadenceMinutes * 0.25));
+  const arrivedLateInsideTolerance = lastHeartbeatAt
+    && lastHeartbeatAt.getTime() >= runtime.previousDueAt.getTime()
+    && arrivalLagMinutes >= unstableLagThreshold;
+
+  if (arrivedLateInsideTolerance) {
+    return {
+      status: 'unstable',
+      reason: 'Heartbeat arrived with notable schedule jitter inside tolerance',
+      lagMinutes: arrivalLagMinutes
+    };
+  }
+
+  return {
+    status: 'healthy',
+    reason: 'Heartbeat received within the expected schedule window',
+    lagMinutes: 0
+  };
+}
+
 export async function evaluateHeartbeatSchedules({ persist = false, app } = {}) {
   await ensureHeartbeatSchema();
 
   const schedules = await listCronSchedules({ enabled: true });
   const heartbeatByCron = await latestHeartbeats(schedules);
+  const missingRule = await getMissingCronRule();
+  const recentRecoveriesByKey = await recentMissingRecoveries(missingRule, schedules);
   const now = new Date();
   const health = [];
 
@@ -709,10 +830,20 @@ export async function evaluateHeartbeatSchedules({ persist = false, app } = {}) 
       const missingMinutes = lastHeartbeatAt
         ? minutesBetween(now, missedExpectedAt)
         : minutesBetween(now, missedExpectedAt);
+      const heartbeatState = classifyHeartbeatState({
+        missing,
+        runtime,
+        now,
+        lastHeartbeatAt,
+        missedExpectedAt,
+        overdueAt,
+        recentlyResolvedAt: missingRule ? recentRecoveriesByKey.get(missingAlertKey(missingRule, schedule)) : null
+      });
 
       health.push({
         ...schedule,
-        heartbeat_status: missing ? 'missing' : runtime.activeWindow ? 'healthy' : 'outside_window',
+        heartbeat_status: heartbeatState.status,
+        schedule_window_state: runtime.activeWindow ? 'active_window' : 'outside_window',
         last_heartbeat_at: formatWibDate(lastHeartbeatAt),
         last_heartbeat_at_utc: lastHeartbeatAt ? lastHeartbeatAt.toISOString() : null,
         last_heartbeat_minutes_ago: lastHeartbeatAt ? minutesBetween(now, lastHeartbeatAt) : null,
@@ -720,6 +851,8 @@ export async function evaluateHeartbeatSchedules({ persist = false, app } = {}) 
         overdue_at: formatWibDate(overdueAt),
         next_expected_at: formatWibDate(runtime.nextDueAt),
         cadence_minutes: runtime.cadenceMinutes,
+        heartbeat_lag_minutes: heartbeatState.lagMinutes,
+        heartbeat_state_reason: heartbeatState.reason,
         missing_duration_minutes: missing ? missingMinutes : 0,
         heartbeat_restored: heartbeatRestored,
         server: heartbeat?.server || null,
@@ -1258,21 +1391,26 @@ export async function heartbeatSummary({ env, service_group } = {}) {
     return true;
   });
   const missing = scoped.filter((item) => item.heartbeat_status === 'missing');
+  const delayed = scoped.filter((item) => item.heartbeat_status === 'delayed');
+  const unstable = scoped.filter((item) => item.heartbeat_status === 'unstable');
+  const recovering = scoped.filter((item) => item.heartbeat_status === 'recovering');
   const healthy = scoped.filter((item) => item.heartbeat_status === 'healthy');
-  const outsideWindow = scoped.filter((item) => item.heartbeat_status === 'outside_window');
+  const outsideWindow = scoped.filter((item) => item.schedule_window_state === 'outside_window');
   const invalid = scoped.filter((item) => item.heartbeat_status === 'invalid_schedule');
-  const healthyOperationalCount = healthy.length + outsideWindow.length;
 
   return {
     summary: {
       monitored_schedules: scoped.length,
-      healthy: healthyOperationalCount,
+      healthy: healthy.length,
+      delayed: delayed.length,
+      unstable: unstable.length,
       missing: missing.length,
+      recovering: recovering.length,
       outside_window: outsideWindow.length,
       invalid_schedule: invalid.length
     },
     schedules: scoped.sort((left, right) => {
-      const rank = { missing: 0, invalid_schedule: 1, healthy: 2, outside_window: 3 };
+      const rank = { missing: 0, delayed: 1, unstable: 2, recovering: 3, invalid_schedule: 4, healthy: 5 };
       return (rank[left.heartbeat_status] ?? 9) - (rank[right.heartbeat_status] ?? 9)
         || String(left.cron_name).localeCompare(String(right.cron_name));
     }),

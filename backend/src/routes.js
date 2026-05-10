@@ -608,7 +608,10 @@ export async function registerRoutes(app) {
                 cooldown_minutes: heartbeatSchedule.cooldown_minutes,
                 severity: heartbeatSchedule.severity,
                 last_heartbeat_at: heartbeatSchedule.last_heartbeat_at,
-                missing_duration_minutes: heartbeatSchedule.missing_duration_minutes
+                missing_duration_minutes: heartbeatSchedule.missing_duration_minutes,
+                heartbeat_lag_minutes: heartbeatSchedule.heartbeat_lag_minutes,
+                heartbeat_state_reason: heartbeatSchedule.heartbeat_state_reason,
+                schedule_window_state: heartbeatSchedule.schedule_window_state
               }
             : null
         };
