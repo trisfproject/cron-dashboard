@@ -27,6 +27,8 @@ const JAKARTA_OFFSET_MS = 7 * 60 * 60 * 1000;
 const POPOVER_MARGIN = 16;
 const POPOVER_GAP = 8;
 const POPOVER_MAX_WIDTH = 448;
+const POPOVER_MIN_WIDTH = 320;
+const POPOVER_POINTER_SIZE = 10;
 
 function parseJakartaDateTime(value) {
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value || '')) {
@@ -161,17 +163,21 @@ export function TimeRangeFilter({
 
       const viewportWidth = window.innerWidth;
       const viewportHeight = window.innerHeight;
-      const width = Math.min(POPOVER_MAX_WIDTH, Math.max(280, viewportWidth - POPOVER_MARGIN * 2));
+      const triggerCenter = triggerRect.left + triggerRect.width / 2;
+      const centeredAvailableWidth = Math.max(0, 2 * Math.min(triggerCenter - POPOVER_MARGIN, viewportWidth - POPOVER_MARGIN - triggerCenter));
+      const viewportSafeWidth = Math.max(280, viewportWidth - POPOVER_MARGIN * 2);
+      const width = Math.min(POPOVER_MAX_WIDTH, viewportSafeWidth, Math.max(POPOVER_MIN_WIDTH, centeredAvailableWidth));
       const measuredHeight = panelRef.current?.offsetHeight || 320;
-      const centeredLeft = triggerRect.left + triggerRect.width / 2 - width / 2;
+      const centeredLeft = triggerCenter - width / 2;
       const left = Math.min(Math.max(centeredLeft, POPOVER_MARGIN), viewportWidth - width - POPOVER_MARGIN);
+      const pointerLeft = Math.min(Math.max(triggerCenter - left - POPOVER_POINTER_SIZE / 2, 16), width - 16 - POPOVER_POINTER_SIZE);
       const belowTop = triggerRect.bottom + POPOVER_GAP;
       const aboveTop = triggerRect.top - measuredHeight - POPOVER_GAP;
       const shouldPlaceAbove = belowTop + measuredHeight > viewportHeight - POPOVER_MARGIN && aboveTop >= POPOVER_MARGIN;
       const unclampedTop = shouldPlaceAbove ? aboveTop : belowTop;
       const top = Math.min(Math.max(unclampedTop, POPOVER_MARGIN), Math.max(POPOVER_MARGIN, viewportHeight - measuredHeight - POPOVER_MARGIN));
 
-      setPopoverPosition({ left, top, width });
+      setPopoverPosition({ left, pointerLeft, placement: shouldPlaceAbove ? 'top' : 'bottom', top, width });
     }
 
     updatePopoverPosition();
@@ -279,7 +285,7 @@ export function TimeRangeFilter({
         <div
           ref={panelRef}
           role="dialog"
-          aria-label="Custom report time window"
+          aria-label="Custom time window"
           className="fixed z-20 rounded-lg border border-slate-200 bg-white p-4 shadow-xl transition-[opacity,transform] duration-150 ease-out dark:border-slate-700 dark:bg-slate-900"
           style={{
             left: popoverPosition ? `${popoverPosition.left}px` : '50%',
@@ -289,6 +295,17 @@ export function TimeRangeFilter({
             transform: popoverPosition ? 'translateY(0)' : 'translate(-50%, -50%)'
           }}
         >
+          {popoverPosition ? (
+            <span
+              className={`pointer-events-none absolute h-2.5 w-2.5 rotate-45 border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900 ${
+                popoverPosition.placement === 'top'
+                  ? '-bottom-[5px] border-b border-r'
+                  : '-top-[5px] border-l border-t'
+              }`}
+              style={{ left: `${popoverPosition.pointerLeft}px` }}
+              aria-hidden="true"
+            />
+          ) : null}
           <div className="mb-3">
             <p className="text-sm font-semibold text-ink dark:text-slate-100">Custom window</p>
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{customDescription}</p>
