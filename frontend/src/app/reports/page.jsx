@@ -10,7 +10,6 @@ import { formatApiError, getReliabilityReport, getScopeOptions, getStats } from 
 import { formatDuration, formatNumber, formatPercent } from '@/lib/format';
 
 const VALID_RANGES = new Set(['today', '7d', '30d']);
-const VALID_SORTS = new Set(['downtime', 'incidents']);
 const REPORT_TIME_PATTERN = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$/;
 const selectClass = 'h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 sm:h-11 sm:w-40 lg:w-44 xl:w-48';
 const REPORT_TIME_OPTIONS = [
@@ -614,7 +613,6 @@ function ReportsContent() {
 
   const filters = useMemo(() => {
     const range = searchParams.get('range');
-    const sort = searchParams.get('sort');
     const start = searchParams.get('start');
     const end = searchParams.get('end');
 
@@ -623,8 +621,7 @@ function ReportsContent() {
       start: REPORT_TIME_PATTERN.test(start || '') ? start : '',
       end: REPORT_TIME_PATTERN.test(end || '') ? end : '',
       env: searchParams.get('env') || '',
-      service_group: searchParams.get('service_group') || '',
-      sort: VALID_SORTS.has(sort) ? sort : 'downtime'
+      service_group: searchParams.get('service_group') || ''
     };
   }, [searchParams]);
 
@@ -678,7 +675,7 @@ function ReportsContent() {
       query.set('range', filters.range);
     }
 
-    for (const key of ['env', 'service_group', 'sort']) {
+    for (const key of ['env', 'service_group']) {
       const value = form.get(key);
       if (value) query.set(key, value);
     }
@@ -689,7 +686,7 @@ function ReportsContent() {
   function applyTimeFilter(nextFilter) {
     const query = new URLSearchParams();
     query.set('range', nextFilter?.value || '7d');
-    for (const key of ['env', 'service_group', 'sort']) {
+    for (const key of ['env', 'service_group']) {
       const value = filters[key];
       if (value) query.set(key, value);
     }
@@ -700,7 +697,7 @@ function ReportsContent() {
     const query = new URLSearchParams();
     query.set('start', nextRange.start);
     query.set('end', nextRange.end);
-    for (const key of ['env', 'service_group', 'sort']) {
+    for (const key of ['env', 'service_group']) {
       const value = filters[key];
       if (value) query.set(key, value);
     }
@@ -737,7 +734,7 @@ function ReportsContent() {
       ) : null}
 
       <form
-        key={`${filters.range}:${filters.start}:${filters.end}:${filters.env}:${filters.service_group}:${filters.sort}`}
+        key={`${filters.range}:${filters.start}:${filters.end}:${filters.env}:${filters.service_group}`}
         className="grid grid-cols-1 gap-2 rounded-lg border border-slate-200 bg-white p-2.5 shadow-sm dark:border-slate-800 dark:bg-slate-950 min-[520px]:grid-cols-2 sm:flex sm:flex-wrap sm:items-start sm:gap-2 sm:p-3"
         onSubmit={applyFilters}
       >
@@ -761,10 +758,6 @@ function ReportsContent() {
         <select className={selectClass} name="service_group" defaultValue={filters.service_group}>
           <option value="">All services</option>
           {scopeOptions.service_groups.map((option) => <option key={option.value} value={option.value}>{option.value}</option>)}
-        </select>
-        <select className={selectClass} name="sort" defaultValue={filters.sort}>
-          <option value="downtime">Sort by downtime</option>
-          <option value="incidents">Sort by incidents</option>
         </select>
         <button className="inline-flex h-10 w-full min-w-32 flex-1 items-center justify-center gap-2 rounded-md bg-ink px-4 text-sm font-semibold text-white transition hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:bg-blue-600 dark:hover:bg-blue-500 dark:focus:ring-offset-slate-950 min-[520px]:col-span-2 sm:h-11 sm:w-auto sm:px-5" type="submit">
           <Search className="h-4 w-4" aria-hidden="true" />
@@ -802,7 +795,7 @@ function ReportsContent() {
               <div>
                 <h2 className="text-base font-semibold text-ink">Most Problematic Cron</h2>
                 <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400 sm:text-sm">
-                  Ranked by {filters.sort === 'incidents' ? 'incident count' : 'downtime'} for {activeRangeLabel.toLowerCase()} using historical incident activity.
+                  Historical incident and downtime activity for {activeRangeLabel.toLowerCase()} using the selected operational scope.
                 </p>
               </div>
               <RotateCcw className="hidden h-5 w-5 text-slate-400 sm:block" aria-hidden="true" />
