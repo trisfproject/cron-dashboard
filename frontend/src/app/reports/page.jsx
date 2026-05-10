@@ -735,10 +735,10 @@ function ReportsContent() {
 
       <form
         key={`${filters.range}:${filters.start}:${filters.end}:${filters.env}:${filters.service_group}`}
-        className="grid grid-cols-1 gap-2 rounded-lg border border-slate-200 bg-white p-2.5 shadow-sm dark:border-slate-800 dark:bg-slate-950 min-[520px]:grid-cols-2 sm:flex sm:flex-wrap sm:items-start sm:gap-2 sm:p-3"
+        className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white p-2.5 shadow-sm dark:border-slate-800 dark:bg-slate-950 lg:flex-row lg:items-start lg:justify-between lg:p-3"
         onSubmit={applyFilters}
       >
-        <div className="min-w-0 min-[520px]:col-span-2 sm:col-span-1 sm:shrink-0">
+        <div className="min-w-0 lg:shrink-0">
           <TimeRangeFilter
             selectedFilter={selectedFilter}
             customRange={customRange}
@@ -751,18 +751,20 @@ function ReportsContent() {
             onCustomRangeChange={applyCustomRange}
           />
         </div>
-        <select className={selectClass} name="env" defaultValue={filters.env}>
-          <option value="">All environments</option>
-          {scopeOptions.environments.map((option) => <option key={option.value} value={option.value}>{option.value}</option>)}
-        </select>
-        <select className={selectClass} name="service_group" defaultValue={filters.service_group}>
-          <option value="">All services</option>
-          {scopeOptions.service_groups.map((option) => <option key={option.value} value={option.value}>{option.value}</option>)}
-        </select>
-        <button className="inline-flex h-10 w-full min-w-32 flex-1 items-center justify-center gap-2 rounded-md bg-ink px-4 text-sm font-semibold text-white transition hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:bg-blue-600 dark:hover:bg-blue-500 dark:focus:ring-offset-slate-950 min-[520px]:col-span-2 sm:h-11 sm:w-auto sm:px-5" type="submit">
-          <Search className="h-4 w-4" aria-hidden="true" />
-          <span>Apply</span>
-        </button>
+        <div className="grid min-w-0 grid-cols-1 gap-2 min-[520px]:grid-cols-2 lg:flex lg:shrink-0 lg:items-start">
+          <select className={selectClass} name="env" defaultValue={filters.env}>
+            <option value="">All environments</option>
+            {scopeOptions.environments.map((option) => <option key={option.value} value={option.value}>{option.value}</option>)}
+          </select>
+          <select className={selectClass} name="service_group" defaultValue={filters.service_group}>
+            <option value="">All services</option>
+            {scopeOptions.service_groups.map((option) => <option key={option.value} value={option.value}>{option.value}</option>)}
+          </select>
+          <button className="inline-flex h-10 w-full min-w-32 items-center justify-center gap-2 rounded-md bg-ink px-4 text-sm font-semibold text-white transition hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:bg-blue-600 dark:hover:bg-blue-500 dark:focus:ring-offset-slate-950 min-[520px]:col-span-2 sm:h-11 lg:w-auto lg:px-5" type="submit">
+            <Search className="h-4 w-4" aria-hidden="true" />
+            <span>Apply</span>
+          </button>
+        </div>
       </form>
 
       {loading ? (

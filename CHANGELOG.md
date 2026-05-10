@@ -46,6 +46,7 @@ See Release History / Version Notes in the NYX About page for official shipped r
 * Improved Reports mobile responsiveness with compact operational filters, tighter metric cards, and denser mobile/tablet observability spacing.
 * Improved Reliability Activity mobile responsiveness with refined chart height, compact legend wrapping, and tighter tablet/mobile chart spacing.
 * Removed ambiguous global report sorting control to simplify operational analytics filtering and reduce pseudo-analytical toolbar complexity.
+* Refined Reports toolbar grouping with dedicated time controls, a unified operational filter cluster, and compact responsive filter alignment.
 * Reduced misleading visual severity by aligning chart language and legend copy with transient reliability activity.
 
 ### Advanced Reliability Analytics
