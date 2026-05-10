@@ -688,6 +688,223 @@ function ReliabilityActivityChart({ trend }) {
   );
 }
 
+function heatmapCellStyle(cell, maxScore) {
+  const score = Number(cell?.pressure_score || 0);
+
+  if (score <= 0) {
+    return { backgroundColor: 'rgba(16, 185, 129, 0.08)', borderColor: 'rgba(16, 185, 129, 0.16)' };
+  }
+
+  const alpha = Math.min(0.9, 0.18 + (score / Math.max(maxScore, 1)) * 0.62);
+
+  if (Number(cell?.missing_heartbeat_events || 0) > 0) {
+    return { backgroundColor: `rgba(124, 58, 237, ${alpha})`, borderColor: 'rgba(124, 58, 237, 0.5)' };
+  }
+
+  if (Number(cell?.outage_incidents || 0) > 0) {
+    return { backgroundColor: `rgba(244, 63, 94, ${alpha})`, borderColor: 'rgba(244, 63, 94, 0.5)' };
+  }
+
+  if (Number(cell?.degraded_incidents || 0) > 0) {
+    return { backgroundColor: `rgba(249, 115, 22, ${alpha})`, borderColor: 'rgba(249, 115, 22, 0.5)' };
+  }
+
+  return { backgroundColor: `rgba(245, 158, 11, ${alpha})`, borderColor: 'rgba(245, 158, 11, 0.45)' };
+}
+
+function heatmapBucketLabel(bucket, mode) {
+  if (mode === 'hour') {
+    return String(bucket || '').slice(11, 16);
+  }
+
+  return String(bucket || '').slice(5);
+}
+
+function ReliabilityHeatmap({ heatmap }) {
+  const buckets = Array.isArray(heatmap?.buckets) ? heatmap.buckets : [];
+  const services = Array.isArray(heatmap?.services) ? heatmap.services : [];
+  const cells = Array.isArray(heatmap?.cells) ? heatmap.cells : [];
+  const maxIndex = Math.max(buckets.length - 1, 0);
+  const [visibleRange, setVisibleRange] = useState({ startIndex: 0, endIndex: maxIndex });
+  const [selection, setSelection] = useState(null);
+  const gridRef = useRef(null);
+
+  useEffect(() => {
+    setVisibleRange({ startIndex: 0, endIndex: Math.max(buckets.length - 1, 0) });
+    setSelection(null);
+  }, [buckets.length]);
+
+  const startIndex = Math.max(0, Math.min(visibleRange.startIndex, maxIndex));
+  const endIndex = Math.max(startIndex, Math.min(visibleRange.endIndex, maxIndex));
+  const visibleBuckets = buckets.slice(startIndex, endIndex + 1);
+  const visibleCount = visibleBuckets.length;
+  const isZoomed = startIndex > 0 || endIndex < maxIndex;
+  const cellMap = new Map(cells.map((cell) => [`${cell.service_group}|${cell.bucket}`, cell]));
+  const maxScore = cells.reduce((max, cell) => Math.max(max, Number(cell.pressure_score || 0)), 0);
+  const gridTemplateColumns = `minmax(7rem, 9rem) repeat(${Math.max(visibleBuckets.length, 1)}, minmax(2rem, 1fr))`;
+
+  function clampRange(nextStart, nextEnd) {
+    const width = Math.max(0, nextEnd - nextStart);
+    let clampedStart = Math.round(nextStart);
+    let clampedEnd = Math.round(nextEnd);
+
+    if (clampedStart < 0) {
+      clampedStart = 0;
+      clampedEnd = Math.min(maxIndex, width);
+    }
+
+    if (clampedEnd > maxIndex) {
+      clampedEnd = maxIndex;
+      clampedStart = Math.max(0, maxIndex - width);
+    }
+
+    return { startIndex: clampedStart, endIndex: Math.max(clampedStart, clampedEnd) };
+  }
+
+  function resetZoom() {
+    setVisibleRange({ startIndex: 0, endIndex: maxIndex });
+    setSelection(null);
+  }
+
+  function zoomAroundIndex(centerIndex, direction) {
+    if (buckets.length <= 2) return;
+
+    const currentCount = endIndex - startIndex + 1;
+    const nextCount = direction < 0
+      ? Math.max(2, Math.round(currentCount * 0.72))
+      : Math.min(buckets.length, Math.round(currentCount * 1.32));
+
+    if (nextCount >= buckets.length) {
+      resetZoom();
+      return;
+    }
+
+    const centerRatio = currentCount > 1 ? (centerIndex - startIndex) / (currentCount - 1) : 0.5;
+    const nextStart = Math.round(centerIndex - (nextCount - 1) * centerRatio);
+    setVisibleRange(clampRange(nextStart, nextStart + nextCount - 1));
+  }
+
+  function indexFromPointer(event) {
+    const rect = gridRef.current?.getBoundingClientRect();
+
+    if (!rect || visibleCount === 0) return startIndex;
+
+    const labelWidth = Math.min(144, rect.width * 0.32);
+    const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left - labelWidth) / Math.max(rect.width - labelWidth, 1)));
+    return Math.round(startIndex + ratio * Math.max(visibleCount - 1, 0));
+  }
+
+  function handleWheel(event) {
+    event.preventDefault();
+    zoomAroundIndex(indexFromPointer(event), event.deltaY);
+  }
+
+  function updateSelectionFromPointer(event) {
+    if (!selection) return;
+
+    setSelection((current) => current ? { ...current, endIndex: indexFromPointer(event) } : current);
+  }
+
+  function applySelection(event) {
+    if (!selection) return;
+
+    const selectionEnd = indexFromPointer(event);
+    const nextStart = Math.min(selection.startIndex, selectionEnd);
+    const nextEnd = Math.max(selection.startIndex, selectionEnd);
+
+    if (nextEnd - nextStart >= 1) {
+      setVisibleRange({ startIndex: nextStart, endIndex: nextEnd });
+    }
+
+    setSelection(null);
+  }
+
+  return (
+    <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
+      <div className="border-b border-slate-200 px-3 py-3 dark:border-slate-800 sm:px-4 sm:py-4">
+        <h2 className="text-base font-semibold text-ink">Reliability Heatmap</h2>
+        <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400 sm:text-sm">
+          Historical operational density and degradation concentration across services and time windows.
+        </p>
+      </div>
+      <div className="px-3 py-3 sm:px-4">
+        {services.length > 0 && buckets.length > 0 ? (
+          <>
+            <div
+              ref={gridRef}
+              className="overflow-x-auto rounded-md border border-slate-200 bg-slate-50/70 p-2 dark:border-slate-800 dark:bg-slate-950/60"
+              onWheel={handleWheel}
+              onDoubleClick={resetZoom}
+              onPointerMove={updateSelectionFromPointer}
+              onPointerUp={applySelection}
+              onMouseLeave={() => setSelection(null)}
+            >
+              <div className="min-w-max space-y-1">
+                <div className="grid items-center gap-1 text-[0.68rem] font-medium text-slate-500 dark:text-slate-400" style={{ gridTemplateColumns }}>
+                  <span className="px-2">Service</span>
+                  {visibleBuckets.map((bucket) => (
+                    <span key={bucket} className="truncate text-center" title={bucket}>{heatmapBucketLabel(bucket, heatmap?.mode)}</span>
+                  ))}
+                </div>
+                {services.map((service) => (
+                  <div key={service} className="grid items-center gap-1" style={{ gridTemplateColumns }}>
+                    <span className="truncate rounded bg-white px-2 py-1.5 text-xs font-medium text-slate-600 ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-800" title={service}>
+                      {service}
+                    </span>
+                    {visibleBuckets.map((bucket, bucketOffset) => {
+                      const bucketIndex = startIndex + bucketOffset;
+                      const cell = cellMap.get(`${service}|${bucket}`) || { bucket, service_group: service, pressure_score: 0 };
+                      const selected = selection && bucketIndex >= Math.min(selection.startIndex, selection.endIndex) && bucketIndex <= Math.max(selection.startIndex, selection.endIndex);
+                      const title = [
+                        `${service} / ${bucket}`,
+                        `Pressure: ${formatNumber(cell.pressure_score || 0)}`,
+                        `Incidents: ${formatNumber(cell.incidents || 0)}`,
+                        `Outage: ${formatNumber(cell.outage_incidents || 0)}`,
+                        `Degraded: ${formatNumber(cell.degraded_incidents || 0)}`,
+                        `Warnings: ${formatNumber(cell.warning_events || 0)}`,
+                        `Missing heartbeat: ${formatNumber(cell.missing_heartbeat_events || 0)}`
+                      ].join('\n');
+
+                      return (
+                        <button
+                          key={`${service}-${bucket}`}
+                          type="button"
+                          title={title}
+                          aria-label={title}
+                          onPointerDown={(event) => {
+                            event.currentTarget.setPointerCapture?.(event.pointerId);
+                            setSelection({ startIndex: bucketIndex, endIndex: bucketIndex });
+                          }}
+                          className={`h-7 rounded border transition focus:outline-none focus:ring-2 focus:ring-blue-500/50 ${selected ? 'ring-2 ring-blue-500/50' : ''}`}
+                          style={heatmapCellStyle(cell, maxScore)}
+                        />
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+              <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded bg-emerald-100 ring-1 ring-emerald-200" /> Quiet</span>
+              <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded bg-amber-400" /> Warning</span>
+              <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded bg-orange-500" /> Degraded</span>
+              <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded bg-rose-500" /> Outage</span>
+              <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded bg-violet-600" /> Missing heartbeat</span>
+              <span className="basis-full text-slate-400 dark:text-slate-500 sm:basis-auto">
+                {isZoomed ? 'Scroll to zoom, drag across cells to focus, double-click to reset.' : 'Scroll to zoom or drag across cells to focus a time window.'}
+              </span>
+            </div>
+          </>
+        ) : (
+          <div className="rounded-md bg-slate-50 px-3 py-8 text-center text-sm text-slate-500 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
+            No reliability heatmap activity for this range.
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function ReportsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -800,6 +1017,7 @@ function ReportsContent() {
   const attentionHealthJobs = operationalHealthJobs.filter((job) => Number(job?.health?.score || 0) > 0);
   const slowestJobs = Array.isArray(insights.slowest_jobs) ? insights.slowest_jobs : [];
   const trend = Array.isArray(report?.trend) ? report.trend : [];
+  const heatmap = report?.heatmap || {};
   const selectedFilter = filters.start && filters.end ? { type: 'custom' } : { type: 'range', value: filters.range };
   const customRange = normalizeCustomRangeForPicker(filters);
   const activeRangeLabel = rangeLabel(report?.range || filters.range, filters.start, filters.end);
@@ -883,6 +1101,8 @@ function ReportsContent() {
             </div>
             <ReliabilityActivityChart trend={trend} />
           </section>
+
+          <ReliabilityHeatmap heatmap={heatmap} />
 
           <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
             <div className="flex flex-col gap-1 border-b border-slate-200 px-3 py-3 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between sm:px-4 sm:py-4">

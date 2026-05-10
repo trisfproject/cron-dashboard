@@ -468,6 +468,69 @@ function normalizeDailyTrend(rows, startDate, endDate) {
   return days;
 }
 
+function heatmapBucketMode(periodMinutes) {
+  return periodMinutes <= 48 * 60 ? 'hour' : 'day';
+}
+
+function jakartaBucketLabel(date, mode) {
+  const jakartaDate = new Date(date.getTime() + JAKARTA_OFFSET_MS);
+  const iso = jakartaDate.toISOString();
+
+  return mode === 'hour' ? `${iso.slice(0, 13)}:00` : iso.slice(0, 10);
+}
+
+function normalizeHeatmap(rows, startDate, endDate, mode) {
+  const bucketSet = new Set();
+  const cursor = mode === 'hour'
+    ? new Date(startDate.getTime())
+    : new Date(`${jakartaDateOnly(startDate)}T00:00:00.000+07:00`);
+  const end = mode === 'hour'
+    ? new Date(endDate.getTime())
+    : new Date(`${jakartaDateOnly(endDate)}T00:00:00.000+07:00`);
+
+  while (cursor <= end) {
+    bucketSet.add(jakartaBucketLabel(cursor, mode));
+    if (mode === 'hour') {
+      cursor.setUTCHours(cursor.getUTCHours() + 1, 0, 0, 0);
+    } else {
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+  }
+
+  for (const row of rows) {
+    if (row.bucket) bucketSet.add(row.bucket);
+  }
+
+  const buckets = [...bucketSet].sort();
+  const serviceScores = new Map();
+
+  for (const row of rows) {
+    const serviceGroup = row.service_group || 'Unassigned';
+    serviceScores.set(serviceGroup, (serviceScores.get(serviceGroup) || 0) + Number(row.pressure_score || 0));
+  }
+
+  const services = [...serviceScores.entries()]
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .slice(0, 12)
+    .map(([serviceGroup]) => serviceGroup);
+  const serviceSet = new Set(services);
+
+  const cells = rows
+    .filter((row) => serviceSet.has(row.service_group || 'Unassigned'))
+    .map((row) => ({
+      bucket: row.bucket,
+      service_group: row.service_group || 'Unassigned',
+      pressure_score: Number(row.pressure_score || 0),
+      incidents: Number(row.incidents || 0),
+      outage_incidents: Number(row.outage_incidents || 0),
+      degraded_incidents: Number(row.degraded_incidents || 0),
+      warning_events: Number(row.warning_events || 0),
+      missing_heartbeat_events: Number(row.missing_heartbeat_events || 0)
+    }));
+
+  return { mode, buckets, services, cells };
+}
+
 export async function getReliabilityReport({ range = '7d', start, end, env, service_group, sort = 'downtime' } = {}) {
   await ensureIncidentSchema();
   await ensureReportTimeIndexes();
@@ -481,6 +544,10 @@ export async function getReliabilityReport({ range = '7d', start, end, env, serv
   const eventTypes = [...INCIDENT_TYPES, ...RECOVERY_TYPES];
   const reliabilitySql = incidentReliabilitySql();
   const periodMinutes = Math.max(1, Math.ceil((dateFilter.endDate.getTime() - dateFilter.startDate.getTime()) / 60000));
+  const heatmapMode = heatmapBucketMode(periodMinutes);
+  const heatmapBucketSql = heatmapMode === 'hour'
+    ? `DATE_FORMAT(CONVERT_TZ(incident_events.occurred_at, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:00')`
+    : `DATE_FORMAT(CONVERT_TZ(incident_events.occurred_at, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d')`;
 
   const [[summary]] = await query(`
     SELECT
@@ -574,6 +641,42 @@ export async function getReliabilityReport({ range = '7d', start, end, env, serv
     ...eventTypes
   ]);
 
+  const [heatmapRows] = await query(`
+    SELECT
+      ${heatmapBucketSql} AS bucket,
+      COALESCE(NULLIF(incident_events.service_group, ''), 'Unassigned') AS service_group,
+      SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) THEN 1 ELSE 0 END) AS incidents,
+      SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) AND ${reliabilitySql} = 'outage' THEN 1 ELSE 0 END) AS outage_incidents,
+      SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) AND ${reliabilitySql} = 'degraded' THEN 1 ELSE 0 END) AS degraded_incidents,
+      SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) AND (incident_events.severity = 'warning' OR incident_events.incident_type = 'warning_threshold') THEN 1 ELSE 0 END) AS warning_events,
+      SUM(CASE WHEN incident_events.type = 'missing_detected' OR incident_events.incident_type = 'missing_cron' THEN 1 ELSE 0 END) AS missing_heartbeat_events,
+      SUM(
+        CASE
+          WHEN incident_events.type = 'missing_detected' OR incident_events.incident_type = 'missing_cron' THEN 4
+          WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) AND ${reliabilitySql} = 'outage' THEN 5
+          WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) AND ${reliabilitySql} = 'degraded' THEN 3
+          WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) AND (incident_events.severity = 'warning' OR incident_events.incident_type = 'warning_threshold') THEN 2
+          ELSE 0
+        END
+      ) AS pressure_score
+    FROM incident_events
+    WHERE ${where}
+      AND incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)})
+    GROUP BY bucket, service_group
+    HAVING pressure_score > 0
+    ORDER BY bucket ASC, pressure_score DESC
+  `, [
+    ...INCIDENT_TYPES,
+    ...INCIDENT_TYPES,
+    ...INCIDENT_TYPES,
+    ...INCIDENT_TYPES,
+    ...INCIDENT_TYPES,
+    ...INCIDENT_TYPES,
+    ...INCIDENT_TYPES,
+    ...values,
+    ...INCIDENT_TYPES
+  ]);
+
   const totalDowntimeMinutes = Math.round((Number(summary?.total_downtime_seconds || 0) / 60) * 100) / 100;
   const totalIncidents = Number(summary?.total_incidents || 0);
   const outageIncidents = Number(summary?.outage_incidents || 0);
@@ -604,6 +707,7 @@ export async function getReliabilityReport({ range = '7d', start, end, env, serv
       avg_recovery_minutes: Math.round((Number(row.avg_recovery_seconds || 0) / 60) * 100) / 100
     })),
     trend: normalizeDailyTrend(trendRows, dateFilter.startDate, dateFilter.endDate),
+    heatmap: normalizeHeatmap(heatmapRows, dateFilter.startDate, dateFilter.endDate, heatmapMode),
     range: dateFilter.mode === 'custom' ? 'custom' : (dateFilter.range || range),
     start: dateFilter.values[0],
     end: dateFilter.values[1],
