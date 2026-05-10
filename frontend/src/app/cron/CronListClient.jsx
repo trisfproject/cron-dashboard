@@ -153,29 +153,29 @@ export function CronListClient({
         </div>
       ) : null}
 
-      <form className="grid w-full min-w-0 grid-cols-1 gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950 sm:grid-cols-2 xl:grid-cols-[repeat(14,minmax(0,1fr))]" action="/cron">
-        <input className={`${filterInputClass} xl:col-span-3`} name="cron_name" placeholder="Filter by cron name" defaultValue={filters.cron_name || ''} />
-        <input className={`${filterInputClass} xl:col-span-2`} name="server" placeholder="Filter by server" defaultValue={filters.server || ''} />
-        <select className={`${filterSelectClass} xl:col-span-2`} name="range" defaultValue={filters.range || 'today'}>
+      <form className="grid w-full min-w-0 grid-cols-2 gap-2 rounded-lg border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950 sm:gap-3 sm:p-4 xl:grid-cols-[repeat(14,minmax(0,1fr))]" action="/cron">
+        <input className={`${filterInputClass} col-span-2 xl:col-span-3`} name="cron_name" placeholder="Filter by cron name" defaultValue={filters.cron_name || ''} />
+        <input className={`${filterInputClass} col-span-2 xl:col-span-2`} name="server" placeholder="Filter by server" defaultValue={filters.server || ''} />
+        <select className={`${filterSelectClass} col-span-1 xl:col-span-2`} name="range" defaultValue={filters.range || 'today'}>
           <option value="today">Active Today</option>
           <option value="7d">Activity 7D</option>
           <option value="30d">Activity 30D</option>
         </select>
-        <select className={`${filterSelectClass} xl:col-span-2`} name="env" defaultValue={filters.env || ''}>
+        <select className={`${filterSelectClass} col-span-1 xl:col-span-2`} name="env" defaultValue={filters.env || ''}>
           <option value="">All environments</option>
           {scopeOptions.environments.map((option) => <option key={option.value} value={option.value}>{option.value}</option>)}
         </select>
-        <select className={`${filterSelectClass} xl:col-span-2`} name="service_group" defaultValue={filters.service_group || ''}>
+        <select className={`${filterSelectClass} col-span-1 xl:col-span-2`} name="service_group" defaultValue={filters.service_group || ''}>
           <option value="">All services</option>
           {scopeOptions.service_groups.map((option) => <option key={option.value} value={option.value}>{option.value}</option>)}
         </select>
-        <select className={`${filterSelectClass} xl:col-span-2`} name="status" defaultValue={filters.status || ''}>
+        <select className={`${filterSelectClass} col-span-1 xl:col-span-2`} name="status" defaultValue={filters.status || ''}>
           <option value="">All statuses</option>
           <option value="0">Success</option>
           <option value="1">Failed</option>
           <option value="2">Warning</option>
         </select>
-        <button className="h-11 w-full rounded-md bg-ink px-4 text-sm font-semibold text-white transition hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:bg-blue-600 dark:hover:bg-blue-500 dark:focus:ring-offset-slate-950 sm:col-span-2 xl:col-span-1" type="submit">
+        <button className="col-span-2 h-11 w-full rounded-md bg-ink px-4 text-sm font-semibold text-white transition hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:bg-blue-600 dark:hover:bg-blue-500 dark:focus:ring-offset-slate-950 xl:col-span-1" type="submit">
           Apply
         </button>
       </form>

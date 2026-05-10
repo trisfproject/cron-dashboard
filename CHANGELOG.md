@@ -22,6 +22,7 @@ See Release History / Version Notes in the NYX About page for official shipped r
 * Heartbeat lifecycle history for delayed, unstable, missing, and recovering state transitions.
 * Incident drilldown connecting cron executions, retries, failures, alerts, acknowledgements, and recovery events.
 * Retry and failure pattern analysis for recurring operational instability.
+* Improved `/cron` mobile filter responsiveness with compact operational grouping for search, server, window, environment, service, status, and apply controls.
 
 ### Timeline Intelligence Expansion
 
