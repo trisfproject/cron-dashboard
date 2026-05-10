@@ -23,6 +23,12 @@ See Release History / Version Notes in the NYX About page for official shipped r
 * Incident drilldown connecting cron executions, retries, failures, alerts, acknowledgements, and recovery events.
 * Retry and failure pattern analysis for recurring operational instability.
 
+### Cron Visibility Semantics
+
+* Clearer operational distinction between realtime Cron page execution windows and Reports historical analytics.
+* Cron activity context messaging for jobs with no executions in the selected operational window.
+* Reduced operator ambiguity when historical report rows do not appear in current Cron page visibility.
+
 ### Timeline Intelligence Expansion
 
 * Expanded contextual operational markers for richer anomaly and maintenance correlation.

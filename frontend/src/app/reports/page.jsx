@@ -370,7 +370,9 @@ function ReportsContent() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-normal text-ink">Reports</h1>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Operational reliability, incident recovery, and downtime visibility.</p>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            Historical operational analytics across the selected report range. Cron entries here may not appear on the realtime Cron page when they have no executions in that operational window.
+          </p>
         </div>
       </div>
 
@@ -445,7 +447,9 @@ function ReportsContent() {
             <div className="flex flex-col gap-1 border-b border-slate-200 px-4 py-4 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 className="text-base font-semibold text-ink">Most Problematic Cron</h2>
-                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Ranked by {filters.sort === 'incidents' ? 'incident count' : 'downtime'} for {activeRangeLabel.toLowerCase()}.</p>
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                  Ranked by {filters.sort === 'incidents' ? 'incident count' : 'downtime'} for {activeRangeLabel.toLowerCase()} using historical incident activity.
+                </p>
               </div>
               <RotateCcw className="hidden h-5 w-5 text-slate-400 sm:block" aria-hidden="true" />
             </div>
@@ -486,7 +490,7 @@ function ReportsContent() {
             <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950 sm:p-5">
               <div className="mb-4">
                 <h2 className="text-base font-semibold text-ink">Cron Health Overview</h2>
-                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Aggregated cron reliability for {activeRangeLabel.toLowerCase()}.</p>
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Aggregated historical cron reliability for {activeRangeLabel.toLowerCase()}.</p>
               </div>
               <div className="space-y-3 sm:hidden">
                 {attentionHealthJobs.map((job, index) => (
@@ -579,7 +583,9 @@ function ReportsContent() {
             <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950 sm:p-5">
               <div className="mb-4">
                 <h2 className="text-base font-semibold text-ink">Slowest cron jobs</h2>
-                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Highest average duration for {activeRangeLabel.toLowerCase()}.</p>
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                  Highest average duration for {activeRangeLabel.toLowerCase()}. Historical rows may include crons without current-window activity on the Cron page.
+                </p>
               </div>
               <div className="space-y-3 sm:hidden">
                 {slowestJobs.map((job, index) => {

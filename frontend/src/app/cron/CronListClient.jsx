@@ -258,6 +258,13 @@ export function CronListClient({
     '7d': 'the last 7 days',
     '30d': 'the last 30 days'
   }[filters.range] || 'today';
+  const hasCronNameFilter = Boolean(String(filters.cron_name || '').trim());
+  const emptyStateTitle = hasCronNameFilter
+    ? `No executions for "${filters.cron_name}" within ${rangeLabel}.`
+    : `No cron executions found for ${rangeLabel}.`;
+  const emptyStateDetail = hasCronNameFilter
+    ? 'This cron may still exist historically or appear in Reports when it ran in a wider analytical range.'
+    : 'Cron page lists execution activity inside the selected operational window. Use Reports for historical analytics across wider time ranges.';
 
   const displayJobs = jobs.map((job) => ({
     ...job,
@@ -421,8 +428,15 @@ export function CronListClient({
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-normal text-ink">Cron jobs</h1>
-        <p className="mt-1 text-sm text-slate-500">Daily cron health overview. Metrics calculated from {rangeLabel} in WIB.</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="text-2xl font-semibold tracking-normal text-ink">Cron jobs</h1>
+          <span className="rounded-md bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700 ring-1 ring-blue-200 dark:bg-blue-950/40 dark:text-blue-200 dark:ring-blue-900">
+            Realtime execution window
+          </span>
+        </div>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+          Metrics are calculated only from cron executions within {rangeLabel} in WIB. Crons with no executions in this window may still appear in Reports historical analytics.
+        </p>
       </div>
 
       {error ? (
@@ -435,9 +449,9 @@ export function CronListClient({
         <input className={`${filterInputClass} xl:col-span-3`} name="cron_name" placeholder="Filter by cron name" defaultValue={filters.cron_name || ''} />
         <input className={`${filterInputClass} xl:col-span-2`} name="server" placeholder="Filter by server" defaultValue={filters.server || ''} />
         <select className={`${filterSelectClass} xl:col-span-2`} name="range" defaultValue={filters.range || 'today'}>
-          <option value="today">Today</option>
-          <option value="7d">7D</option>
-          <option value="30d">30D</option>
+          <option value="today">Active Today</option>
+          <option value="7d">Activity 7D</option>
+          <option value="30d">Activity 30D</option>
         </select>
         <select className={`${filterSelectClass} xl:col-span-2`} name="env" defaultValue={filters.env || ''}>
           <option value="">All environments</option>
@@ -458,9 +472,20 @@ export function CronListClient({
         </button>
       </form>
 
+      <div className="grid gap-3 rounded-lg border border-blue-200 bg-blue-50/70 p-4 text-sm text-blue-900 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-100 md:grid-cols-2">
+        <div>
+          <p className="font-semibold">Cron page</p>
+          <p className="mt-1 text-blue-800 dark:text-blue-200">Realtime operational activity view for crons that executed in the selected window.</p>
+        </div>
+        <div>
+          <p className="font-semibold">Reports</p>
+          <p className="mt-1 text-blue-800 dark:text-blue-200">Historical operational analytics that can include crons from broader report ranges even when they have no current-window executions.</p>
+        </div>
+      </div>
+
       <div className="w-full min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
         <div className="border-b border-slate-200 px-4 py-3 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
-          Showing {formatNumber(displayJobs.length)} latest cron rows. Last status, freshness, runs, success rate, and average duration use the selected range and Asia/Jakarta day boundary.
+          Showing {formatNumber(displayJobs.length)} latest cron execution rows. Last status, freshness, runs, success rate, and average duration use the selected range and Asia/Jakarta day boundary.
         </div>
 
         <div className="space-y-5 bg-slate-50/70 px-3 py-4 dark:bg-slate-950/60 lg:hidden">
@@ -513,7 +538,10 @@ export function CronListClient({
             </div>
           ))}
           {displayJobs.length === 0 && !error ? (
-            <div className="px-4 py-8 text-center text-sm text-slate-500">No cron executions found for {rangeLabel}.</div>
+            <div className="rounded-lg border border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500 shadow-sm dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
+              <p className="font-medium text-slate-700 dark:text-slate-200">{emptyStateTitle}</p>
+              <p className="mx-auto mt-2 max-w-xl">{emptyStateDetail}</p>
+            </div>
           ) : null}
         </div>
 
@@ -568,7 +596,10 @@ export function CronListClient({
               ))}
               {displayJobs.length === 0 && !error ? (
                 <tr>
-                  <td className="px-4 py-8 text-center text-slate-500" colSpan={canManageHeartbeat ? 10 : 9}>No cron executions found for {rangeLabel}.</td>
+                  <td className="px-4 py-8 text-center text-slate-500 dark:text-slate-400" colSpan={canManageHeartbeat ? 10 : 9}>
+                    <p className="font-medium text-slate-700 dark:text-slate-200">{emptyStateTitle}</p>
+                    <p className="mx-auto mt-2 max-w-xl">{emptyStateDetail}</p>
+                  </td>
                 </tr>
               ) : null}
             </tbody>
@@ -579,7 +610,7 @@ export function CronListClient({
           {loadError ? <p className="mb-3 whitespace-pre-line rounded-md bg-rose-50 p-3 text-sm font-medium text-rose-700 dark:bg-rose-950/40 dark:text-rose-200">{loadError}</p> : null}
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-sm text-slate-500 dark:text-slate-400">
-              {hasMore ? 'More cron rows are available for the current filters.' : 'All matching cron rows are loaded.'}
+              {hasMore ? 'More cron execution rows are available for the current filters.' : 'All matching execution rows are loaded for this operational window.'}
             </p>
             <button
               type="button"
