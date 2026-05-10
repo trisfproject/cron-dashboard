@@ -219,28 +219,28 @@ export default function AccountPage() {
       {loading ? <div className="rounded-lg border border-slate-200 bg-white p-6 text-center text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-950 lg:p-8">Loading session...</div> : null}
 
       {user ? (
-        <section className="grid gap-2 md:grid-cols-2 md:gap-3 xl:grid-cols-5 xl:gap-4">
-          <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950 lg:p-4">
+        <section className="grid grid-cols-2 gap-2 md:grid-cols-6 md:gap-3 xl:grid-cols-5 xl:gap-4">
+          <div className="col-span-2 min-w-0 rounded-lg border border-slate-200 bg-white p-2.5 shadow-sm dark:border-slate-800 dark:bg-slate-950 md:col-span-3 md:p-3 xl:col-span-1 lg:p-4">
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Current user</p>
-            <p className="mt-1.5 font-semibold text-ink lg:mt-2">{user.name}</p>
-            <p className="text-xs text-slate-500 lg:text-sm">{user.email}</p>
+            <p className="mt-1 truncate font-semibold leading-5 text-ink lg:mt-2">{user.name}</p>
+            <p className="truncate text-xs text-slate-500 lg:text-sm">{user.email}</p>
           </div>
-          <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950 lg:p-4">
+          <div className="min-w-0 rounded-lg border border-slate-200 bg-white p-2.5 shadow-sm dark:border-slate-800 dark:bg-slate-950 md:col-span-3 md:p-3 xl:col-span-1 lg:p-4">
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Role</p>
-            <p className="mt-1.5 font-semibold uppercase text-ink lg:mt-2">{user.role}</p>
+            <p className="mt-1 truncate font-semibold uppercase leading-5 text-ink lg:mt-2">{user.role}</p>
           </div>
-          <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950 lg:p-4">
+          <div className="min-w-0 rounded-lg border border-slate-200 bg-white p-2.5 shadow-sm dark:border-slate-800 dark:bg-slate-950 md:col-span-2 md:p-3 xl:col-span-1 lg:p-4">
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Session</p>
-            <p className="mt-1.5 font-semibold text-emerald-700 dark:text-emerald-200 lg:mt-2">Active</p>
+            <p className="mt-1 font-semibold leading-5 text-emerald-700 dark:text-emerald-200 lg:mt-2">Active</p>
           </div>
-          <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950 lg:p-4">
+          <div className="min-w-0 rounded-lg border border-slate-200 bg-white p-2.5 shadow-sm dark:border-slate-800 dark:bg-slate-950 md:col-span-2 md:p-3 xl:col-span-1 lg:p-4">
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Last login</p>
-            <p className="mt-1.5 font-semibold text-ink lg:mt-2">{user.last_login_at || 'Current session'}</p>
+            <p className="mt-1 truncate font-semibold leading-5 text-ink lg:mt-2">{user.last_login_at || 'Current session'}</p>
           </div>
-          <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950 lg:p-4">
+          <div className="min-w-0 rounded-lg border border-slate-200 bg-white p-2.5 shadow-sm dark:border-slate-800 dark:bg-slate-950 md:col-span-2 md:p-3 xl:col-span-1 lg:p-4">
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Password age</p>
-            <p className="mt-1.5 font-semibold text-ink lg:mt-2">{passwordAgeLabel(user.password_security)}</p>
-            <p className={`mt-1 text-xs font-medium ${
+            <p className="mt-1 truncate font-semibold leading-5 text-ink lg:mt-2">{passwordAgeLabel(user.password_security)}</p>
+            <p className={`mt-0.5 truncate text-xs font-medium lg:mt-1 ${
               user.password_security?.password_reminder_stage === 'force_ready'
                 ? 'text-rose-600 dark:text-rose-300'
                 : user.password_security?.password_reminder_required
