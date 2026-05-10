@@ -11,7 +11,7 @@ import { formatDuration, formatNumber, formatPercent } from '@/lib/format';
 
 const VALID_RANGES = new Set(['today', '7d', '30d']);
 const REPORT_TIME_PATTERN = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$/;
-const selectClass = 'h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 sm:h-11 sm:w-40 lg:w-44 xl:w-48';
+const selectClass = 'h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 sm:h-11 sm:w-40 md:w-36 lg:w-44 xl:w-48';
 const REPORT_TIME_OPTIONS = [
   { type: 'range', value: 'today', label: 'Today' },
   { type: 'range', value: '7d', label: '7D' },
@@ -1041,10 +1041,10 @@ function ReportsContent() {
 
       <form
         key={`${filters.range}:${filters.start}:${filters.end}:${filters.env}:${filters.service_group}`}
-        className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white p-2.5 shadow-sm dark:border-slate-800 dark:bg-slate-950 lg:flex-row lg:items-start lg:justify-between lg:p-3"
+        className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white p-2.5 shadow-sm dark:border-slate-800 dark:bg-slate-950 md:flex-row md:flex-wrap md:items-start md:justify-between md:p-3 lg:flex-nowrap lg:gap-3"
         onSubmit={applyFilters}
       >
-        <div className="min-w-0 lg:shrink-0">
+        <div className="min-w-0 md:shrink-0">
           <TimeRangeFilter
             selectedFilter={selectedFilter}
             customRange={customRange}
@@ -1057,7 +1057,7 @@ function ReportsContent() {
             onCustomRangeChange={applyCustomRange}
           />
         </div>
-        <div className="grid min-w-0 grid-cols-1 gap-2 min-[520px]:grid-cols-2 lg:flex lg:shrink-0 lg:items-start">
+        <div className="grid min-w-0 grid-cols-1 gap-2 min-[520px]:grid-cols-2 md:flex md:w-auto md:shrink-0 md:flex-wrap md:items-start md:justify-end lg:flex-nowrap">
           <select className={selectClass} name="env" defaultValue={filters.env}>
             <option value="">All environments</option>
             {scopeOptions.environments.map((option) => <option key={option.value} value={option.value}>{option.value}</option>)}
@@ -1066,7 +1066,7 @@ function ReportsContent() {
             <option value="">All services</option>
             {scopeOptions.service_groups.map((option) => <option key={option.value} value={option.value}>{option.value}</option>)}
           </select>
-          <button className="inline-flex h-10 w-full min-w-32 items-center justify-center gap-2 rounded-md bg-ink px-4 text-sm font-semibold text-white transition hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:bg-blue-600 dark:hover:bg-blue-500 dark:focus:ring-offset-slate-950 min-[520px]:col-span-2 sm:h-11 lg:w-auto lg:px-5" type="submit">
+          <button className="inline-flex h-10 w-full min-w-32 items-center justify-center gap-2 rounded-md bg-ink px-4 text-sm font-semibold text-white transition hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:bg-blue-600 dark:hover:bg-blue-500 dark:focus:ring-offset-slate-950 min-[520px]:col-span-2 sm:h-11 md:col-span-1 md:w-auto lg:px-5" type="submit">
             <Search className="h-4 w-4" aria-hidden="true" />
             <span>Apply</span>
           </button>
