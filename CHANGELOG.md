@@ -34,6 +34,7 @@ See Release History / Version Notes in the NYX About page for official shipped r
 * Inventory access flow refined through a Configure Inventory action from the Cron Runtime Activity page.
 * Cron Inventory expanded into a full known-cron registry using historical runtime discovery alongside heartbeat configurations.
 * Unmanaged cron onboarding semantics added so discovered-but-unmonitored jobs can be enrolled into heartbeat monitoring.
+* Inventory UX simplified into operational governance and configuration management, reducing runtime telemetry noise.
 
 ### Timeline Intelligence Expansion
 

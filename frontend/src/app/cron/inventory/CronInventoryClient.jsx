@@ -10,7 +10,7 @@ import {
   toggleCronSchedule,
   updateCronSchedule
 } from '@/lib/api';
-import { formatDate, formatNumber } from '@/lib/format';
+import { formatNumber } from '@/lib/format';
 
 const filterControlClass = 'h-11 w-full min-w-0 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100 dark:focus:border-blue-400 dark:focus:ring-blue-950';
 const filterInputClass = `${filterControlClass} py-2`;
@@ -28,49 +28,24 @@ function jobKey(job) {
   ].join('|');
 }
 
-function inventoryHealth(job) {
+function monitoringPolicy(job) {
   if (!job?.managed || job?.health_status === 'unmanaged') {
     return { label: 'Unmanaged', tone: 'unmanaged' };
   }
 
   if (!job?.enabled || job?.health_status === 'disabled') {
-    return { label: 'Disabled', tone: 'disabled' };
+    return { label: 'Paused', tone: 'paused' };
   }
 
-  if (job?.schedule_window_state === 'outside_window' && job?.health_status === 'healthy') {
-    return { label: 'Waiting Window', tone: 'waiting' };
-  }
-
-  if (job?.health_status === 'missing') {
-    return { label: 'Missing', tone: 'missing' };
-  }
-
-  if (job?.health_status === 'delayed') {
-    return { label: 'Delayed', tone: 'delayed' };
-  }
-
-  if (job?.health_status === 'unstable') {
-    return { label: 'Unstable', tone: 'unstable' };
-  }
-
-  if (job?.health_status === 'recovering') {
-    return { label: 'Recovering', tone: 'recovering' };
-  }
-
-  return { label: 'Healthy', tone: 'healthy' };
+  return { label: 'Enabled', tone: 'enabled' };
 }
 
-function InventoryHealthBadge({ job }) {
-  const status = inventoryHealth(job);
+function MonitoringPolicyBadge({ job }) {
+  const status = monitoringPolicy(job);
   const className = {
-    healthy: 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:ring-emerald-900',
-    waiting: 'bg-sky-50 text-sky-700 ring-sky-200 dark:bg-sky-950/40 dark:text-sky-100 dark:ring-sky-900',
-    delayed: 'bg-yellow-50 text-yellow-800 ring-yellow-200 dark:bg-yellow-950/40 dark:text-yellow-100 dark:ring-yellow-900',
-    unstable: 'bg-orange-50 text-orange-800 ring-orange-200 dark:bg-orange-950/40 dark:text-orange-100 dark:ring-orange-900',
-    missing: 'bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-950/40 dark:text-rose-200 dark:ring-rose-900',
-    recovering: 'bg-blue-50 text-blue-700 ring-blue-200 dark:bg-blue-950/40 dark:text-blue-100 dark:ring-blue-900',
+    enabled: 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:ring-emerald-900',
     unmanaged: 'bg-violet-50 text-violet-700 ring-violet-200 dark:bg-violet-950/40 dark:text-violet-100 dark:ring-violet-900',
-    disabled: 'bg-slate-100 text-slate-600 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-800'
+    paused: 'bg-slate-100 text-slate-600 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-800'
   }[status.tone];
 
   return (
@@ -212,24 +187,10 @@ export function CronInventoryClient({
     ...item,
     service_group: item?.service_group || parseServiceGroup(item?.cron_name)
   }));
-
-  function cronHref(job) {
-    const params = new URLSearchParams();
-    if (job?.server) params.set('server', job.server);
-    if (job?.env || job?.environment) params.set('env', job.env || job.environment);
-    if (job?.service_group) params.set('service_group', job.service_group);
-    const suffix = params.toString() ? `?${params.toString()}` : '';
-    return `/cron/${encodeURIComponent(job?.cron_name ?? '')}${suffix}`;
-  }
-
-  function runtimeHref(job) {
-    const params = new URLSearchParams();
-    if (job?.cron_name) params.set('cron_name', job.cron_name);
-    if (job?.server) params.set('server', job.server);
-    if (job?.env || job?.environment) params.set('env', job.env || job.environment);
-    if (job?.service_group) params.set('service_group', job.service_group);
-    return `/cron?${params.toString()}`;
-  }
+  const managedCount = inventorySummary.managed ?? inventoryItems.filter((item) => item.managed).length;
+  const unmanagedCount = inventorySummary.unmanaged ?? inventoryItems.filter((item) => !item.managed || item.health_status === 'unmanaged').length;
+  const enabledCount = inventoryItems.filter((item) => item.managed && item.enabled).length;
+  const pausedCount = inventoryItems.filter((item) => item.managed && !item.enabled).length;
 
   function mergeHeartbeatSchedule(schedule) {
     setInventory((currentItems) => currentItems.map((item) => {
@@ -373,7 +334,7 @@ export function CronInventoryClient({
             </span>
           </div>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Registered cron schedules, heartbeat expectations, ownership scope, and schedule-aware operational health.
+            Registered cron schedules, heartbeat expectations, ownership scope, and monitoring policy management.
           </p>
         </div>
         <Link href="/cron" className="inline-flex min-h-11 items-center justify-center rounded-md border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-900">
@@ -412,49 +373,37 @@ export function CronInventoryClient({
 
       {actionError ? <p className="whitespace-pre-line rounded-md bg-rose-50 p-3 text-sm font-medium text-rose-700 dark:bg-rose-950/40 dark:text-rose-200">{actionError}</p> : null}
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-7">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950">
           <p className="text-xs font-medium uppercase tracking-normal text-slate-500">Known</p>
           <p className="mt-1 text-xl font-semibold text-ink">{formatNumber(inventorySummary.registered ?? inventoryItems.length)}</p>
         </div>
         <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+          <p className="text-xs font-medium uppercase tracking-normal text-slate-500">Managed</p>
+          <p className="mt-1 text-xl font-semibold text-emerald-700 dark:text-emerald-200">{formatNumber(managedCount)}</p>
+        </div>
+        <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950">
           <p className="text-xs font-medium uppercase tracking-normal text-slate-500">Unmanaged</p>
-          <p className="mt-1 text-xl font-semibold text-violet-700 dark:text-violet-200">{formatNumber(inventorySummary.unmanaged ?? 0)}</p>
+          <p className="mt-1 text-xl font-semibold text-violet-700 dark:text-violet-200">{formatNumber(unmanagedCount)}</p>
         </div>
         <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950">
-          <p className="text-xs font-medium uppercase tracking-normal text-slate-500">Waiting</p>
-          <p className="mt-1 text-xl font-semibold text-sky-700 dark:text-sky-200">{formatNumber(inventorySummary.waiting_window ?? 0)}</p>
-        </div>
-        <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950">
-          <p className="text-xs font-medium uppercase tracking-normal text-slate-500">Delayed</p>
-          <p className="mt-1 text-xl font-semibold text-yellow-700 dark:text-yellow-200">{formatNumber(inventorySummary.delayed ?? 0)}</p>
-        </div>
-        <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950">
-          <p className="text-xs font-medium uppercase tracking-normal text-slate-500">Missing</p>
-          <p className="mt-1 text-xl font-semibold text-rose-700 dark:text-rose-200">{formatNumber(inventorySummary.missing ?? 0)}</p>
-        </div>
-        <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950">
-          <p className="text-xs font-medium uppercase tracking-normal text-slate-500">Recovering</p>
-          <p className="mt-1 text-xl font-semibold text-blue-700 dark:text-blue-200">{formatNumber(inventorySummary.recovering ?? 0)}</p>
-        </div>
-        <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950">
-          <p className="text-xs font-medium uppercase tracking-normal text-slate-500">Disabled</p>
-          <p className="mt-1 text-xl font-semibold text-slate-700 dark:text-slate-200">{formatNumber(inventorySummary.disabled ?? 0)}</p>
+          <p className="text-xs font-medium uppercase tracking-normal text-slate-500">Policy State</p>
+          <p className="mt-1 text-sm font-semibold text-slate-700 dark:text-slate-200">{formatNumber(enabledCount)} enabled / {formatNumber(pausedCount)} paused</p>
         </div>
       </div>
 
       <div className="w-full min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
         <div className="border-b border-slate-200 px-4 py-3 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
-          Showing {formatNumber(inventoryItems.length)} known cron jobs across registered schedules and discovered runtime history. {inventoryNowWib ? `Inventory evaluated at ${inventoryNowWib} WIB.` : 'Inventory uses schedule-aware heartbeat evaluation.'}
+          Showing {formatNumber(inventoryItems.length)} known cron jobs across registered schedules and operational discovery history. {inventoryNowWib ? `Policy snapshot evaluated at ${inventoryNowWib} WIB.` : 'Inventory uses schedule-aware heartbeat policy data.'}
         </div>
         <div className="space-y-4 bg-slate-50/70 px-3 py-4 dark:bg-slate-950/60 lg:hidden">
           {inventoryItems.map((job) => (
             <article key={`inventory-mobile-${job.id || jobKey(job)}`} className="space-y-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm ring-1 ring-slate-100 dark:border-slate-800 dark:bg-slate-950 dark:ring-slate-900">
               <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-3 dark:border-slate-800">
-                <Link className="min-w-0 break-words font-medium text-ink hover:text-blue-700 dark:text-slate-100 dark:hover:text-blue-300" href={cronHref(job)}>
+                <span className="min-w-0 break-words font-medium text-ink dark:text-slate-100">
                   {job?.cron_name ?? '-'}
-                </Link>
-                <InventoryHealthBadge job={job} />
+                </span>
+                <MonitoringPolicyBadge job={job} />
               </div>
               <div className="grid grid-cols-2 gap-2 text-sm">
                 <div className="min-w-0 rounded-md bg-slate-50 p-2 ring-1 ring-slate-100 dark:bg-slate-900/60 dark:ring-slate-800">
@@ -462,16 +411,8 @@ export function CronInventoryClient({
                   <p className="mt-1 break-words font-medium text-slate-700 dark:text-slate-300">{job?.schedule_description || job?.schedule_expression || 'Not configured'}</p>
                 </div>
                 <div className="min-w-0 rounded-md bg-slate-50 p-2 ring-1 ring-slate-100 dark:bg-slate-900/60 dark:ring-slate-800">
-                  <p className="text-xs text-slate-500">Next Run</p>
-                  <p className="mt-1 font-medium text-slate-700 dark:text-slate-300">{job?.next_run ? formatDate(job.next_run) : 'No expectation'}</p>
-                </div>
-                <div className="min-w-0 rounded-md bg-slate-50 p-2 ring-1 ring-slate-100 dark:bg-slate-900/60 dark:ring-slate-800">
-                  <p className="text-xs text-slate-500">Last Run</p>
-                  <p className="mt-1 font-medium text-slate-700 dark:text-slate-300">{formatDate(job?.last_run)}</p>
-                </div>
-                <div className="min-w-0 rounded-md bg-slate-50 p-2 ring-1 ring-slate-100 dark:bg-slate-900/60 dark:ring-slate-800">
-                  <p className="text-xs text-slate-500">Heartbeat</p>
-                  <p className="mt-1 font-medium text-slate-700 dark:text-slate-300">{job?.managed ? job?.enabled ? 'Enabled' : 'Disabled' : 'Not monitored'}</p>
+                  <p className="text-xs text-slate-500">Monitoring</p>
+                  <p className="mt-1 font-medium text-slate-700 dark:text-slate-300">{job?.managed ? job?.enabled ? 'Enabled' : 'Paused' : 'Not monitored'}</p>
                 </div>
                 <div className="min-w-0 rounded-md bg-slate-50 p-2 ring-1 ring-slate-100 dark:bg-slate-900/60 dark:ring-slate-800">
                   <p className="text-xs text-slate-500">Env</p>
@@ -491,27 +432,23 @@ export function CronInventoryClient({
                     <button type="button" onClick={() => toggleInventorySchedule(job)} disabled={inventoryActionId === job.id} className="min-h-9 rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900">{job.enabled ? 'Pause Monitoring' : 'Resume Monitoring'}</button>
                   </>
                 )}
-                <Link href={runtimeHref(job)} className="min-h-9 rounded-md border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900">View Executions</Link>
               </div>
             </article>
           ))}
           {inventoryItems.length === 0 && !error ? (
             <div className="rounded-lg border border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500 shadow-sm dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
               <p className="font-medium text-slate-700 dark:text-slate-200">No known cron jobs match the current filters.</p>
-              <p className="mx-auto mt-2 max-w-xl">Cron Inventory combines registered schedules with historically discovered runtime cron jobs.</p>
+              <p className="mx-auto mt-2 max-w-xl">Cron Inventory combines registered schedules with historically discovered cron jobs.</p>
             </div>
           ) : null}
         </div>
         <div className="hidden overflow-x-auto lg:block">
-          <table className="min-w-[72rem] divide-y divide-slate-200 text-sm dark:divide-slate-800 xl:min-w-full">
+          <table className="min-w-[56rem] divide-y divide-slate-200 text-sm dark:divide-slate-800 xl:min-w-full">
             <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500 dark:bg-slate-900/60 dark:text-slate-400">
               <tr>
                 <th className="px-4 py-3">Cron</th>
                 <th className="px-4 py-3">Schedule</th>
-                <th className="px-4 py-3">Next Run</th>
-                <th className="px-4 py-3">Last Run</th>
-                <th className="px-4 py-3">Health</th>
-                <th className="px-4 py-3">Heartbeat</th>
+                <th className="px-4 py-3">Monitoring</th>
                 <th className="px-4 py-3">Scope</th>
                 <th className="px-4 py-3">Actions</th>
               </tr>
@@ -519,12 +456,9 @@ export function CronInventoryClient({
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {inventoryItems.map((job) => (
                 <tr key={`inventory-${job.id || jobKey(job)}`} className="align-top">
-                  <td className="max-w-[24rem] px-4 py-3 font-medium text-ink dark:text-slate-100"><Link className="block truncate hover:text-blue-700 dark:hover:text-blue-300" href={cronHref(job)}>{job?.cron_name ?? '-'}</Link></td>
+                  <td className="max-w-[24rem] px-4 py-3 font-medium text-ink dark:text-slate-100"><span className="block truncate">{job?.cron_name ?? '-'}</span></td>
                   <td className="max-w-[18rem] px-4 py-3 text-slate-600 dark:text-slate-300"><span className="block break-words">{job?.schedule_description || job?.schedule_expression || 'Not configured'}</span></td>
-                  <td className="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-300">{job?.next_run ? formatDate(job.next_run) : 'No expectation'}</td>
-                  <td className="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-300">{formatDate(job?.last_run)}</td>
-                  <td className="whitespace-nowrap px-4 py-3"><InventoryHealthBadge job={job} /></td>
-                  <td className="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-300">{job?.managed ? job?.enabled ? 'Enabled' : 'Disabled' : 'Not monitored'}</td>
+                  <td className="whitespace-nowrap px-4 py-3"><MonitoringPolicyBadge job={job} /></td>
                   <td className="px-4 py-3"><div className="flex flex-wrap gap-1.5">{job?.environment ? <EnvironmentBadge env={job.environment} /> : null}<ServiceGroupBadge serviceGroup={job?.service_group} /></div></td>
                   <td className="whitespace-nowrap px-4 py-3">
                     <div className="flex flex-wrap gap-2">
@@ -536,16 +470,15 @@ export function CronInventoryClient({
                           <button type="button" onClick={() => toggleInventorySchedule(job)} disabled={inventoryActionId === job.id} className="min-h-9 rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900">{job.enabled ? 'Pause' : 'Resume'}</button>
                         </>
                       )}
-                      <Link href={runtimeHref(job)} className="min-h-9 rounded-md border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900">View Executions</Link>
                     </div>
                   </td>
                 </tr>
               ))}
               {inventoryItems.length === 0 && !error ? (
                 <tr>
-                  <td className="px-4 py-8 text-center text-slate-500 dark:text-slate-400" colSpan={8}>
+                  <td className="px-4 py-8 text-center text-slate-500 dark:text-slate-400" colSpan={5}>
                     <p className="font-medium text-slate-700 dark:text-slate-200">No known cron jobs match the current filters.</p>
-                    <p className="mx-auto mt-2 max-w-xl">Cron Inventory combines registered schedules with historically discovered runtime cron jobs.</p>
+                    <p className="mx-auto mt-2 max-w-xl">Cron Inventory combines registered schedules with historically discovered cron jobs.</p>
                   </td>
                 </tr>
               ) : null}
