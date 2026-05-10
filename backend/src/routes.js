@@ -233,7 +233,7 @@ export async function registerRoutes(app) {
       return;
     }
 
-    const adminRoutePrefixes = ['/alerts', '/alert-rules', '/cron-inventory', '/cron-schedules', '/reports', '/users', '/audit-logs', '/audit'];
+    const adminRoutePrefixes = ['/alert-rules', '/cron-inventory', '/cron-schedules', '/reports', '/users', '/audit-logs', '/audit'];
     const routePath = request.url.split('?')[0];
 
     if (adminRoutePrefixes.some((prefix) => routePath === prefix || routePath.startsWith(`${prefix}/`))) {
@@ -990,20 +990,24 @@ export async function registerRoutes(app) {
     }
   );
 
-  app.post('/alerts/evaluate', async (request) => {
-    try {
-      const alerts = await evaluateAlerts(request.server);
-      const heartbeat = await evaluateHeartbeatSchedules({ persist: true, app: request.server });
-      return {
-        evaluated: true,
-        active_triggers: alerts.length,
-        missing_cron_triggers: heartbeat.filter((item) => item.heartbeat_status === 'missing').length
-      };
-    } catch (error) {
-      logEndpointError(request, error, 'Manual alert evaluation endpoint failed');
-      throw error;
+  app.post(
+    '/alerts/evaluate',
+    { preHandler: requireAdmin },
+    async (request) => {
+      try {
+        const alerts = await evaluateAlerts(request.server);
+        const heartbeat = await evaluateHeartbeatSchedules({ persist: true, app: request.server });
+        return {
+          evaluated: true,
+          active_triggers: alerts.length,
+          missing_cron_triggers: heartbeat.filter((item) => item.heartbeat_status === 'missing').length
+        };
+      } catch (error) {
+        logEndpointError(request, error, 'Manual alert evaluation endpoint failed');
+        throw error;
+      }
     }
-  });
+  );
 
   app.get(
     '/heartbeat-health',
@@ -1392,15 +1396,19 @@ export async function registerRoutes(app) {
     }
   );
 
-  app.post('/alerts/test-telegram', async (request, reply) => {
-    try {
-      const result = await sendTestTelegramNotification(request.server);
-      return reply.code(200).send(result);
-    } catch (error) {
-      logEndpointError(request, error, 'Telegram test endpoint failed');
-      throw error;
+  app.post(
+    '/alerts/test-telegram',
+    { preHandler: requireAdmin },
+    async (request, reply) => {
+      try {
+        const result = await sendTestTelegramNotification(request.server);
+        return reply.code(200).send(result);
+      } catch (error) {
+        logEndpointError(request, error, 'Telegram test endpoint failed');
+        throw error;
+      }
     }
-  });
+  );
 
   app.post(
     '/alerts/:id/acknowledge',

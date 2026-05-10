@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { EnvironmentBadge, ServiceGroupBadge } from '@/components/EnvironmentBadge';
-import { createAlertRule, getAlertRules, getCronList, getScopeOptions, sendTestTelegramNotification, updateAlertRule } from '@/lib/api';
+import { createAlertRule, getAlertRules, getCronList, getCurrentUser, getScopeOptions, sendTestTelegramNotification, updateAlertRule } from '@/lib/api';
 
 const defaultRule = {
   name: '',
@@ -175,6 +176,7 @@ function getCronBehavior(cronJobs, cronName, env, serviceGroup) {
 }
 
 export default function AlertConfigPage() {
+  const router = useRouter();
   const [rules, setRules] = useState([]);
   const [cronJobs, setCronJobs] = useState([]);
   const [scopeOptions, setScopeOptions] = useState({ environments: [], service_groups: [] });
@@ -203,15 +205,35 @@ export default function AlertConfigPage() {
   }
 
   useEffect(() => {
-    loadRules();
-    loadCronContext();
-    getScopeOptions()
-      .then((data) => setScopeOptions({
-        environments: Array.isArray(data?.environments) ? data.environments : [],
-        service_groups: Array.isArray(data?.service_groups) ? data.service_groups : []
-      }))
-      .catch((scopeError) => console.error('Failed to load scope options:', scopeError));
-  }, []);
+    let cancelled = false;
+
+    getCurrentUser()
+      .then((data) => {
+        if (cancelled) return;
+
+        if (data?.user?.role !== 'admin') {
+          router.replace('/alerts');
+          return;
+        }
+
+        loadRules();
+        loadCronContext();
+        getScopeOptions()
+          .then((scopeData) => {
+            if (cancelled) return;
+            setScopeOptions({
+              environments: Array.isArray(scopeData?.environments) ? scopeData.environments : [],
+              service_groups: Array.isArray(scopeData?.service_groups) ? scopeData.service_groups : []
+            });
+          })
+          .catch((scopeError) => console.error('Failed to load scope options:', scopeError));
+      })
+      .catch(() => router.replace('/alerts'));
+
+    return () => {
+      cancelled = true;
+    };
+  }, [router]);
 
   function updateField(key, value) {
     setForm((current) => {

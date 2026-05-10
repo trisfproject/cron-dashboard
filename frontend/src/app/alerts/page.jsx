@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { AlertSeverityBadge, AlertStateBadge } from '@/components/AlertBadge';
 import { EnvironmentBadge, ServiceGroupBadge } from '@/components/EnvironmentBadge';
-import { acknowledgeAlert, evaluateAlerts, formatApiError, getAlerts, getScopeOptions } from '@/lib/api';
+import { acknowledgeAlert, evaluateAlerts, formatApiError, getAlerts, getCurrentUser, getScopeOptions } from '@/lib/api';
 import { formatDate } from '@/lib/format';
 
 const PAGE_SIZE = 20;
@@ -87,6 +87,7 @@ export default function AlertsPage() {
   const [nextOffset, setNextOffset] = useState(0);
   const [error, setError] = useState('');
   const [loadError, setLoadError] = useState('');
+  const [isAdmin, setIsAdmin] = useState(false);
   const alertsRef = useRef([]);
   const pollInFlightRef = useRef(false);
   const visibleRef = useRef(true);
@@ -180,6 +181,10 @@ export default function AlertsPage() {
   }, [scope.env, scope.service_group, state]);
 
   useEffect(() => {
+    getCurrentUser()
+      .then((data) => setIsAdmin(data?.user?.role === 'admin'))
+      .catch(() => setIsAdmin(false));
+
     getScopeOptions()
       .then((data) => setScopeOptions({
         environments: Array.isArray(data?.environments) ? data.environments : [],
@@ -246,14 +251,16 @@ export default function AlertsPage() {
           <h1 className="text-2xl font-semibold tracking-normal text-ink">Alert History</h1>
           <p className="mt-1 text-sm text-slate-500">Lifecycle history for active, acknowledged, and resolved cron alerts.</p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Link href="/alerts/config" className="inline-flex min-h-10 items-center rounded-md border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900">
-            Configure alerts
-          </Link>
-          <button type="button" onClick={runEvaluation} disabled={evaluating} className="inline-flex min-h-10 items-center rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-blue-600 dark:hover:bg-blue-500">
-            {evaluating ? 'Evaluating...' : 'Evaluate now'}
-          </button>
-        </div>
+        {isAdmin ? (
+          <div className="flex flex-wrap gap-2">
+            <Link href="/alerts/config" className="inline-flex min-h-10 items-center rounded-md border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900">
+              Configure alerts
+            </Link>
+            <button type="button" onClick={runEvaluation} disabled={evaluating} className="inline-flex min-h-10 items-center rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-blue-600 dark:hover:bg-blue-500">
+              {evaluating ? 'Evaluating...' : 'Evaluate now'}
+            </button>
+          </div>
+        ) : null}
       </div>
 
       <div className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white p-2.5 shadow-sm dark:border-slate-800 dark:bg-slate-950 lg:flex-row lg:items-start lg:justify-between lg:p-3">
