@@ -30,6 +30,14 @@ See Release History / Version Notes in the NYX About page for official shipped r
 * Anomaly intelligence that differentiates transient noise from sustained operational degradation.
 * Marker grouping and filtering controls for dense operational windows.
 
+### Reports Reliability Activity
+
+* Refined Incident Trend semantics into operational reliability activity wording.
+* Improved report summary labels to describe reliability pressure and recovery behavior instead of accumulated ticket work.
+* Enhanced report tooltip interpretation with triggered events, recovered events, reliability balance, and operational context.
+* Added lightweight report chart zoom and pan investigation support for reliability activity windows.
+* Reduced misleading visual severity by aligning chart language and legend copy with transient reliability activity.
+
 ### Advanced Reliability Analytics
 
 * SLA compliance reporting.
