@@ -41,6 +41,7 @@ See Release History / Version Notes in the NYX About page for official shipped r
 * Streamlined Reliability Activity chart interaction by removing the legacy bottom slider navigator in favor of direct chart manipulation.
 * Fixed custom report range popover boundary handling with viewport-aware positioning and responsive collision behavior.
 * Refined adaptive custom window popover alignment with trigger-aware sizing, anchored positioning, and dashboard/report filter consistency.
+* Rebuilt custom window positioning with trigger-anchored desktop/tablet popovers and mobile-safe viewport filter dialogs.
 * Reduced misleading visual severity by aligning chart language and legend copy with transient reliability activity.
 
 ### Advanced Reliability Analytics

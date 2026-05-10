@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Calendar, RefreshCw, X } from 'lucide-react';
 
 const OPTIONS = [
@@ -24,11 +24,6 @@ const REFRESH_OPTIONS = [
 const MAX_DAYS = 365;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const JAKARTA_OFFSET_MS = 7 * 60 * 60 * 1000;
-const POPOVER_MARGIN = 16;
-const POPOVER_GAP = 8;
-const POPOVER_MAX_WIDTH = 448;
-const POPOVER_MIN_WIDTH = 320;
-const POPOVER_POINTER_SIZE = 10;
 
 function parseJakartaDateTime(value) {
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value || '')) {
@@ -104,10 +99,7 @@ export function TimeRangeFilter({
   const [open, setOpen] = useState(false);
   const [draftStart, setDraftStart] = useState(toJakartaInputValue(customRange?.start));
   const [draftEnd, setDraftEnd] = useState(toJakartaInputValue(customRange?.end));
-  const [popoverPosition, setPopoverPosition] = useState(null);
   const popoverRef = useRef(null);
-  const customTriggerRef = useRef(null);
-  const panelRef = useRef(null);
 
   const error = useMemo(() => {
     if (!draftStart && !draftEnd) {
@@ -147,48 +139,6 @@ export function TimeRangeFilter({
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [open]);
-
-  useLayoutEffect(() => {
-    if (!open) {
-      setPopoverPosition(null);
-      return undefined;
-    }
-
-    function updatePopoverPosition() {
-      const triggerRect = customTriggerRef.current?.getBoundingClientRect();
-
-      if (!triggerRect) {
-        return;
-      }
-
-      const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
-      const triggerCenter = triggerRect.left + triggerRect.width / 2;
-      const centeredAvailableWidth = Math.max(0, 2 * Math.min(triggerCenter - POPOVER_MARGIN, viewportWidth - POPOVER_MARGIN - triggerCenter));
-      const viewportSafeWidth = Math.max(280, viewportWidth - POPOVER_MARGIN * 2);
-      const width = Math.min(POPOVER_MAX_WIDTH, viewportSafeWidth, Math.max(POPOVER_MIN_WIDTH, centeredAvailableWidth));
-      const measuredHeight = panelRef.current?.offsetHeight || 320;
-      const centeredLeft = triggerCenter - width / 2;
-      const left = Math.min(Math.max(centeredLeft, POPOVER_MARGIN), viewportWidth - width - POPOVER_MARGIN);
-      const pointerLeft = Math.min(Math.max(triggerCenter - left - POPOVER_POINTER_SIZE / 2, 16), width - 16 - POPOVER_POINTER_SIZE);
-      const belowTop = triggerRect.bottom + POPOVER_GAP;
-      const aboveTop = triggerRect.top - measuredHeight - POPOVER_GAP;
-      const shouldPlaceAbove = belowTop + measuredHeight > viewportHeight - POPOVER_MARGIN && aboveTop >= POPOVER_MARGIN;
-      const unclampedTop = shouldPlaceAbove ? aboveTop : belowTop;
-      const top = Math.min(Math.max(unclampedTop, POPOVER_MARGIN), Math.max(POPOVER_MARGIN, viewportHeight - measuredHeight - POPOVER_MARGIN));
-
-      setPopoverPosition({ left, pointerLeft, placement: shouldPlaceAbove ? 'top' : 'bottom', top, width });
-    }
-
-    updatePopoverPosition();
-    window.addEventListener('resize', updatePopoverPosition);
-    window.addEventListener('scroll', updatePopoverPosition, true);
-
-    return () => {
-      window.removeEventListener('resize', updatePopoverPosition);
-      window.removeEventListener('scroll', updatePopoverPosition, true);
-    };
-  }, [customDescription, draftEnd, draftStart, error, open]);
 
   const isCustom = selectedFilter?.type === 'custom';
   const activeLabel = isCustom && customRange?.start && customRange?.end
@@ -236,22 +186,89 @@ export function TimeRangeFilter({
             );
           })}
 
-          <button
-            ref={customTriggerRef}
-            type="button"
-            onClick={() => setOpen((value) => !value)}
-            aria-expanded={open}
-            aria-haspopup="dialog"
-            className={`compact-control inline-flex shrink-0 items-center gap-1 rounded px-2.5 py-1 text-xs font-medium transition-colors sm:min-h-10 sm:px-3 sm:py-1.5 sm:text-sm ${
-              isCustom
-                ? 'bg-blue-600 text-white'
-                : 'text-slate-700 hover:bg-white dark:text-slate-200 dark:hover:bg-slate-700'
-            }`}
-            title="Custom date and time range"
-          >
-            <Calendar className="h-4 w-4" aria-hidden="true" />
-            Custom
-          </button>
+          <div className="relative shrink-0">
+            <button
+              type="button"
+              onClick={() => setOpen((value) => !value)}
+              aria-expanded={open}
+              aria-haspopup="dialog"
+              className={`compact-control inline-flex shrink-0 items-center gap-1 rounded px-2.5 py-1 text-xs font-medium transition-colors sm:min-h-10 sm:px-3 sm:py-1.5 sm:text-sm ${
+                isCustom
+                  ? 'bg-blue-600 text-white'
+                  : 'text-slate-700 hover:bg-white dark:text-slate-200 dark:hover:bg-slate-700'
+              }`}
+              title="Custom date and time range"
+            >
+              <Calendar className="h-4 w-4" aria-hidden="true" />
+              Custom
+            </button>
+
+            {open ? (
+              <div
+                role="dialog"
+                aria-label="Custom time window"
+                className={`fixed inset-x-3 top-1/2 z-30 max-h-[calc(100svh-2rem)] -translate-y-1/2 overflow-y-auto rounded-lg border border-slate-200 bg-white p-4 shadow-2xl transition-[opacity,transform] duration-150 ease-out dark:border-slate-700 dark:bg-slate-900 sm:absolute sm:inset-x-auto sm:top-full sm:mt-2 sm:max-h-[min(32rem,calc(100vh-6rem))] sm:w-[min(28rem,calc(100vw-2rem))] sm:translate-y-0 sm:overflow-visible sm:shadow-xl ${
+                  align === 'start'
+                    ? 'sm:left-0'
+                    : 'sm:right-0'
+                }`}
+              >
+                <span
+                  className={`pointer-events-none absolute hidden h-2.5 w-2.5 rotate-45 border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900 sm:block ${
+                    align === 'start' ? 'left-6' : 'right-6'
+                  } -top-[5px] border-l border-t`}
+                  aria-hidden="true"
+                />
+                <div className="mb-3">
+                  <p className="text-sm font-semibold text-ink dark:text-slate-100">Custom window</p>
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{customDescription}</p>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                    Start
+                    <input
+                      type="datetime-local"
+                      value={draftStart}
+                      onChange={(event) => setDraftStart(event.target.value)}
+                      className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-ink outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                    />
+                  </label>
+
+                  <label className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                    End
+                    <input
+                      type="datetime-local"
+                      value={draftEnd}
+                      min={draftStart || undefined}
+                      onChange={(event) => setDraftEnd(event.target.value)}
+                      className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-ink outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                    />
+                  </label>
+                </div>
+
+                {error ? <p className="mt-3 text-xs font-medium text-rose-600 dark:text-rose-300">{error}</p> : null}
+
+                <div className="mt-4 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setOpen(false)}
+                    className="rounded-md px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!draftStart || !draftEnd || Boolean(error)}
+                    onClick={applyCustomRange}
+                    className="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                  >
+                    Apply
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
         </div>
 
         {showRefreshControl ? (
@@ -281,80 +298,6 @@ export function TimeRangeFilter({
         </div>
       ) : null}
 
-      {open ? (
-        <div
-          ref={panelRef}
-          role="dialog"
-          aria-label="Custom time window"
-          className="fixed z-20 rounded-lg border border-slate-200 bg-white p-4 shadow-xl transition-[opacity,transform] duration-150 ease-out dark:border-slate-700 dark:bg-slate-900"
-          style={{
-            left: popoverPosition ? `${popoverPosition.left}px` : '50%',
-            top: popoverPosition ? `${popoverPosition.top}px` : '50%',
-            width: popoverPosition ? `${popoverPosition.width}px` : `min(${POPOVER_MAX_WIDTH}px, calc(100vw - ${POPOVER_MARGIN * 2}px))`,
-            opacity: popoverPosition ? 1 : 0,
-            transform: popoverPosition ? 'translateY(0)' : 'translate(-50%, -50%)'
-          }}
-        >
-          {popoverPosition ? (
-            <span
-              className={`pointer-events-none absolute h-2.5 w-2.5 rotate-45 border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900 ${
-                popoverPosition.placement === 'top'
-                  ? '-bottom-[5px] border-b border-r'
-                  : '-top-[5px] border-l border-t'
-              }`}
-              style={{ left: `${popoverPosition.pointerLeft}px` }}
-              aria-hidden="true"
-            />
-          ) : null}
-          <div className="mb-3">
-            <p className="text-sm font-semibold text-ink dark:text-slate-100">Custom window</p>
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{customDescription}</p>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="text-xs font-medium text-slate-600 dark:text-slate-300">
-              Start
-              <input
-                type="datetime-local"
-                value={draftStart}
-                onChange={(event) => setDraftStart(event.target.value)}
-                className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-ink outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-              />
-            </label>
-
-            <label className="text-xs font-medium text-slate-600 dark:text-slate-300">
-              End
-              <input
-                type="datetime-local"
-                value={draftEnd}
-                min={draftStart || undefined}
-                onChange={(event) => setDraftEnd(event.target.value)}
-                className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-ink outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-              />
-            </label>
-          </div>
-
-          {error ? <p className="mt-3 text-xs font-medium text-rose-600 dark:text-rose-300">{error}</p> : null}
-
-          <div className="mt-4 flex items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              className="rounded-md px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              disabled={!draftStart || !draftEnd || Boolean(error)}
-              onClick={applyCustomRange}
-              className="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-            >
-              Apply
-            </button>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }
