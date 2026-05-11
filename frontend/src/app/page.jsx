@@ -660,7 +660,6 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
   const [alerts, setAlerts] = useState([]);
   const [incidents, setIncidents] = useState([]);
   const [maintenanceWindows, setMaintenanceWindows] = useState([]);
-  const [currentUser, setCurrentUser] = useState(null);
   const [scope, setScope] = useState(initialScope);
   const [scopeOptions, setScopeOptions] = useState({ environments: [], service_groups: [] });
   const [loading, setLoading] = useState(true);
@@ -674,11 +673,6 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
   const inFlightRef = useRef({});
   const controllersRef = useRef({});
   const resumePollingRef = useRef(null);
-  const currentUserRef = useRef(null);
-
-  useEffect(() => {
-    currentUserRef.current = currentUser;
-  }, [currentUser]);
 
   useEffect(() => {
     setFilter(initialFilter);
@@ -864,25 +858,12 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
       return runResource(
         'auth',
         (signal) => getCurrentUser({ signal }),
-        (userData) => {
-          const user = userData?.user || null;
-          currentUserRef.current = user;
-          setCurrentUser(user);
-
-          if (user?.role !== 'admin') {
-            setAlerts([]);
-          }
-        }
+        () => {}
       );
     }
 
     function runAlerts() {
       const { scopeParams } = dashboardParams();
-
-      if (currentUserRef.current?.role !== 'admin') {
-        setAlerts([]);
-        return Promise.resolve();
-      }
 
       return runResource(
         'alerts',
@@ -1070,7 +1051,6 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
   const visibleHeartbeatSchedules = heartbeatSchedules.slice(0, 6);
   const activeAlerts = Array.isArray(alerts) ? alerts : [];
   const activeAlertSections = groupAlertsByReliability(activeAlerts);
-  const isAdmin = currentUser?.role === 'admin';
   const isCustom = filter.type === 'custom';
   const windowMinutes = getWindowMinutes(filter, customRange);
   const totalRuns = Number(summary.total_runs || 0);
@@ -1371,7 +1351,6 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
       </section>
 
       <section className="grid min-w-0 gap-4 xl:grid-cols-2">
-        {isAdmin ? (
         <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:p-5 xl:col-span-2">
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
@@ -1517,7 +1496,6 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
             </table>
           </div>
         </div>
-        ) : null}
 
       </section>
 
