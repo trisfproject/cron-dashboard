@@ -869,6 +869,7 @@ export async function registerRoutes(app) {
     try {
       return await getReliabilityReport({
         range: request.query.range || '7d',
+        window: request.query.window,
         start: request.query.start,
         end: request.query.end,
         env: request.query.env,
@@ -887,6 +888,7 @@ export async function registerRoutes(app) {
         type: 'object',
         properties: {
           range: { type: 'string', enum: ['today', '7d', '30d'], default: '7d' },
+          window: { type: 'string', enum: ['30m', '1h', '4h'] },
           start: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}([ T]\\d{2}:\\d{2}(:\\d{2})?([+-]\\d{2}:\\d{2}|Z)?)?$' },
           end: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}([ T]\\d{2}:\\d{2}(:\\d{2})?([+-]\\d{2}:\\d{2}|Z)?)?$' },
           env: { type: 'string' },

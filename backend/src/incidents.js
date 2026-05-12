@@ -446,26 +446,108 @@ function jakartaDateOnly(date) {
   return new Date(date.getTime() + JAKARTA_OFFSET_MS).toISOString().slice(0, 10);
 }
 
-function normalizeDailyTrend(rows, startDate, endDate) {
-  const rowMap = new Map(rows.map((row) => [row.day, row]));
-  const days = [];
-  const cursor = new Date(`${jakartaDateOnly(startDate)}T00:00:00.000+07:00`);
-  const end = new Date(`${jakartaDateOnly(endDate)}T00:00:00.000+07:00`);
+function padDatePart(value) {
+  return String(value).padStart(2, '0');
+}
+
+function jakartaParts(date = new Date()) {
+  const jakartaDate = new Date(date.getTime() + JAKARTA_OFFSET_MS);
+
+  return {
+    year: jakartaDate.getUTCFullYear(),
+    month: jakartaDate.getUTCMonth() + 1,
+    day: jakartaDate.getUTCDate(),
+    hour: jakartaDate.getUTCHours(),
+    minute: jakartaDate.getUTCMinutes(),
+    second: jakartaDate.getUTCSeconds()
+  };
+}
+
+function floorTrendBucket(date, interval) {
+  const parts = jakartaParts(date);
+
+  if (interval === '10s' || interval === '30s') {
+    const seconds = interval === '10s' ? 10 : 30;
+    return new Date(Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, Math.floor(parts.second / seconds) * seconds) - JAKARTA_OFFSET_MS);
+  }
+
+  if (interval === '1m') {
+    return new Date(Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute) - JAKARTA_OFFSET_MS);
+  }
+
+  if (interval === '5m' || interval === '10m' || interval === '15m') {
+    const minutes = interval === '5m' ? 5 : interval === '10m' ? 10 : 15;
+    return new Date(Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, Math.floor(parts.minute / minutes) * minutes) - JAKARTA_OFFSET_MS);
+  }
+
+  if (interval === 'hour') {
+    return new Date(Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour) - JAKARTA_OFFSET_MS);
+  }
+
+  return new Date(`${jakartaDateOnly(date)}T00:00:00.000+07:00`);
+}
+
+function addTrendStep(date, interval) {
+  const next = new Date(date);
+
+  if (interval === '10s' || interval === '30s') {
+    next.setUTCSeconds(next.getUTCSeconds() + (interval === '10s' ? 10 : 30));
+    return next;
+  }
+
+  if (interval === '1m') {
+    next.setUTCMinutes(next.getUTCMinutes() + 1);
+    return next;
+  }
+
+  if (interval === '5m' || interval === '10m' || interval === '15m') {
+    next.setUTCMinutes(next.getUTCMinutes() + (interval === '5m' ? 5 : interval === '10m' ? 10 : 15));
+    return next;
+  }
+
+  if (interval === 'hour') {
+    next.setUTCHours(next.getUTCHours() + 1);
+    return next;
+  }
+
+  next.setUTCDate(next.getUTCDate() + 1);
+  return next;
+}
+
+function formatTrendBucket(date, interval) {
+  const parts = jakartaParts(date);
+  const datePart = `${parts.year}-${padDatePart(parts.month)}-${padDatePart(parts.day)}`;
+
+  if (['10s', '30s', '1m', '5m', '10m', '15m', 'hour'].includes(interval)) {
+    return `${datePart} ${padDatePart(parts.hour)}:${padDatePart(parts.minute)}:${padDatePart(parts.second)}`;
+  }
+
+  return datePart;
+}
+
+function normalizeReliabilityTrend(rows, dateFilter) {
+  const interval = dateFilter.timelineInterval || 'day';
+  const rowMap = new Map(rows.map((row) => [row.day || row.bucket, row]));
+  const buckets = [];
+  let cursor = floorTrendBucket(dateFilter.startDate, interval);
+  const end = floorTrendBucket(dateFilter.endDate, interval);
 
   while (cursor <= end) {
-    const day = jakartaDateOnly(cursor);
-    const row = rowMap.get(day);
-    days.push({
-      day,
+    const bucket = formatTrendBucket(cursor, interval);
+    const row = rowMap.get(bucket);
+    buckets.push({
+      day: bucket,
+      bucket,
+      interval,
       incidents: Number(row?.incidents || 0),
       outage_incidents: Number(row?.outage_incidents || 0),
       degraded_incidents: Number(row?.degraded_incidents || 0),
       recoveries: Number(row?.recoveries || 0)
     });
-    cursor.setUTCDate(cursor.getUTCDate() + 1);
+    cursor = addTrendStep(cursor, interval);
   }
 
-  return days;
+  return buckets;
 }
 
 function heatmapBucketMode(periodMinutes) {
@@ -531,12 +613,12 @@ function normalizeHeatmap(rows, startDate, endDate, mode) {
   return { mode, buckets, services, cells };
 }
 
-export async function getReliabilityReport({ range = '7d', start, end, env, service_group, sort = 'downtime' } = {}) {
+export async function getReliabilityReport({ range = '7d', window, start, end, env, service_group, sort = 'downtime' } = {}) {
   await ensureIncidentSchema();
   await ensureReportTimeIndexes();
 
   assertValidCustomDateRange({ start, end });
-  const dateFilter = resolveDateFilter({ range, start, end });
+  const dateFilter = resolveDateFilter({ range, window, start, end });
   const filters = ['incident_events.occurred_at BETWEEN ? AND ?'];
   const values = [...dateFilter.values];
   addReportScopeFilters(filters, values, { env, service_group });
@@ -548,6 +630,7 @@ export async function getReliabilityReport({ range = '7d', start, end, env, serv
   const heatmapBucketSql = heatmapMode === 'hour'
     ? `DATE_FORMAT(CONVERT_TZ(incident_events.occurred_at, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d %H:00')`
     : `DATE_FORMAT(CONVERT_TZ(incident_events.occurred_at, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d')`;
+  const trendBucketSql = dateFilter.timelineBucketSql.split('timestamp').join('incident_events.occurred_at');
 
   const [[summary]] = await query(`
     SELECT
@@ -622,7 +705,7 @@ export async function getReliabilityReport({ range = '7d', start, end, env, serv
 
   const [trendRows] = await query(`
     SELECT
-      DATE_FORMAT(CONVERT_TZ(incident_events.occurred_at, '${UTC_SQL_TIMEZONE}', '${JAKARTA_SQL_TIMEZONE}'), '%Y-%m-%d') AS day,
+      ${trendBucketSql} AS day,
       SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) THEN 1 ELSE 0 END) AS incidents,
       SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) AND ${reliabilitySql} = 'outage' THEN 1 ELSE 0 END) AS outage_incidents,
       SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) AND ${reliabilitySql} = 'degraded' THEN 1 ELSE 0 END) AS degraded_incidents,
@@ -706,9 +789,11 @@ export async function getReliabilityReport({ range = '7d', start, end, env, serv
       total_downtime_minutes: Math.round((Number(row.total_downtime_seconds || 0) / 60) * 100) / 100,
       avg_recovery_minutes: Math.round((Number(row.avg_recovery_seconds || 0) / 60) * 100) / 100
     })),
-    trend: normalizeDailyTrend(trendRows, dateFilter.startDate, dateFilter.endDate),
+    trend: normalizeReliabilityTrend(trendRows, dateFilter),
+    trend_interval: dateFilter.timelineInterval,
     heatmap: normalizeHeatmap(heatmapRows, dateFilter.startDate, dateFilter.endDate, heatmapMode),
     range: dateFilter.mode === 'custom' ? 'custom' : (dateFilter.range || range),
+    window: dateFilter.window,
     start: dateFilter.values[0],
     end: dateFilter.values[1],
     timezone: 'Asia/Jakarta'

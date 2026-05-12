@@ -25,6 +25,7 @@ const MYSQL_BUCKET_EXPRESSIONS = {
   '30s': `DATE_FORMAT(DATE_SUB(${MYSQL_CONVERTED_TS}, INTERVAL MOD(SECOND(${MYSQL_CONVERTED_TS}), 30) SECOND), '%Y-%m-%d %H:%i:%s')`,
   '1m': `DATE_FORMAT(${MYSQL_CONVERTED_TS}, '%Y-%m-%d %H:%i:00')`,
   '5m': `DATE_FORMAT(DATE_SUB(${MYSQL_CONVERTED_TS}, INTERVAL MOD(MINUTE(${MYSQL_CONVERTED_TS}), 5) MINUTE), '%Y-%m-%d %H:%i:00')`,
+  '10m': `DATE_FORMAT(DATE_SUB(${MYSQL_CONVERTED_TS}, INTERVAL MOD(MINUTE(${MYSQL_CONVERTED_TS}), 10) MINUTE), '%Y-%m-%d %H:%i:00')`,
   '15m': `DATE_FORMAT(DATE_SUB(${MYSQL_CONVERTED_TS}, INTERVAL MOD(MINUTE(${MYSQL_CONVERTED_TS}), 15) MINUTE), '%Y-%m-%d %H:%i:00')`,
   hour: `DATE_FORMAT(${MYSQL_CONVERTED_TS}, '%Y-%m-%d %H:00:00')`,
   day: `DATE_FORMAT(${MYSQL_CONVERTED_TS}, '%Y-%m-%d')`
@@ -109,14 +110,14 @@ function getGroupingForWindow(window) {
     '15m': '1m',
     '30m': '1m',
     '1h': '5m',
-    '4h': '5m'
+    '4h': '10m'
   }[window] || '1m';
 }
 
 function getGroupingForRange(range) {
   return {
     today: 'hour',
-    '7d': 'hour',
+    '7d': 'day',
     '30d': 'day'
   }[range] || 'hour';
 }
@@ -132,8 +133,12 @@ function getGroupingForCustom(start, end) {
     return '1m';
   }
 
-  if (duration <= 4 * HOUR_MS) {
+  if (duration <= HOUR_MS) {
     return '5m';
+  }
+
+  if (duration <= 4 * HOUR_MS) {
+    return '10m';
   }
 
   if (duration <= 24 * HOUR_MS) {
@@ -160,8 +165,8 @@ function addStep(date, interval) {
     return next;
   }
 
-  if (interval === '5m') {
-    next.setUTCMinutes(next.getUTCMinutes() + 5);
+  if (interval === '5m' || interval === '10m') {
+    next.setUTCMinutes(next.getUTCMinutes() + (interval === '5m' ? 5 : 10));
     return next;
   }
 
@@ -191,8 +196,9 @@ function floorToBucket(date, interval) {
     return new Date(Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute) - JAKARTA_OFFSET_HOURS * HOUR_MS);
   }
 
-  if (interval === '5m') {
-    return new Date(Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, Math.floor(parts.minute / 5) * 5) - JAKARTA_OFFSET_HOURS * HOUR_MS);
+  if (interval === '5m' || interval === '10m') {
+    const minutes = interval === '5m' ? 5 : 10;
+    return new Date(Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, Math.floor(parts.minute / minutes) * minutes) - JAKARTA_OFFSET_HOURS * HOUR_MS);
   }
 
   if (interval === '15m') {
@@ -210,7 +216,7 @@ function formatBucket(date, interval) {
   const parts = getJakartaParts(date);
   const datePart = `${parts.year}-${pad(parts.month)}-${pad(parts.day)}`;
 
-  if (['10s', '30s', '1m', '5m', '15m', 'hour'].includes(interval)) {
+  if (['10s', '30s', '1m', '5m', '10m', '15m', 'hour'].includes(interval)) {
     return `${datePart} ${pad(parts.hour)}:${pad(parts.minute)}:${pad(parts.second)}`;
   }
 

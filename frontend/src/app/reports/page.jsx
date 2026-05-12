@@ -11,9 +11,13 @@ import { formatDuration, formatNumber, formatPercent } from '@/lib/format';
 import { isAdminOrHigher } from '@/lib/rbac';
 
 const VALID_RANGES = new Set(['today', '7d', '30d']);
+const VALID_WINDOWS = new Set(['30m', '1h', '4h']);
 const REPORT_TIME_PATTERN = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$/;
 const selectClass = 'h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 sm:h-11 sm:w-40 md:w-36 lg:w-44 xl:w-48';
 const REPORT_TIME_OPTIONS = [
+  { type: 'window', value: '30m', label: '30m' },
+  { type: 'window', value: '1h', label: '1H' },
+  { type: 'window', value: '4h', label: '4H' },
   { type: 'range', value: 'today', label: 'Today' },
   { type: 'range', value: '7d', label: '7D' },
   { type: 'range', value: '30d', label: '30D' }
@@ -41,6 +45,9 @@ function rangeLabel(range, start = '', end = '') {
   }
 
   return {
+    '30m': 'Last 30 minutes',
+    '1h': 'Last 1 hour',
+    '4h': 'Last 4 hours',
     today: 'Today',
     '7d': 'Last 7 days',
     '30d': 'Last 30 days'
@@ -272,6 +279,78 @@ function getReliabilityActivityState(triggered, recovered) {
   };
 }
 
+const SHORT_ACTIVITY_INTERVALS = new Set(['10s', '30s', '1m', '5m', '10m', '15m', 'hour']);
+const RELIABILITY_TIME_FORMATTER = new Intl.DateTimeFormat('en-GB', {
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+  timeZone: 'Asia/Jakarta'
+});
+const RELIABILITY_DAY_FORMATTER = new Intl.DateTimeFormat('en-GB', {
+  day: '2-digit',
+  month: 'short',
+  timeZone: 'Asia/Jakarta'
+});
+const RELIABILITY_TOOLTIP_FORMATTER = new Intl.DateTimeFormat('en-GB', {
+  day: '2-digit',
+  month: 'short',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+  timeZone: 'Asia/Jakarta'
+});
+
+function parseReliabilityBucket(value) {
+  if (!value || typeof value !== 'string') {
+    return null;
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const date = new Date(`${value}T00:00:00.000+07:00`);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?$/.test(value)) {
+    const normalized = value.replace(' ', 'T');
+    const withSeconds = normalized.length === 16 ? `${normalized}:00` : normalized;
+    const date = new Date(`${withSeconds}.000+07:00`);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatReliabilityTimestamp(date, fallback) {
+  if (!date) {
+    return `${fallback || 'Selected bucket'} WIB`;
+  }
+
+  return `${RELIABILITY_TOOLTIP_FORMATTER.format(date).replace(',', '')} WIB`;
+}
+
+function formatReliabilityAxisLabel(date, value, interval) {
+  if (!date) {
+    return String(value || '').slice(5);
+  }
+
+  if (SHORT_ACTIVITY_INTERVALS.has(interval)) {
+    return RELIABILITY_TIME_FORMATTER.format(date);
+  }
+
+  return RELIABILITY_DAY_FORMATTER.format(date);
+}
+
+function describeReliabilityGranularity(interval, range) {
+  if (interval === '1m') return '1-minute WIB buckets';
+  if (interval === '5m') return '5-minute WIB buckets';
+  if (interval === '10m') return '10-minute WIB buckets';
+  if (interval === '15m') return '15-minute WIB buckets';
+  if (interval === 'hour') return range === 'today' ? 'Hourly WIB flow' : 'Hourly WIB buckets';
+  return 'Daily WIB buckets';
+}
+
 function ReliabilityActivityTooltip({ active, payload, label }) {
   if (!active || !Array.isArray(payload) || payload.length === 0) {
     return null;
@@ -291,14 +370,14 @@ function ReliabilityActivityTooltip({ active, payload, label }) {
 
   return (
     <div className="rounded-md border border-[var(--chart-tooltip-border)] bg-[var(--chart-tooltip-bg)] p-3 text-sm text-[var(--chart-tooltip-text)] shadow-lg">
-      <p className="font-medium">Date: {label}</p>
+      <p className="font-medium">{row.tooltipLabel || label}</p>
       <div className="mt-2 space-y-1">
         <div className="flex items-center justify-between gap-6">
-          <span className="text-amber-500 dark:text-amber-300">Triggered events</span>
+          <span className="text-amber-500 dark:text-amber-300">Triggered</span>
           <span className="font-semibold">{formatNumber(triggered)}</span>
         </div>
         <div className="flex items-center justify-between gap-6">
-          <span className="text-emerald-600 dark:text-emerald-300">Recovered events</span>
+          <span className="text-emerald-600 dark:text-emerald-300">Recovered</span>
           <span className="font-semibold">{formatNumber(recovered)}</span>
         </div>
         <div className="flex items-center justify-between gap-6 border-t border-[var(--chart-tooltip-border)] pt-1">
@@ -314,12 +393,23 @@ function ReliabilityActivityTooltip({ active, payload, label }) {
   );
 }
 
-function ReliabilityActivityChart({ trend }) {
-  const chartData = trend.map((row) => ({
-    ...row,
-    incidents: Number(row.incidents || 0),
-    recoveries: Number(row.recoveries || 0)
-  }));
+function ReliabilityActivityChart({ trend, range = '7d', interval = 'day' }) {
+  const chartData = useMemo(() => trend.map((row) => {
+    const bucket = row.bucket || row.day;
+    const bucketInterval = row.interval || interval || 'day';
+    const bucketDate = parseReliabilityBucket(bucket);
+
+    return {
+      ...row,
+      day: bucket,
+      bucket,
+      interval: bucketInterval,
+      axisLabel: formatReliabilityAxisLabel(bucketDate, bucket, bucketInterval),
+      tooltipLabel: formatReliabilityTimestamp(bucketDate, bucket),
+      incidents: Number(row.incidents || 0),
+      recoveries: Number(row.recoveries || 0)
+    };
+  }), [interval, trend]);
   const chartFrameRef = useRef(null);
   const [visibleRange, setVisibleRange] = useState({ startIndex: 0, endIndex: Math.max(chartData.length - 1, 0) });
   const [selection, setSelection] = useState(null);
@@ -336,21 +426,17 @@ function ReliabilityActivityChart({ trend }) {
   const isZoomed = normalizedStart > 0 || normalizedEnd < maxIndex;
   const visibleCount = normalizedEnd - normalizedStart + 1;
   const visibleChartData = chartData.slice(normalizedStart, normalizedEnd + 1);
+  const axisLabelByBucket = useMemo(() => new Map(chartData.map((row) => [row.day, row.axisLabel])), [chartData]);
+  const granularityLabel = describeReliabilityGranularity(interval, range);
+  const lineDot = visibleCount > 30 ? false : { r: visibleCount > 18 ? 2.5 : 4, strokeWidth: 2, fill: 'var(--chart-tooltip-bg)' };
   const selectionStart = selection ? chartData[Math.min(selection.startIndex, selection.endIndex)]?.day : null;
   const selectionEnd = selection ? chartData[Math.max(selection.startIndex, selection.endIndex)]?.day : null;
 
   useEffect(() => {
-    setVisibleRange((current) => {
-      const nextMaxIndex = Math.max(chartData.length - 1, 0);
-      const startIndex = Math.max(0, Math.min(current.startIndex, nextMaxIndex));
-      const endIndex = Math.max(startIndex, Math.min(current.endIndex, nextMaxIndex));
-
-      if (startIndex === current.startIndex && endIndex === current.endIndex) {
-        return current;
-      }
-
-      return { startIndex, endIndex };
-    });
+    setVisibleRange({ startIndex: 0, endIndex: Math.max(chartData.length - 1, 0) });
+    setSelection(null);
+    setPanState(null);
+    setPinchState(null);
   }, [chartData.length]);
 
   function normalizeRange(startIndex, endIndex) {
@@ -605,7 +691,7 @@ function ReliabilityActivityChart({ trend }) {
     handleMouseUp();
   }
 
-  if (trend.length === 0 || totalActivity === 0) {
+  if (trend.length === 0) {
     return <div className="px-4 py-8 text-center text-sm text-slate-500 dark:text-slate-400">No reliability activity data for this range.</div>;
   }
 
@@ -615,15 +701,25 @@ function ReliabilityActivityChart({ trend }) {
         <p className="text-xs font-medium text-slate-600 dark:text-slate-300 sm:text-sm">
           {formatNumber(totalIncidents)} triggered events / {formatNumber(totalRecoveries)} recovered events
         </p>
-        <span className={`w-fit rounded-md px-2 py-0.5 text-[0.7rem] font-medium ring-1 sm:py-1 sm:text-xs ${
-          pressureElevated
-            ? 'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-900'
-            : 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:ring-emerald-900'
-        }`}
-        >
-          {activityState.label}
-        </span>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="w-fit rounded-md bg-slate-50 px-2 py-0.5 text-[0.7rem] font-medium text-slate-600 ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-800 sm:py-1 sm:text-xs">
+            {granularityLabel}
+          </span>
+          <span className={`w-fit rounded-md px-2 py-0.5 text-[0.7rem] font-medium ring-1 sm:py-1 sm:text-xs ${
+            pressureElevated
+              ? 'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-900'
+              : 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:ring-emerald-900'
+          }`}
+          >
+            {activityState.label}
+          </span>
+        </div>
       </div>
+      {totalActivity === 0 ? (
+        <div className="border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-400 sm:px-4">
+          No triggered or recovered events in this window; the timeline is preserved for operational context.
+        </div>
+      ) : null}
       <div className="overflow-hidden">
         <div
           ref={chartFrameRef}
@@ -644,7 +740,14 @@ function ReliabilityActivityChart({ trend }) {
               onMouseLeave={handleMouseLeave}
             >
               <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
-              <XAxis dataKey="day" tick={{ fontSize: 11 }} stroke="var(--chart-axis)" minTickGap={28} tickFormatter={(value) => String(value).slice(5)} interval="preserveStartEnd" />
+              <XAxis
+                dataKey="day"
+                tick={{ fontSize: 11 }}
+                stroke="var(--chart-axis)"
+                minTickGap={SHORT_ACTIVITY_INTERVALS.has(interval) ? 18 : 28}
+                tickFormatter={(value) => axisLabelByBucket.get(value) || formatReliabilityAxisLabel(parseReliabilityBucket(value), value, interval)}
+                interval="preserveStartEnd"
+              />
               <YAxis tick={{ fontSize: 11 }} stroke="var(--chart-axis)" allowDecimals={false} width={42} tickCount={5} />
               <Tooltip content={<ReliabilityActivityTooltip />} />
               <Line
@@ -653,7 +756,7 @@ function ReliabilityActivityChart({ trend }) {
                 name="Triggered events"
                 stroke="#f59e0b"
                 strokeWidth={2.25}
-                dot={{ r: 4, strokeWidth: 2, fill: 'var(--chart-tooltip-bg)' }}
+                dot={lineDot}
                 activeDot={{ r: 6, strokeWidth: 2 }}
                 isAnimationActive
                 animationDuration={220}
@@ -665,7 +768,7 @@ function ReliabilityActivityChart({ trend }) {
                 name="Recovered events"
                 stroke="#10b981"
                 strokeWidth={2.25}
-                dot={{ r: 4, strokeWidth: 2, fill: 'var(--chart-tooltip-bg)' }}
+                dot={lineDot}
                 activeDot={{ r: 6, strokeWidth: 2 }}
                 isAnimationActive
                 animationDuration={220}
@@ -917,11 +1020,13 @@ function ReportsContent() {
 
   const filters = useMemo(() => {
     const range = searchParams.get('range');
+    const window = searchParams.get('window');
     const start = searchParams.get('start');
     const end = searchParams.get('end');
 
     return {
       range: VALID_RANGES.has(range) ? range : '7d',
+      window: VALID_WINDOWS.has(window) ? window : '',
       start: REPORT_TIME_PATTERN.test(start || '') ? start : '',
       end: REPORT_TIME_PATTERN.test(end || '') ? end : '',
       env: searchParams.get('env') || '',
@@ -930,10 +1035,10 @@ function ReportsContent() {
   }, [searchParams]);
 
   const statsFilters = useMemo(() => ({
-    ...(filters.start && filters.end ? { start: filters.start, end: filters.end } : { range: filters.range }),
+    ...(filters.start && filters.end ? { start: filters.start, end: filters.end } : filters.window ? { window: filters.window } : { range: filters.range }),
     ...(filters.env ? { env: filters.env } : {}),
     ...(filters.service_group ? { service_group: filters.service_group } : {})
-  }), [filters.range, filters.start, filters.end, filters.env, filters.service_group]);
+  }), [filters.range, filters.window, filters.start, filters.end, filters.env, filters.service_group]);
 
   useEffect(() => {
     let cancelled = false;
@@ -987,6 +1092,8 @@ function ReportsContent() {
     if (filters.start && filters.end) {
       query.set('start', filters.start);
       query.set('end', filters.end);
+    } else if (filters.window) {
+      query.set('window', filters.window);
     } else {
       query.set('range', filters.range);
     }
@@ -1001,7 +1108,11 @@ function ReportsContent() {
 
   function applyTimeFilter(nextFilter) {
     const query = new URLSearchParams();
-    query.set('range', nextFilter?.value || '7d');
+    if (nextFilter?.type === 'window') {
+      query.set('window', nextFilter.value || '30m');
+    } else {
+      query.set('range', nextFilter?.value || '7d');
+    }
     for (const key of ['env', 'service_group']) {
       const value = filters[key];
       if (value) query.set(key, value);
@@ -1024,16 +1135,20 @@ function ReportsContent() {
   const statsSummary = operationalStats?.summary && typeof operationalStats.summary === 'object' ? operationalStats.summary : {};
   const heartbeatSummary = operationalStats?.heartbeat?.summary && typeof operationalStats.heartbeat.summary === 'object' ? operationalStats.heartbeat.summary : {};
   const insights = operationalStats?.insights && typeof operationalStats.insights === 'object' ? operationalStats.insights : {};
-  const scopeText = metricSubtext(filters.range, filters);
+  const scopeText = metricSubtext(filters.window || filters.range, filters);
   const problematicCrons = Array.isArray(report?.problematic_crons) ? report.problematic_crons : [];
   const operationalHealthJobs = rankCronHealthJobs(Array.isArray(insights.problematic_jobs) ? insights.problematic_jobs : []);
   const attentionHealthJobs = operationalHealthJobs.filter((job) => Number(job?.health?.score || 0) > 0);
   const slowestJobs = Array.isArray(insights.slowest_jobs) ? insights.slowest_jobs : [];
   const trend = Array.isArray(report?.trend) ? report.trend : [];
   const heatmap = report?.heatmap || {};
-  const selectedFilter = filters.start && filters.end ? { type: 'custom' } : { type: 'range', value: filters.range };
+  const selectedFilter = filters.start && filters.end
+    ? { type: 'custom' }
+    : filters.window
+      ? { type: 'window', value: filters.window }
+      : { type: 'range', value: filters.range };
   const customRange = normalizeCustomRangeForPicker(filters);
-  const activeRangeLabel = rangeLabel(report?.range || filters.range, filters.start, filters.end);
+  const activeRangeLabel = rangeLabel(report?.window || report?.range || filters.window || filters.range, filters.start, filters.end);
 
   return (
     <div className="space-y-4 sm:space-y-6">
@@ -1053,7 +1168,7 @@ function ReportsContent() {
       ) : null}
 
       <form
-        key={`${filters.range}:${filters.start}:${filters.end}:${filters.env}:${filters.service_group}`}
+        key={`${filters.range}:${filters.window}:${filters.start}:${filters.end}:${filters.env}:${filters.service_group}`}
         className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white p-2.5 shadow-sm dark:border-slate-800 dark:bg-slate-950 md:flex-row md:flex-wrap md:items-start md:justify-between md:p-3 lg:flex-nowrap lg:gap-3"
         onSubmit={applyFilters}
       >
@@ -1112,7 +1227,7 @@ function ReportsContent() {
               <h2 className="text-base font-semibold text-ink">Reliability Activity</h2>
               <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400 sm:text-sm">Compare triggered operational events against recoveries in WIB to inspect reliability pressure, recovery behavior, and transient anomaly patterns.</p>
             </div>
-            <ReliabilityActivityChart trend={trend} />
+            <ReliabilityActivityChart trend={trend} range={report?.window || report?.range || filters.window || filters.range} interval={report?.trend_interval || 'day'} />
           </section>
 
           <ReliabilityHeatmap heatmap={heatmap} />
