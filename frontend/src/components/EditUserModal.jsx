@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { isPrivilegedRole } from '@/lib/rbac';
 
-export default function EditUserModal({ user, onSave, onCancel, isLoading }) {
+export default function EditUserModal({ user, onSave, onCancel, isLoading, canManagePrivileged = false }) {
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -66,9 +67,11 @@ export default function EditUserModal({ user, onSave, onCancel, isLoading }) {
               value={formData.role}
               onChange={(e) => handleChange('role', e.target.value)}
               className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-950"
+              disabled={!canManagePrivileged && (isPrivilegedRole(user.role) || isPrivilegedRole(formData.role))}
             >
               <option value="user">User</option>
-              <option value="admin">Admin</option>
+              {canManagePrivileged || formData.role === 'admin' ? <option value="admin">Admin</option> : null}
+              {canManagePrivileged || formData.role === 'super_admin' ? <option value="super_admin">Super Admin</option> : null}
             </select>
           </label>
 

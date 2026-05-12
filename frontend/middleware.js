@@ -2,6 +2,11 @@ import { NextResponse } from 'next/server';
 
 const SESSION_COOKIE = 'nyx_session';
 const PUBLIC_PATHS = ['/login'];
+const ROLE_RANKS = {
+  user: 0,
+  admin: 1,
+  super_admin: 2
+};
 
 function base64urlDecode(value) {
   const normalized = String(value || '').replaceAll('-', '+').replaceAll('_', '/');
@@ -65,6 +70,10 @@ function isPublicPath(pathname) {
     || pathname.startsWith('/branding/');
 }
 
+function isAdminOrHigher(session) {
+  return (ROLE_RANKS[session?.role] ?? 0) >= ROLE_RANKS.admin;
+}
+
 export async function middleware(request) {
   const { pathname, search } = request.nextUrl;
 
@@ -81,10 +90,10 @@ export async function middleware(request) {
       return NextResponse.redirect(new URL('/', request.url));
     }
 
-    const adminOnlyPaths = ['/alerts', '/users', '/audit', '/about'];
+    const adminOnlyPaths = ['/alerts/config', '/reports', '/users', '/audit', '/about'];
     const adminOnly = adminOnlyPaths.some((path) => pathname === path || pathname.startsWith(`${path}/`));
 
-    if (adminOnly && session.role !== 'admin') {
+    if (adminOnly && !isAdminOrHigher(session)) {
       return NextResponse.redirect(new URL('/', request.url));
     }
 

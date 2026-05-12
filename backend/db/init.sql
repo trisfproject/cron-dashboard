@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS users (
   name VARCHAR(255) NOT NULL,
   email VARCHAR(255) NOT NULL,
   password_hash VARCHAR(255) NOT NULL,
-  role ENUM('user', 'admin') NOT NULL DEFAULT 'user',
+  role ENUM('user', 'admin', 'super_admin') NOT NULL DEFAULT 'user',
   is_active TINYINT(1) NOT NULL DEFAULT 1,
   last_login_at TIMESTAMP NULL,
   locked_until TIMESTAMP NULL,

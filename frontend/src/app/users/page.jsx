@@ -8,6 +8,7 @@ import EditUserModal from '@/components/EditUserModal';
 import { passwordPolicyChecks, PasswordPolicyChecklist } from '@/components/PasswordPolicyChecklist';
 import ResetPasswordModal from '@/components/ResetPasswordModal';
 import { archiveUser, canDeleteUser, createUser, deactivateUser, deleteUser, forceLogoutUser, formatApiError, getCurrentUser, getUsers, reactivateUser, resetUserPassword, restoreUser, updateUser } from '@/lib/api';
+import { isPrivilegedRole, isSuperAdmin } from '@/lib/rbac';
 
 const emptyForm = {
   name: '',
@@ -39,11 +40,14 @@ function AccountStatusBadge({ user }) {
 }
 
 function RoleBadge({ role }) {
-  const admin = role === 'admin';
+  const admin = isPrivilegedRole(role);
+  const superAdmin = role === 'super_admin';
 
   return (
     <span className={`w-fit rounded-md px-2 py-1 text-xs font-semibold uppercase ring-1 ${
-      admin
+      superAdmin
+        ? 'bg-violet-50 text-violet-700 ring-violet-200 dark:bg-violet-950/40 dark:text-violet-200 dark:ring-violet-900'
+        : admin
         ? 'bg-blue-50 text-blue-700 ring-blue-200 dark:bg-blue-950/40 dark:text-blue-200 dark:ring-blue-900'
         : 'bg-slate-100 text-slate-600 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-800'
     }`}
@@ -82,6 +86,7 @@ export default function UsersPage() {
   const [lifecycleConflict, setLifecycleConflict] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
   const [userSearch, setUserSearch] = useState('');
+  const currentUserIsSuperAdmin = isSuperAdmin(currentUser);
 
   // Modal states
   const [editingUser, setEditingUser] = useState(null);
@@ -404,7 +409,8 @@ export default function UsersPage() {
           <span className="text-sm font-medium text-slate-600 dark:text-slate-300">Role</span>
           <select value={form.role} onChange={(event) => updateForm('role', event.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-950">
             <option value="user">User</option>
-            <option value="admin">Admin</option>
+            {currentUserIsSuperAdmin ? <option value="admin">Admin</option> : null}
+            {currentUserIsSuperAdmin ? <option value="super_admin">Super Admin</option> : null}
           </select>
         </label>
         <div className="md:col-span-4">
@@ -469,6 +475,7 @@ export default function UsersPage() {
                   onToggleStatus={handleToggleStatus}
                   onArchive={handleArchive}
                   onDelete={handleDelete}
+                  canManagePrivileged={currentUserIsSuperAdmin}
                 />
               </div>
             </article>
@@ -513,6 +520,7 @@ export default function UsersPage() {
                       onToggleStatus={handleToggleStatus}
                       onArchive={handleArchive}
                       onDelete={handleDelete}
+                      canManagePrivileged={currentUserIsSuperAdmin}
                     />
                   </td>
                 </tr>
@@ -529,6 +537,7 @@ export default function UsersPage() {
 
       <EditUserModal
         user={editingUser}
+        canManagePrivileged={currentUserIsSuperAdmin}
         onSave={handleEditUser}
         onCancel={() => setEditingUser(null)}
         isLoading={saving}

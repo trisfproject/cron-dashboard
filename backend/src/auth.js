@@ -11,6 +11,30 @@ const PASSWORD_REMINDER_DAYS = 30;
 const PASSWORD_STRONG_WARNING_DAYS = 45;
 const PASSWORD_FORCE_READY_DAYS = 60;
 const PASSWORD_EXPIRY_DAYS = 60;
+const ROLE_RANKS = {
+  user: 0,
+  admin: 1,
+  super_admin: 2
+};
+export const SUPPORTED_ROLES = Object.keys(ROLE_RANKS);
+
+export function normalizeRole(role) {
+  return SUPPORTED_ROLES.includes(role) ? role : 'user';
+}
+
+export function isAdminOrHigher(userOrRole) {
+  const role = typeof userOrRole === 'string' ? userOrRole : userOrRole?.role;
+  return (ROLE_RANKS[normalizeRole(role)] ?? 0) >= ROLE_RANKS.admin;
+}
+
+export function isSuperAdmin(userOrRole) {
+  const role = typeof userOrRole === 'string' ? userOrRole : userOrRole?.role;
+  return normalizeRole(role) === 'super_admin';
+}
+
+export function isPrivilegedRole(role) {
+  return isAdminOrHigher(role);
+}
 
 function base64url(input) {
   return Buffer.from(input)
@@ -295,7 +319,7 @@ export async function ensureAuthSchema() {
       name VARCHAR(255) NOT NULL,
       email VARCHAR(255) NOT NULL,
       password_hash VARCHAR(255) NOT NULL,
-      role ENUM('user', 'admin') NOT NULL DEFAULT 'user',
+      role ENUM('user', 'admin', 'super_admin') NOT NULL DEFAULT 'user',
       is_active TINYINT(1) NOT NULL DEFAULT 1,
       last_login_at TIMESTAMP NULL,
       locked_until TIMESTAMP NULL,
@@ -317,6 +341,7 @@ export async function ensureAuthSchema() {
   await ensureColumn('users', 'password_changed_at', 'ALTER TABLE users ADD COLUMN password_changed_at TIMESTAMP NULL');
   await ensureColumn('users', 'password_expires_at', 'ALTER TABLE users ADD COLUMN password_expires_at TIMESTAMP NULL');
   await ensureColumn('users', 'archived_at', 'ALTER TABLE users ADD COLUMN archived_at TIMESTAMP NULL');
+  await pool.query("ALTER TABLE users MODIFY COLUMN role ENUM('user', 'admin', 'super_admin') NOT NULL DEFAULT 'user'");
   await pool.query(`
     UPDATE users
     SET password_changed_at = COALESCE(password_changed_at, created_at, UTC_TIMESTAMP()),
@@ -363,10 +388,36 @@ export async function bootstrapAdminUser(config, logger) {
       config.bootstrapAdminName,
       config.bootstrapAdminEmail.toLowerCase(),
       hashPassword(config.bootstrapAdminPassword),
-      'admin'
+      'super_admin'
     ]
   );
-  logger.info({ email: config.bootstrapAdminEmail }, 'Bootstrapped NYX admin user');
+  logger.info({ email: config.bootstrapAdminEmail }, 'Bootstrapped NYX super admin user');
+}
+
+export async function ensureSuperAdminUser(config, logger) {
+  const [[summary]] = await pool.query(
+    "SELECT SUM(role = 'super_admin' AND is_active = 1 AND archived_at IS NULL) AS active_super_admins FROM users"
+  );
+
+  if (Number(summary?.active_super_admins || 0) > 0 || !config.bootstrapAdminEmail) {
+    return;
+  }
+
+  const [rows] = await pool.query(
+    'SELECT id, role FROM users WHERE email = ? AND archived_at IS NULL LIMIT 1',
+    [config.bootstrapAdminEmail.toLowerCase()]
+  );
+  const bootstrapUser = rows[0];
+
+  if (!bootstrapUser) {
+    return;
+  }
+
+  await pool.query(
+    "UPDATE users SET role = 'super_admin', session_version = session_version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+    [bootstrapUser.id]
+  );
+  logger.warn({ email: config.bootstrapAdminEmail }, 'Promoted bootstrap admin to NYX super admin because no active super admin existed');
 }
 
 export async function authenticateUser(email, password) {
@@ -442,8 +493,22 @@ export async function requireAdmin(request, reply) {
     return;
   }
 
-  if (request.user?.role !== 'admin') {
+  if (!isAdminOrHigher(request.user)) {
     reply.code(403).send({ error: 'Admin role required' });
+  }
+}
+
+export async function requireSuperAdmin(request, reply) {
+  if (!request.user) {
+    await requireAuth(request, reply);
+  }
+
+  if (reply.sent) {
+    return;
+  }
+
+  if (!isSuperAdmin(request.user)) {
+    reply.code(403).send({ error: 'Super admin role required' });
   }
 }
 
@@ -545,7 +610,7 @@ export async function createUser(payload) {
     throw error;
   }
 
-  const role = payload.role === 'admin' ? 'admin' : 'user';
+  const role = normalizeRole(payload.role);
   const isActive = payload.is_active === false ? 0 : 1;
   let result;
 
@@ -605,7 +670,7 @@ export async function updateUser(id, payload) {
 
   if (payload.role !== undefined) {
     fields.push('role = ?');
-    values.push(payload.role === 'admin' ? 'admin' : 'user');
+    values.push(normalizeRole(payload.role));
     invalidateSessions = true;
   }
 

@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { isPrivilegedRole } from '@/lib/rbac';
 
-export default function ActionDropdown({ user, onEdit, onResetPassword, onForceLogout, onToggleStatus, onArchive, onDelete, isCurrentUser }) {
+export default function ActionDropdown({ user, onEdit, onResetPassword, onForceLogout, onToggleStatus, onArchive, onDelete, isCurrentUser, canManagePrivileged = false }) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef(null);
   const buttonRef = useRef(null);
@@ -25,8 +26,10 @@ export default function ActionDropdown({ user, onEdit, onResetPassword, onForceL
     setOpen(false);
   };
 
-  const canArchive = !isCurrentUser && user.role !== 'admin';
-  const canDelete = !isCurrentUser;
+  const isPrivilegedUser = isPrivilegedRole(user.role);
+  const canManageUser = !isPrivilegedUser || canManagePrivileged;
+  const canArchive = !isCurrentUser && canManageUser;
+  const canDelete = !isCurrentUser && canManageUser;
 
   return (
     <div className="relative inline-block text-left">
@@ -49,31 +52,37 @@ export default function ActionDropdown({ user, onEdit, onResetPassword, onForceL
           role="menu"
         >
           <div className="space-y-1 p-1">
-            <button
-              onClick={() => handleAction(() => onEdit(user))}
-              className="w-full rounded px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-900"
-              role="menuitem"
-            >
-              Edit user
-            </button>
+            {canManageUser ? (
+              <button
+                onClick={() => handleAction(() => onEdit(user))}
+                className="w-full rounded px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-900"
+                role="menuitem"
+              >
+                Edit user
+              </button>
+            ) : null}
 
-            <button
-              onClick={() => handleAction(() => onResetPassword(user))}
-              className="w-full rounded px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-900"
-              role="menuitem"
-            >
-              Reset password
-            </button>
+            {canManageUser ? (
+              <button
+                onClick={() => handleAction(() => onResetPassword(user))}
+                className="w-full rounded px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-900"
+                role="menuitem"
+              >
+                Reset password
+              </button>
+            ) : null}
 
-            <button
-              onClick={() => handleAction(() => onForceLogout(user))}
-              className="w-full rounded px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-900"
-              role="menuitem"
-            >
-              Force logout
-            </button>
+            {canManageUser ? (
+              <button
+                onClick={() => handleAction(() => onForceLogout(user))}
+                className="w-full rounded px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-900"
+                role="menuitem"
+              >
+                Force logout
+              </button>
+            ) : null}
 
-            {!isCurrentUser && (
+            {!isCurrentUser && canManageUser ? (
               <button
                 onClick={() => handleAction(() => onToggleStatus(user))}
                 className="w-full rounded px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-900"
@@ -81,7 +90,7 @@ export default function ActionDropdown({ user, onEdit, onResetPassword, onForceL
               >
                 {user.is_active ? 'Deactivate' : 'Reactivate'}
               </button>
-            )}
+            ) : null}
 
             {canArchive && (
               <>
@@ -105,6 +114,12 @@ export default function ActionDropdown({ user, onEdit, onResetPassword, onForceL
                 Delete user
               </button>
             )}
+
+            {!canManageUser ? (
+              <div className="px-3 py-2 text-xs font-medium text-slate-500 dark:text-slate-400" role="menuitem">
+                Super admin required
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}

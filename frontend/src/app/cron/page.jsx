@@ -3,6 +3,7 @@ import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { CronListClient } from './CronListClient';
 import { getCronList, getCurrentUser, getScopeOptions } from '@/lib/api';
+import { isAdminOrHigher } from '@/lib/rbac';
 
 export const dynamic = 'force-dynamic';
 
@@ -148,7 +149,7 @@ export default async function CronListPage({ searchParams }) {
       scopeOptions={scopeOptions}
       filters={filters}
       error={error}
-      canManageInventory={currentUser?.role === 'admin'}
+      canManageInventory={isAdminOrHigher(currentUser)}
     />
   );
 }

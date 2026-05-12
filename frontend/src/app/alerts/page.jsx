@@ -6,6 +6,7 @@ import { AlertSeverityBadge, AlertStateBadge } from '@/components/AlertBadge';
 import { EnvironmentBadge, ServiceGroupBadge } from '@/components/EnvironmentBadge';
 import { acknowledgeAlert, evaluateAlerts, formatApiError, getAlerts, getCurrentUser, getScopeOptions } from '@/lib/api';
 import { formatDate } from '@/lib/format';
+import { isAdminOrHigher } from '@/lib/rbac';
 
 const PAGE_SIZE = 20;
 const POLL_INTERVAL_MS = 10000;
@@ -182,7 +183,7 @@ export default function AlertsPage() {
 
   useEffect(() => {
     getCurrentUser()
-      .then((data) => setIsAdmin(data?.user?.role === 'admin'))
+      .then((data) => setIsAdmin(isAdminOrHigher(data?.user)))
       .catch(() => setIsAdmin(false));
 
     getScopeOptions()

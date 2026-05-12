@@ -1,7 +1,7 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import { evaluateAlertsSafely } from './alerting.js';
-import { bootstrapAdminUser, ensureAuthSchema } from './auth.js';
+import { bootstrapAdminUser, ensureAuthSchema, ensureSuperAdminUser } from './auth.js';
 import { config } from './config.js';
 import { pool, waitForDatabase } from './db.js';
 import { ensureHeartbeatSchema, startHeartbeatEvaluator, stopHeartbeatEvaluator } from './heartbeat.js';
@@ -24,6 +24,7 @@ await waitForDatabase(app.log);
 await ensureAuthSchema();
 await ensureHeartbeatSchema();
 await bootstrapAdminUser(config, app.log);
+await ensureSuperAdminUser(config, app.log);
 evaluateAlertsSafely(app);
 startHeartbeatEvaluator(app, config.alertEvaluationIntervalMs);
 

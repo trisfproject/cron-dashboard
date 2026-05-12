@@ -10,6 +10,7 @@ import { MetricCard } from '@/components/MetricCard';
 import { TimeRangeFilter } from '@/components/TimeRangeFilter';
 import { acknowledgeIncident, createMaintenanceWindow, disableMaintenanceWindow, getCurrentUser, getIncidents, getLogs, getMaintenanceWindows, getStats } from '@/lib/api';
 import { formatDate, formatDuration, formatNumber, formatPercent } from '@/lib/format';
+import { isAdminOrHigher } from '@/lib/rbac';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_FILTER = { type: 'window', value: '30m' };
@@ -420,8 +421,8 @@ function CronDetailContent() {
   const hasData = totalRuns > 0 || logs.length > 0;
   const isCustom = filter.type === 'custom';
   const activeMaintenance = maintenanceWindows[0] || null;
-  const isAdmin = currentUser?.role === 'admin';
-  const canAcknowledge = ['admin', 'user', 'operator'].includes(currentUser?.role);
+  const isAdmin = isAdminOrHigher(currentUser);
+  const canAcknowledge = isAdminOrHigher(currentUser) || ['user', 'operator'].includes(currentUser?.role);
 
   function applyCustomRange(nextCustomRange) {
     if (isValidCustomRange(nextCustomRange)) {

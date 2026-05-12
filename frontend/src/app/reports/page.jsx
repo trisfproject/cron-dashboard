@@ -8,6 +8,7 @@ import { EnvironmentBadge, ServiceGroupBadge } from '@/components/EnvironmentBad
 import { TimeRangeFilter } from '@/components/TimeRangeFilter';
 import { formatApiError, getCurrentUser, getReliabilityReport, getScopeOptions, getStats } from '@/lib/api';
 import { formatDuration, formatNumber, formatPercent } from '@/lib/format';
+import { isAdminOrHigher } from '@/lib/rbac';
 
 const VALID_RANGES = new Set(['today', '7d', '30d']);
 const REPORT_TIME_PATTERN = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$/;
@@ -943,7 +944,7 @@ function ReportsContent() {
       .then((userData) => {
         if (cancelled) return null;
 
-        if (userData?.user?.role !== 'admin') {
+        if (!isAdminOrHigher(userData?.user)) {
           router.replace('/');
           return null;
         }

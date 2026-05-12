@@ -3,6 +3,7 @@ import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { CronInventoryClient } from './CronInventoryClient';
 import { getCronInventory, getCurrentUser, getScopeOptions } from '@/lib/api';
+import { isAdminOrHigher } from '@/lib/rbac';
 
 export const dynamic = 'force-dynamic';
 
@@ -102,7 +103,7 @@ export default async function CronInventoryPage({ searchParams }) {
     const userResponse = await getCurrentUser(apiOptions);
     currentUser = userResponse?.user || currentUser;
 
-    if (currentUser?.role !== 'admin') {
+    if (!isAdminOrHigher(currentUser)) {
       redirect('/cron');
     }
 

@@ -5,9 +5,13 @@ import {
   canPermanentlyDeleteUser,
   createUser,
   forceLogoutUser,
+  isAdminOrHigher,
+  isPrivilegedRole,
+  isSuperAdmin,
   listAuditLogs,
   listUsers,
   logAudit,
+  normalizeRole,
   permanentDeleteUser,
   registerAuthRoutes,
   requireAdmin,
@@ -206,7 +210,42 @@ function requireApiKey(request, reply, done) {
 }
 
 function canAcknowledgeIncidents(user) {
-  return ['admin', 'operator', 'user'].includes(user?.role);
+  return isAdminOrHigher(user) || ['operator', 'user'].includes(user?.role);
+}
+
+async function findUserById(id, includeArchived = true) {
+  const users = await listUsers(includeArchived);
+  return users.find((user) => Number(user.id) === Number(id)) || null;
+}
+
+function governanceDenied(reply, message = 'Super admin role required for privileged user governance') {
+  return reply.code(403).send({ error: message });
+}
+
+function isRoleChange(currentRole, nextRole) {
+  return nextRole !== undefined && normalizeRole(nextRole) !== normalizeRole(currentRole);
+}
+
+function needsSuperAdminForUserCreate(payload) {
+  return isPrivilegedRole(normalizeRole(payload.role));
+}
+
+function needsSuperAdminForUserUpdate(targetUser, payload) {
+  return isRoleChange(targetUser?.role, payload.role)
+    || isPrivilegedRole(targetUser?.role)
+    || isPrivilegedRole(payload.role);
+}
+
+function needsSuperAdminForPrivilegedTarget(targetUser) {
+  return isPrivilegedRole(targetUser?.role);
+}
+
+function activeSuperAdminCount(users) {
+  return users.filter((user) => user.role === 'super_admin' && user.is_active && !user.archived_at).length;
+}
+
+function activeAdminOrHigherCount(users) {
+  return users.filter((user) => isPrivilegedRole(user.role) && user.is_active && !user.archived_at).length;
 }
 
 export async function registerRoutes(app) {
@@ -1610,7 +1649,7 @@ export async function registerRoutes(app) {
             name: { type: 'string', minLength: 1, maxLength: 255 },
             email: { type: 'string', minLength: 3, maxLength: 255 },
             password: { type: 'string', minLength: 8, maxLength: 1024 },
-            role: { type: 'string', enum: ['user', 'admin'], default: 'user' },
+            role: { type: 'string', enum: ['user', 'admin', 'super_admin'], default: 'user' },
             is_active: { type: 'boolean' }
           }
         }
@@ -1618,6 +1657,10 @@ export async function registerRoutes(app) {
     },
     async (request, reply) => {
       try {
+        if (needsSuperAdminForUserCreate(request.body) && !isSuperAdmin(request.user)) {
+          return governanceDenied(reply);
+        }
+
         const user = await createUser(request.body);
         await logAudit({
           user: request.user,
@@ -1663,7 +1706,7 @@ export async function registerRoutes(app) {
           properties: {
             name: { type: 'string', minLength: 1, maxLength: 255 },
             email: { type: 'string', minLength: 3, maxLength: 255 },
-            role: { type: 'string', enum: ['user', 'admin'] },
+            role: { type: 'string', enum: ['user', 'admin', 'super_admin'] },
             is_active: { type: 'boolean' }
           }
         }
@@ -1674,6 +1717,22 @@ export async function registerRoutes(app) {
 
       if (id === Number(request.user.id) && request.body.is_active === false) {
         return reply.code(400).send({ error: 'You cannot deactivate your own account' });
+      }
+
+      const targetUser = await findUserById(id);
+      if (!targetUser) {
+        return reply.code(404).send({ error: 'User not found' });
+      }
+
+      if (needsSuperAdminForUserUpdate(targetUser, request.body) && !isSuperAdmin(request.user)) {
+        return governanceDenied(reply);
+      }
+
+      if (targetUser.role === 'super_admin' && request.body.is_active === false) {
+        const users = await listUsers(true);
+        if (activeSuperAdminCount(users) <= 1 && targetUser.is_active && !targetUser.archived_at) {
+          return reply.code(400).send({ error: 'Cannot deactivate the last active super admin user' });
+        }
       }
 
       const user = await updateUser(id, request.body);
@@ -1723,7 +1782,16 @@ export async function registerRoutes(app) {
         }
       }
     },
-    async (request) => {
+    async (request, reply) => {
+      const targetUser = await findUserById(Number(request.params.id));
+      if (!targetUser) {
+        return reply.code(404).send({ error: 'User not found' });
+      }
+
+      if (needsSuperAdminForPrivilegedTarget(targetUser) && !isSuperAdmin(request.user)) {
+        return governanceDenied(reply);
+      }
+
       await resetUserPassword(Number(request.params.id), request.body.password);
       await logAudit({
         user: request.user,
@@ -1756,6 +1824,22 @@ export async function registerRoutes(app) {
         return reply.code(400).send({ error: 'You cannot deactivate your own account' });
       }
 
+      const targetUser = await findUserById(id);
+      if (!targetUser) {
+        return reply.code(404).send({ error: 'User not found' });
+      }
+
+      if (needsSuperAdminForPrivilegedTarget(targetUser) && !isSuperAdmin(request.user)) {
+        return governanceDenied(reply);
+      }
+
+      if (targetUser.role === 'super_admin') {
+        const users = await listUsers(true);
+        if (activeSuperAdminCount(users) <= 1 && targetUser.is_active && !targetUser.archived_at) {
+          return reply.code(400).send({ error: 'Cannot deactivate the last active super admin user' });
+        }
+      }
+
       const user = await updateUser(id, { is_active: false });
       await logAudit({
         user: request.user,
@@ -1782,7 +1866,16 @@ export async function registerRoutes(app) {
         }
       }
     },
-    async (request) => {
+    async (request, reply) => {
+      const targetUser = await findUserById(Number(request.params.id));
+      if (!targetUser) {
+        return reply.code(404).send({ error: 'User not found' });
+      }
+
+      if (needsSuperAdminForPrivilegedTarget(targetUser) && !isSuperAdmin(request.user)) {
+        return governanceDenied(reply);
+      }
+
       const user = await updateUser(Number(request.params.id), { is_active: true });
       await logAudit({
         user: request.user,
@@ -1810,10 +1903,16 @@ export async function registerRoutes(app) {
       }
     },
     async (request, reply) => {
-      const user = await restoreUser(Number(request.params.id));
-      if (!user) {
+      const targetUser = await findUserById(Number(request.params.id));
+      if (!targetUser) {
         return reply.code(404).send({ error: 'User not found' });
       }
+
+      if (needsSuperAdminForPrivilegedTarget(targetUser) && !isSuperAdmin(request.user)) {
+        return governanceDenied(reply);
+      }
+
+      const user = await restoreUser(Number(request.params.id));
       await logAudit({
         user: request.user,
         action: 'user_restored',
@@ -1839,7 +1938,16 @@ export async function registerRoutes(app) {
         }
       }
     },
-    async (request) => {
+    async (request, reply) => {
+      const targetUser = await findUserById(Number(request.params.id));
+      if (!targetUser) {
+        return reply.code(404).send({ error: 'User not found' });
+      }
+
+      if (needsSuperAdminForPrivilegedTarget(targetUser) && !isSuperAdmin(request.user)) {
+        return governanceDenied(reply);
+      }
+
       await forceLogoutUser(Number(request.params.id));
       await logAudit({
         user: request.user,
@@ -1873,11 +1981,25 @@ export async function registerRoutes(app) {
       }
 
       const users = await listUsers(true);
-      const adminCount = users.filter((u) => u.role === 'admin' && u.is_active && !u.archived_at).length;
-      const isLastAdmin = adminCount === 1 && users.find((u) => u.id === id)?.role === 'admin' && users.find((u) => u.id === id)?.is_active;
+      const targetUser = users.find((u) => u.id === id);
 
-      if (isLastAdmin) {
-        return reply.code(400).send({ error: 'Cannot archive the last active admin user' });
+      if (!targetUser) {
+        return reply.code(404).send({ error: 'User not found' });
+      }
+
+      if (needsSuperAdminForPrivilegedTarget(targetUser) && !isSuperAdmin(request.user)) {
+        return governanceDenied(reply);
+      }
+
+      const isLastSuperAdmin = activeSuperAdminCount(users) === 1 && targetUser.role === 'super_admin' && targetUser.is_active && !targetUser.archived_at;
+      const isLastAdminOrHigher = activeAdminOrHigherCount(users) === 1 && isPrivilegedRole(targetUser.role) && targetUser.is_active && !targetUser.archived_at;
+
+      if (isLastSuperAdmin) {
+        return reply.code(400).send({ error: 'Cannot archive the last active super admin user' });
+      }
+
+      if (isLastAdminOrHigher) {
+        return reply.code(400).send({ error: 'Cannot archive the last active admin-or-higher user' });
       }
 
       await archiveUser(id);
@@ -1927,6 +2049,28 @@ export async function registerRoutes(app) {
         return reply.code(400).send({ error: 'You cannot delete your own account' });
       }
 
+      const users = await listUsers(true);
+      const targetUser = users.find((u) => u.id === id);
+
+      if (!targetUser) {
+        return reply.code(404).send({ error: 'User not found' });
+      }
+
+      if (needsSuperAdminForPrivilegedTarget(targetUser) && !isSuperAdmin(request.user)) {
+        return governanceDenied(reply);
+      }
+
+      const isLastSuperAdmin = activeSuperAdminCount(users) === 1 && targetUser.role === 'super_admin' && targetUser.is_active && !targetUser.archived_at;
+      const isLastAdminOrHigher = activeAdminOrHigherCount(users) === 1 && isPrivilegedRole(targetUser.role) && targetUser.is_active && !targetUser.archived_at;
+
+      if (isLastSuperAdmin) {
+        return reply.code(400).send({ error: 'Cannot delete the last active super admin user' });
+      }
+
+      if (isLastAdminOrHigher) {
+        return reply.code(400).send({ error: 'Cannot delete the last active admin-or-higher user' });
+      }
+
       if (permanent) {
         const canDelete = await canPermanentlyDeleteUser(id);
         if (!canDelete.canDelete) {
@@ -1943,14 +2087,6 @@ export async function registerRoutes(app) {
         });
 
         return { deleted: true };
-      }
-
-      const users = await listUsers(true);
-      const adminCount = users.filter((u) => u.role === 'admin' && u.is_active && !u.archived_at).length;
-      const isLastAdmin = adminCount === 1 && users.find((u) => u.id === id)?.role === 'admin' && users.find((u) => u.id === id)?.is_active;
-
-      if (isLastAdmin) {
-        return reply.code(400).send({ error: 'Cannot delete the last active admin user' });
       }
 
       await archiveUser(id);
@@ -1981,8 +2117,18 @@ export async function registerRoutes(app) {
         }
       }
     },
-    async (request) => {
+    async (request, reply) => {
       const id = Number(request.params.id);
+      const targetUser = await findUserById(id);
+
+      if (!targetUser) {
+        return reply.code(404).send({ error: 'User not found' });
+      }
+
+      if (needsSuperAdminForPrivilegedTarget(targetUser) && !isSuperAdmin(request.user)) {
+        return governanceDenied(reply);
+      }
+
       const canDelete = await canPermanentlyDeleteUser(id);
       return canDelete;
     }

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { EnvironmentBadge, ServiceGroupBadge } from '@/components/EnvironmentBadge';
 import { createAlertRule, getAlertRules, getCronList, getCurrentUser, getScopeOptions, sendTestTelegramNotification, updateAlertRule } from '@/lib/api';
+import { isAdminOrHigher } from '@/lib/rbac';
 
 const defaultRule = {
   name: '',
@@ -211,7 +212,7 @@ export default function AlertConfigPage() {
       .then((data) => {
         if (cancelled) return;
 
-        if (data?.user?.role !== 'admin') {
+        if (!isAdminOrHigher(data?.user)) {
           router.replace('/alerts');
           return;
         }

@@ -9,6 +9,7 @@ import { LogoutButton } from '@/components/LogoutButton';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { appMetadata } from '@/lib/appMetadata';
 import { getCurrentUser, recordPasswordReminderShown } from '@/lib/api';
+import { isAdminOrHigher } from '@/lib/rbac';
 
 const NAV_ITEMS = [
   { href: '/', label: 'Dashboard', icon: Activity, adminOnly: false },
@@ -111,7 +112,7 @@ export function AppShell({ children }) {
     };
   }, []);
 
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = isAdminOrHigher(user);
   const visibleNavItems = NAV_ITEMS.filter((item) => !item.adminOnly || isAdmin);
   const passwordSecurity = user?.password_security;
   const passwordReminderRequired = Boolean(passwordSecurity?.password_reminder_required);
