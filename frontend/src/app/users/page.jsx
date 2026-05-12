@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { Search, X } from 'lucide-react';
 import ActionDropdown from '@/components/ActionDropdown';
 import ConfirmationDialog from '@/components/ConfirmationDialog';
 import EditUserModal from '@/components/EditUserModal';
@@ -80,6 +81,7 @@ export default function UsersPage() {
   const [error, setError] = useState('');
   const [lifecycleConflict, setLifecycleConflict] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
+  const [userSearch, setUserSearch] = useState('');
 
   // Modal states
   const [editingUser, setEditingUser] = useState(null);
@@ -92,6 +94,19 @@ export default function UsersPage() {
     description: ''
   });
   const passwordValid = passwordPolicyChecks(form.password).every((check) => check.valid);
+  const normalizedUserSearch = userSearch.trim().toLowerCase();
+  const filteredUsers = useMemo(() => {
+    if (!normalizedUserSearch) {
+      return users;
+    }
+
+    return users.filter((user) => [
+      user?.name,
+      user?.email,
+      user?.role
+    ].join(' ').toLowerCase().includes(normalizedUserSearch));
+  }, [normalizedUserSearch, users]);
+  const userEmptyMessage = normalizedUserSearch ? 'No matching users found' : 'No users found.';
 
   async function loadUsers() {
     setLoading(true);
@@ -403,14 +418,35 @@ export default function UsersPage() {
       </form>
 
       <section className="rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
-        <div className="border-b border-slate-200 p-4 dark:border-slate-800">
+        <div className="flex flex-col gap-3 border-b border-slate-200 p-4 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between">
           <h2 className="text-base font-semibold text-ink">Users</h2>
+          <label className="relative w-full sm:max-w-sm md:w-80">
+            <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" aria-hidden="true" />
+            <input
+              type="search"
+              value={userSearch}
+              onChange={(event) => setUserSearch(event.target.value)}
+              className="h-10 w-full rounded-md border border-slate-300 bg-white py-2 pl-9 pr-10 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100 dark:focus:border-blue-400 dark:focus:ring-blue-950"
+              placeholder="Search users by name or email"
+              aria-label="Search users by name, email, or role"
+            />
+            {userSearch ? (
+              <button
+                type="button"
+                onClick={() => setUserSearch('')}
+                className="absolute right-2 top-2 inline-flex h-6 w-6 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:hover:bg-slate-900 dark:hover:text-slate-200 dark:focus:ring-blue-950"
+                aria-label="Clear user search"
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
+            ) : null}
+          </label>
         </div>
 
         {loading ? <div className="p-8 text-center text-sm text-slate-500">Loading users...</div> : null}
 
         <div className="space-y-3 p-4 md:hidden">
-          {users.map((user) => (
+          {filteredUsers.map((user) => (
             <article key={user.id} className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -437,8 +473,8 @@ export default function UsersPage() {
               </div>
             </article>
           ))}
-          {users.length === 0 && !loading ? (
-            <div className="rounded-lg bg-slate-50 px-4 py-8 text-center text-sm text-slate-500 dark:bg-slate-950">No users found.</div>
+          {filteredUsers.length === 0 && !loading ? (
+            <div className="rounded-lg bg-slate-50 px-4 py-8 text-center text-sm text-slate-500 dark:bg-slate-950">{userEmptyMessage}</div>
           ) : null}
         </div>
 
@@ -454,7 +490,7 @@ export default function UsersPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {users.map((user) => (
+              {filteredUsers.map((user) => (
                 <tr key={user.id} className="align-middle">
                   <td className="px-4 py-3">
                     <p className="font-medium text-ink">{user.name}</p>
@@ -481,9 +517,9 @@ export default function UsersPage() {
                   </td>
                 </tr>
               ))}
-              {users.length === 0 && !loading ? (
+              {filteredUsers.length === 0 && !loading ? (
                 <tr>
-                  <td className="px-4 py-8 text-center text-slate-500" colSpan={5}>No users found.</td>
+                  <td className="px-4 py-8 text-center text-slate-500" colSpan={5}>{userEmptyMessage}</td>
                 </tr>
               ) : null}
             </tbody>
