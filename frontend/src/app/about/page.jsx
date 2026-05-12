@@ -72,7 +72,7 @@ const RELEASES = [
           'System Insights: operational intelligence summaries, anomaly interpretation, and predictive observability.',
           'Cron Detail Investigation Experience: reliability history, heartbeat lifecycle history, incident drilldown, and retry/failure pattern analysis.',
           'Timeline Intelligence Expansion: richer contextual operational markers, maintenance overlays, and anomaly intelligence.',
-          'RBAC & Governance: planned SUPER_ADMIN role support, multi-tier administration, tenant/global governance control, elevated audit visibility, and advanced administrative isolation.'
+          'RBAC & Governance: planned SUPER_ADMIN architecture for platform governance authority, RBAC hierarchy management, admin governance, privileged audit visibility, security governance, global operational controls, and future environment/service-scoped administration.'
         ]
       }
     ]
