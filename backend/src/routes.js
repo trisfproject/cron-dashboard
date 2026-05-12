@@ -218,7 +218,46 @@ async function findUserById(id, includeArchived = true) {
   return users.find((user) => Number(user.id) === Number(id)) || null;
 }
 
-function governanceDenied(reply, message = 'Super admin role required for privileged user governance') {
+function roleGovernanceScope(role) {
+  if (role === 'super_admin') return 'platform_governance';
+  if (role === 'admin') return 'operational_governance';
+  return 'operational_visibility';
+}
+
+function governanceMetadata(request, metadata = {}) {
+  return {
+    actor_role: request.user?.role || null,
+    actor_governance_scope: roleGovernanceScope(request.user?.role),
+    ...metadata
+  };
+}
+
+async function governanceDenied(request, reply, {
+  action = 'governance_authorization_denied',
+  targetType = 'authorization',
+  targetId = null,
+  targetLabel = null,
+  targetUser = null,
+  attemptedRole = null,
+  reason = 'super_admin_required',
+  governanceScope = 'platform_governance',
+  message = 'Super admin role required for privileged user governance'
+} = {}) {
+  await logAudit({
+    user: request.user,
+    action,
+    targetType,
+    targetId,
+    targetLabel,
+    request,
+    status: 'failed',
+    metadata: governanceMetadata(request, {
+      reason,
+      governance_scope: governanceScope,
+      target_role: targetUser?.role || null,
+      attempted_role: attemptedRole || null
+    })
+  });
   return reply.code(403).send({ error: message });
 }
 
@@ -986,7 +1025,14 @@ export async function registerRoutes(app) {
           targetId: maintenance.id,
           targetLabel: maintenance.cron_name || maintenance.service_group || maintenance.env || 'global',
           request,
-          metadata: { expires_at: maintenance.expires_at, reason: maintenance.reason }
+          metadata: governanceMetadata(request, {
+            governance_scope: 'operational_governance',
+            cron_name: maintenance.cron_name || null,
+            env: maintenance.env || null,
+            service_group: maintenance.service_group || null,
+            expires_at: maintenance.expires_at,
+            reason: maintenance.reason
+          })
         });
         return { maintenance };
       } catch (error) {
@@ -1019,7 +1065,13 @@ export async function registerRoutes(app) {
           targetType: 'maintenance_window',
           targetId: Number(request.params.id),
           targetLabel: maintenance?.cron_name || maintenance?.service_group || maintenance?.env || 'global',
-          request
+          request,
+          metadata: governanceMetadata(request, {
+            governance_scope: 'operational_governance',
+            cron_name: maintenance?.cron_name || null,
+            env: maintenance?.env || null,
+            service_group: maintenance?.service_group || null
+          })
         });
         return { maintenance };
       } catch (error) {
@@ -1355,7 +1407,12 @@ export async function registerRoutes(app) {
         targetId: schedule.id,
         targetLabel: schedule.cron_name,
         request,
-        metadata: { environment: schedule.environment }
+        metadata: governanceMetadata(request, {
+          governance_scope: 'operational_governance',
+          cron_name: schedule.cron_name,
+          environment: schedule.environment,
+          service_group: schedule.service_group || null
+        })
       });
       return reply.code(201).send({ schedule });
     }
@@ -1397,7 +1454,13 @@ export async function registerRoutes(app) {
         targetId: schedule.id,
         targetLabel: schedule.cron_name,
         request,
-        metadata: { environment: schedule.environment }
+        metadata: governanceMetadata(request, {
+          governance_scope: 'operational_governance',
+          cron_name: schedule.cron_name,
+          environment: schedule.environment,
+          service_group: schedule.service_group || null,
+          session_revoked: false
+        })
       });
       return { schedule };
     }
@@ -1429,7 +1492,13 @@ export async function registerRoutes(app) {
         targetId: schedule.id,
         targetLabel: schedule.cron_name,
         request,
-        metadata: { environment: schedule.environment }
+        metadata: governanceMetadata(request, {
+          governance_scope: 'operational_governance',
+          cron_name: schedule.cron_name,
+          environment: schedule.environment,
+          service_group: schedule.service_group || null,
+          enabled: Boolean(schedule.enabled)
+        })
       });
       return { schedule };
     }
@@ -1532,7 +1601,16 @@ export async function registerRoutes(app) {
           targetType: 'alert_rule',
           targetId: rule.id,
           targetLabel: rule.name,
-          request
+          request,
+          metadata: governanceMetadata(request, {
+            governance_scope: 'operational_governance',
+            rule_type: rule.type,
+            severity: rule.severity,
+            cron_name: rule.cron_name || null,
+            env: rule.env || null,
+            service_group: rule.service_group || null,
+            enabled: Boolean(rule.enabled)
+          })
         });
         return reply.code(201).send({ rule });
       } catch (error) {
@@ -1584,7 +1662,16 @@ export async function registerRoutes(app) {
           targetType: 'alert_rule',
           targetId: rule.id,
           targetLabel: rule.name,
-          request
+          request,
+          metadata: governanceMetadata(request, {
+            governance_scope: 'operational_governance',
+            rule_type: rule.type,
+            severity: rule.severity,
+            cron_name: rule.cron_name || null,
+            env: rule.env || null,
+            service_group: rule.service_group || null,
+            enabled: Boolean(rule.enabled)
+          })
         });
         return { rule };
       } catch (error) {
@@ -1658,7 +1745,12 @@ export async function registerRoutes(app) {
     async (request, reply) => {
       try {
         if (needsSuperAdminForUserCreate(request.body) && !isSuperAdmin(request.user)) {
-          return governanceDenied(reply);
+          return await governanceDenied(request, reply, {
+            action: 'governance_escalation_denied',
+            targetType: 'user',
+            targetLabel: request.body.email,
+            attemptedRole: normalizeRole(request.body.role)
+          });
         }
 
         const user = await createUser(request.body);
@@ -1669,8 +1761,26 @@ export async function registerRoutes(app) {
           targetId: user.id,
           targetLabel: user.email,
           request,
-          metadata: { role: user.role }
+          metadata: governanceMetadata(request, {
+            role: user.role,
+            governance_scope: roleGovernanceScope(user.role)
+          })
         });
+        if (user.role === 'super_admin') {
+          await logAudit({
+            user: request.user,
+            action: 'super_admin_assigned',
+            targetType: 'user',
+            targetId: user.id,
+            targetLabel: user.email,
+            request,
+            metadata: governanceMetadata(request, {
+              governance_scope: 'platform_governance',
+              assignment_path: 'user_created',
+              session_revoked: false
+            })
+          });
+        }
         return reply.code(201).send({ user });
       } catch (error) {
         if (error.statusCode === 409) {
@@ -1725,7 +1835,14 @@ export async function registerRoutes(app) {
       }
 
       if (needsSuperAdminForUserUpdate(targetUser, request.body) && !isSuperAdmin(request.user)) {
-        return governanceDenied(reply);
+        return await governanceDenied(request, reply, {
+          action: 'governance_escalation_denied',
+          targetType: 'user',
+          targetId: targetUser.id,
+          targetLabel: targetUser.email,
+          targetUser,
+          attemptedRole: request.body.role
+        });
       }
 
       if (targetUser.role === 'super_admin' && request.body.is_active === false) {
@@ -1744,8 +1861,29 @@ export async function registerRoutes(app) {
           targetId: user.id,
           targetLabel: user.email,
           request,
-          metadata: { role: user.role }
+          metadata: governanceMetadata(request, {
+            previous_role: targetUser.role,
+            role: user.role,
+            governance_scope: roleGovernanceScope(user.role),
+            session_revoked: true
+          })
         });
+        if (user.role === 'super_admin' && targetUser.role !== 'super_admin') {
+          await logAudit({
+            user: request.user,
+            action: 'super_admin_assigned',
+            targetType: 'user',
+            targetId: user.id,
+            targetLabel: user.email,
+            request,
+            metadata: governanceMetadata(request, {
+              previous_role: targetUser.role,
+              governance_scope: 'platform_governance',
+              assignment_path: 'role_changed',
+              session_revoked: true
+            })
+          });
+        }
       }
       if (request.body.is_active !== undefined) {
         await logAudit({
@@ -1754,7 +1892,12 @@ export async function registerRoutes(app) {
           targetType: 'user',
           targetId: user.id,
           targetLabel: user.email,
-          request
+          request,
+          metadata: governanceMetadata(request, {
+            target_role: user.role,
+            governance_scope: roleGovernanceScope(user.role),
+            session_revoked: true
+          })
         });
       }
       return { user };
@@ -1789,7 +1932,12 @@ export async function registerRoutes(app) {
       }
 
       if (needsSuperAdminForPrivilegedTarget(targetUser) && !isSuperAdmin(request.user)) {
-        return governanceDenied(reply);
+        return await governanceDenied(request, reply, {
+          targetType: 'user',
+          targetId: targetUser.id,
+          targetLabel: targetUser.email,
+          targetUser
+        });
       }
 
       await resetUserPassword(Number(request.params.id), request.body.password);
@@ -1798,7 +1946,13 @@ export async function registerRoutes(app) {
         action: 'password_reset',
         targetType: 'user',
         targetId: request.params.id,
-        request
+        targetLabel: targetUser.email,
+        request,
+        metadata: governanceMetadata(request, {
+          target_role: targetUser.role,
+          governance_scope: roleGovernanceScope(targetUser.role),
+          session_revoked: true
+        })
       });
       return { reset: true };
     }
@@ -1830,7 +1984,12 @@ export async function registerRoutes(app) {
       }
 
       if (needsSuperAdminForPrivilegedTarget(targetUser) && !isSuperAdmin(request.user)) {
-        return governanceDenied(reply);
+        return await governanceDenied(request, reply, {
+          targetType: 'user',
+          targetId: targetUser.id,
+          targetLabel: targetUser.email,
+          targetUser
+        });
       }
 
       if (targetUser.role === 'super_admin') {
@@ -1847,7 +2006,12 @@ export async function registerRoutes(app) {
         targetType: 'user',
         targetId: user.id,
         targetLabel: user.email,
-        request
+        request,
+        metadata: governanceMetadata(request, {
+          target_role: user.role,
+          governance_scope: roleGovernanceScope(user.role),
+          session_revoked: true
+        })
       });
       return { user };
     }
@@ -1873,7 +2037,12 @@ export async function registerRoutes(app) {
       }
 
       if (needsSuperAdminForPrivilegedTarget(targetUser) && !isSuperAdmin(request.user)) {
-        return governanceDenied(reply);
+        return await governanceDenied(request, reply, {
+          targetType: 'user',
+          targetId: targetUser.id,
+          targetLabel: targetUser.email,
+          targetUser
+        });
       }
 
       const user = await updateUser(Number(request.params.id), { is_active: true });
@@ -1883,7 +2052,12 @@ export async function registerRoutes(app) {
         targetType: 'user',
         targetId: user.id,
         targetLabel: user.email,
-        request
+        request,
+        metadata: governanceMetadata(request, {
+          target_role: user.role,
+          governance_scope: roleGovernanceScope(user.role),
+          session_revoked: true
+        })
       });
       return { user };
     }
@@ -1909,7 +2083,12 @@ export async function registerRoutes(app) {
       }
 
       if (needsSuperAdminForPrivilegedTarget(targetUser) && !isSuperAdmin(request.user)) {
-        return governanceDenied(reply);
+        return await governanceDenied(request, reply, {
+          targetType: 'user',
+          targetId: targetUser.id,
+          targetLabel: targetUser.email,
+          targetUser
+        });
       }
 
       const user = await restoreUser(Number(request.params.id));
@@ -1919,7 +2098,12 @@ export async function registerRoutes(app) {
         targetType: 'user',
         targetId: user.id,
         targetLabel: user.email,
-        request
+        request,
+        metadata: governanceMetadata(request, {
+          target_role: user.role,
+          governance_scope: roleGovernanceScope(user.role),
+          session_revoked: true
+        })
       });
       return { user };
     }
@@ -1945,7 +2129,12 @@ export async function registerRoutes(app) {
       }
 
       if (needsSuperAdminForPrivilegedTarget(targetUser) && !isSuperAdmin(request.user)) {
-        return governanceDenied(reply);
+        return await governanceDenied(request, reply, {
+          targetType: 'user',
+          targetId: targetUser.id,
+          targetLabel: targetUser.email,
+          targetUser
+        });
       }
 
       await forceLogoutUser(Number(request.params.id));
@@ -1954,7 +2143,13 @@ export async function registerRoutes(app) {
         action: 'session_forced_logout',
         targetType: 'user',
         targetId: request.params.id,
-        request
+        targetLabel: targetUser.email,
+        request,
+        metadata: governanceMetadata(request, {
+          target_role: targetUser.role,
+          governance_scope: roleGovernanceScope(targetUser.role),
+          session_revoked: true
+        })
       });
       return { invalidated: true };
     }
@@ -1988,7 +2183,12 @@ export async function registerRoutes(app) {
       }
 
       if (needsSuperAdminForPrivilegedTarget(targetUser) && !isSuperAdmin(request.user)) {
-        return governanceDenied(reply);
+        return await governanceDenied(request, reply, {
+          targetType: 'user',
+          targetId: targetUser.id,
+          targetLabel: targetUser.email,
+          targetUser
+        });
       }
 
       const isLastSuperAdmin = activeSuperAdminCount(users) === 1 && targetUser.role === 'super_admin' && targetUser.is_active && !targetUser.archived_at;
@@ -2014,7 +2214,12 @@ export async function registerRoutes(app) {
         targetType: 'user',
         targetId: id,
         targetLabel: user.email,
-        request
+        request,
+        metadata: governanceMetadata(request, {
+          target_role: targetUser.role,
+          governance_scope: roleGovernanceScope(targetUser.role),
+          session_revoked: true
+        })
       });
 
       return { archived: true, user };
@@ -2057,7 +2262,12 @@ export async function registerRoutes(app) {
       }
 
       if (needsSuperAdminForPrivilegedTarget(targetUser) && !isSuperAdmin(request.user)) {
-        return governanceDenied(reply);
+        return await governanceDenied(request, reply, {
+          targetType: 'user',
+          targetId: targetUser.id,
+          targetLabel: targetUser.email,
+          targetUser
+        });
       }
 
       const isLastSuperAdmin = activeSuperAdminCount(users) === 1 && targetUser.role === 'super_admin' && targetUser.is_active && !targetUser.archived_at;
@@ -2083,7 +2293,13 @@ export async function registerRoutes(app) {
           action: 'user_permanently_deleted',
           targetType: 'user',
           targetId: id,
-          request
+          targetLabel: targetUser.email,
+          request,
+          metadata: governanceMetadata(request, {
+            target_role: targetUser.role,
+            governance_scope: roleGovernanceScope(targetUser.role),
+            permanent: true
+          })
         });
 
         return { deleted: true };
@@ -2097,7 +2313,14 @@ export async function registerRoutes(app) {
         action: 'user_archived',
         targetType: 'user',
         targetId: id,
-        request
+        targetLabel: targetUser.email,
+        request,
+        metadata: governanceMetadata(request, {
+          target_role: targetUser.role,
+          governance_scope: roleGovernanceScope(targetUser.role),
+          session_revoked: true,
+          permanent: false
+        })
       });
 
       return { deleted: true };
@@ -2126,7 +2349,12 @@ export async function registerRoutes(app) {
       }
 
       if (needsSuperAdminForPrivilegedTarget(targetUser) && !isSuperAdmin(request.user)) {
-        return governanceDenied(reply);
+        return await governanceDenied(request, reply, {
+          targetType: 'user',
+          targetId: targetUser.id,
+          targetLabel: targetUser.email,
+          targetUser
+        });
       }
 
       const canDelete = await canPermanentlyDeleteUser(id);

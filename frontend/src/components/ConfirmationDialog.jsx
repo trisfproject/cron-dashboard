@@ -1,5 +1,7 @@
 'use client';
 
+import { useEffect, useState } from 'react';
+
 export default function ConfirmationDialog({
   open,
   title,
@@ -9,9 +11,22 @@ export default function ConfirmationDialog({
   onConfirm,
   onCancel,
   isLoading,
-  isDangerous = false
+  isDangerous = false,
+  confirmationText = ''
 }) {
+  const [confirmationValue, setConfirmationValue] = useState('');
+
+  useEffect(() => {
+    if (open) {
+      setConfirmationValue('');
+    }
+  }, [open]);
+
   if (!open) return null;
+
+  const confirmationRequired = confirmationText.trim().length > 0;
+  const confirmationMatches = confirmationValue.trim() === confirmationText.trim();
+  const confirmDisabled = isLoading || (confirmationRequired && !confirmationMatches);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 dark:bg-black/70">
@@ -22,6 +37,17 @@ export default function ConfirmationDialog({
 
         <div className="px-6 py-4">
           <p className="text-sm text-slate-600 dark:text-slate-300">{description}</p>
+          {confirmationRequired ? (
+            <label className="mt-4 block space-y-1">
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Type {confirmationText} to confirm</span>
+              <input
+                value={confirmationValue}
+                onChange={(event) => setConfirmationValue(event.target.value)}
+                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-ink dark:border-slate-800 dark:bg-slate-950"
+                autoComplete="off"
+              />
+            </label>
+          ) : null}
         </div>
 
         <div className="border-t border-slate-200 px-6 py-4 dark:border-slate-800">
@@ -35,7 +61,7 @@ export default function ConfirmationDialog({
             </button>
             <button
               onClick={onConfirm}
-              disabled={isLoading}
+              disabled={confirmDisabled}
               className={`flex-1 rounded-md px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50 ${
                 isDangerous
                   ? 'bg-rose-600 hover:bg-rose-700 dark:bg-rose-700 dark:hover:bg-rose-600'

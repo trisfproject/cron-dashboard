@@ -10,15 +10,30 @@ const actionOptions = [
   'login',
   'logout',
   'failed_login',
+  'stale_session_rejected',
+  'privileged_stale_session_rejected',
+  'privileged_authorization_denied',
+  'governance_authorization_denied',
+  'governance_escalation_denied',
   'alert_rule_created',
   'alert_rule_updated',
+  'heartbeat_schedule_created',
+  'heartbeat_schedule_updated',
+  'heartbeat_schedule_enabled',
+  'heartbeat_schedule_disabled',
+  'maintenance_enabled',
+  'maintenance_disabled',
   'user_created',
   'role_changed',
+  'super_admin_assigned',
   'password_reset',
   'alert_acknowledged',
   'session_forced_logout',
   'user_deactivated',
-  'user_reactivated'
+  'user_reactivated',
+  'user_restored',
+  'user_archived',
+  'user_permanently_deleted'
 ];
 
 function StatusBadge({ status }) {
@@ -47,7 +62,19 @@ function metadataSummary(metadata) {
     return '';
   }
 
-  const value = typeof metadata === 'string' ? metadata : JSON.stringify(metadata);
+  let parsed = metadata;
+  if (typeof metadata === 'string') {
+    try {
+      parsed = JSON.parse(metadata || '{}');
+    } catch {
+      parsed = { value: metadata };
+    }
+  }
+  const governance = parsed?.governance_scope ? String(parsed.governance_scope).replaceAll('_', ' ') : '';
+  const actorRole = parsed?.actor_role ? `actor ${parsed.actor_role}` : '';
+  const targetRole = parsed?.target_role ? `target ${parsed.target_role}` : '';
+  const scopeParts = [governance, actorRole, targetRole].filter(Boolean);
+  const value = scopeParts.length > 0 ? scopeParts.join(' • ') : JSON.stringify(parsed);
   return value.length > 96 ? `${value.slice(0, 96)}...` : value;
 }
 

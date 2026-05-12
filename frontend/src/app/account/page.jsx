@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Eye, EyeOff, ShieldCheck } from 'lucide-react';
 import { PasswordPolicyChecklist, passwordPolicyChecks } from '@/components/PasswordPolicyChecklist';
 import { changePassword, formatApiError, getAuthActivity, getCurrentUser } from '@/lib/api';
+import { roleDisplayLabel, roleGovernanceLabel } from '@/lib/rbac';
 
 const initialPasswordForm = {
   current_password: '',
@@ -227,7 +228,8 @@ export default function AccountPage() {
           </div>
           <div className="min-w-0 rounded-lg border border-slate-200 bg-white p-2.5 shadow-sm dark:border-slate-800 dark:bg-slate-950 md:col-span-3 md:p-3 xl:col-span-1 lg:p-4">
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Role</p>
-            <p className="mt-1 truncate font-semibold uppercase leading-5 text-ink lg:mt-2">{user.role}</p>
+            <p className="mt-1 truncate font-semibold uppercase leading-5 text-ink lg:mt-2">{roleDisplayLabel(user.role)}</p>
+            <p className="truncate text-xs text-slate-500 lg:text-sm">{roleGovernanceLabel(user.role)}</p>
           </div>
           <div className="min-w-0 rounded-lg border border-slate-200 bg-white p-2.5 shadow-sm dark:border-slate-800 dark:bg-slate-950 md:col-span-2 md:p-3 xl:col-span-1 lg:p-4">
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Session</p>

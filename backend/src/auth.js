@@ -469,6 +469,23 @@ export async function requireAuth(request, reply) {
   const user = rows[0];
 
   if (!user || user.archived_at || !user.is_active || Number(payload.sv || 0) !== Number(user.session_version || 1)) {
+    if (user && Number(payload.sv || 0) !== Number(user.session_version || 1)) {
+      await logAudit({
+        user: { id: Number(user.id), email: user.email, role: user.role },
+        action: isAdminOrHigher(user) ? 'privileged_stale_session_rejected' : 'stale_session_rejected',
+        targetType: 'session',
+        targetId: user.id,
+        targetLabel: user.email,
+        request,
+        status: 'failed',
+        metadata: {
+          actor_role: user.role,
+          governance_scope: isAdminOrHigher(user) ? 'privileged_session_governance' : 'session_governance',
+          token_session_version: Number(payload.sv || 0),
+          current_session_version: Number(user.session_version || 1)
+        }
+      });
+    }
     reply.code(401).send({ error: 'Authentication required' });
     return;
   }
@@ -494,6 +511,19 @@ export async function requireAdmin(request, reply) {
   }
 
   if (!isAdminOrHigher(request.user)) {
+    await logAudit({
+      user: request.user,
+      action: 'privileged_authorization_denied',
+      targetType: 'authorization',
+      targetLabel: request.routeOptions?.url || request.url.split('?')[0],
+      request,
+      status: 'failed',
+      metadata: {
+        required_role: 'admin',
+        actor_role: request.user?.role || null,
+        governance_scope: 'operational_governance'
+      }
+    });
     reply.code(403).send({ error: 'Admin role required' });
   }
 }
@@ -508,6 +538,19 @@ export async function requireSuperAdmin(request, reply) {
   }
 
   if (!isSuperAdmin(request.user)) {
+    await logAudit({
+      user: request.user,
+      action: 'privileged_authorization_denied',
+      targetType: 'authorization',
+      targetLabel: request.routeOptions?.url || request.url.split('?')[0],
+      request,
+      status: 'failed',
+      metadata: {
+        required_role: 'super_admin',
+        actor_role: request.user?.role || null,
+        governance_scope: 'platform_governance'
+      }
+    });
     reply.code(403).send({ error: 'Super admin role required' });
   }
 }

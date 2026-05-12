@@ -8,7 +8,7 @@ import EditUserModal from '@/components/EditUserModal';
 import { passwordPolicyChecks, PasswordPolicyChecklist } from '@/components/PasswordPolicyChecklist';
 import ResetPasswordModal from '@/components/ResetPasswordModal';
 import { archiveUser, canDeleteUser, createUser, deactivateUser, deleteUser, forceLogoutUser, formatApiError, getCurrentUser, getUsers, reactivateUser, resetUserPassword, restoreUser, updateUser } from '@/lib/api';
-import { isPrivilegedRole, isSuperAdmin } from '@/lib/rbac';
+import { isPrivilegedRole, isSuperAdmin, roleDisplayLabel, roleGovernanceLabel } from '@/lib/rbac';
 
 const emptyForm = {
   name: '',
@@ -44,15 +44,18 @@ function RoleBadge({ role }) {
   const superAdmin = role === 'super_admin';
 
   return (
-    <span className={`w-fit rounded-md px-2 py-1 text-xs font-semibold uppercase ring-1 ${
-      superAdmin
-        ? 'bg-violet-50 text-violet-700 ring-violet-200 dark:bg-violet-950/40 dark:text-violet-200 dark:ring-violet-900'
-        : admin
-        ? 'bg-blue-50 text-blue-700 ring-blue-200 dark:bg-blue-950/40 dark:text-blue-200 dark:ring-blue-900'
-        : 'bg-slate-100 text-slate-600 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-800'
-    }`}
-    >
-      {role}
+    <span className="inline-flex flex-col gap-1">
+      <span className={`w-fit rounded-md px-2 py-1 text-xs font-semibold uppercase ring-1 ${
+        superAdmin
+          ? 'bg-violet-50 text-violet-700 ring-violet-200 dark:bg-violet-950/40 dark:text-violet-200 dark:ring-violet-900'
+          : admin
+          ? 'bg-blue-50 text-blue-700 ring-blue-200 dark:bg-blue-950/40 dark:text-blue-200 dark:ring-blue-900'
+          : 'bg-slate-100 text-slate-600 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-800'
+      }`}
+      >
+        {roleDisplayLabel(role)}
+      </span>
+      <span className="text-[0.68rem] font-medium text-slate-500 dark:text-slate-400">{roleGovernanceLabel(role)}</span>
     </span>
   );
 }
@@ -75,6 +78,10 @@ function lifecycleConflictCopy(conflict) {
     title: 'User already exists',
     message: conflict?.message || 'This email is already attached to an existing NYX account.'
   };
+}
+
+function sensitiveConfirmationFor(user, fallback = 'CONFIRM') {
+  return isPrivilegedRole(user?.role) ? roleDisplayLabel(user.role) : fallback;
 }
 
 export default function UsersPage() {
@@ -256,7 +263,8 @@ export default function UsersPage() {
       },
       user,
       title: 'Force logout',
-      description: `Invalidate all active sessions for ${user.email}?`
+      description: `Invalidate all active sessions for ${user.email}?`,
+      confirmationText: isPrivilegedRole(user.role) ? sensitiveConfirmationFor(user) : ''
     });
   }
 
@@ -283,6 +291,7 @@ export default function UsersPage() {
       user,
       title: `${action.charAt(0).toUpperCase() + action.slice(1)} user`,
       description: `${action.charAt(0).toUpperCase() + action.slice(1)} ${user.email}?`,
+      confirmationText: isPrivilegedRole(user.role) ? sensitiveConfirmationFor(user) : '',
       isDangerous: true
     });
   }
@@ -305,6 +314,7 @@ export default function UsersPage() {
       user,
       title: 'Archive user',
       description: `Archive ${user.email}? They will be unable to log in.`,
+      confirmationText: sensitiveConfirmationFor(user, 'ARCHIVE'),
       isDangerous: true
     });
   }
@@ -331,6 +341,7 @@ export default function UsersPage() {
         title: 'Permanently delete user',
         description: `Permanently delete ${user.email}? This action cannot be undone.`,
         confirmText: 'Delete permanently',
+        confirmationText: sensitiveConfirmationFor(user, 'DELETE'),
         isDangerous: true
       });
     } else {
@@ -352,6 +363,7 @@ export default function UsersPage() {
         title: 'Archive user',
         description: `${deletionInfo.reason}. The user will be archived instead.`,
         confirmText: 'Archive user',
+        confirmationText: sensitiveConfirmationFor(user, 'ARCHIVE'),
         isDangerous: true
       });
     }
@@ -412,6 +424,7 @@ export default function UsersPage() {
             {currentUserIsSuperAdmin ? <option value="admin">Admin</option> : null}
             {currentUserIsSuperAdmin ? <option value="super_admin">Super Admin</option> : null}
           </select>
+          <span className="block text-xs text-slate-500 dark:text-slate-400">{roleGovernanceLabel(form.role)}</span>
         </label>
         <div className="md:col-span-4">
           <PasswordPolicyChecklist password={form.password} />
@@ -555,6 +568,7 @@ export default function UsersPage() {
         title={confirmDialog.title}
         description={confirmDialog.description}
         confirmText={confirmDialog.confirmText || 'Confirm'}
+        confirmationText={confirmDialog.confirmationText || ''}
         onConfirm={confirmDialog.action}
         onCancel={() => setConfirmDialog({ ...confirmDialog, open: false })}
         isLoading={saving}

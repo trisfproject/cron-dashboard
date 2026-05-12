@@ -9,7 +9,7 @@ import { LogoutButton } from '@/components/LogoutButton';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { appMetadata } from '@/lib/appMetadata';
 import { getCurrentUser, recordPasswordReminderShown } from '@/lib/api';
-import { isAdminOrHigher } from '@/lib/rbac';
+import { isAdminOrHigher, isSuperAdmin, roleDisplayLabel, roleGovernanceLabel } from '@/lib/rbac';
 
 const NAV_ITEMS = [
   { href: '/', label: 'Dashboard', icon: Activity, adminOnly: false },
@@ -113,6 +113,7 @@ export function AppShell({ children }) {
   }, []);
 
   const isAdmin = isAdminOrHigher(user);
+  const isPlatformGovernance = isSuperAdmin(user);
   const visibleNavItems = NAV_ITEMS.filter((item) => !item.adminOnly || isAdmin);
   const passwordSecurity = user?.password_security;
   const passwordReminderRequired = Boolean(passwordSecurity?.password_reminder_required);
@@ -228,12 +229,15 @@ export function AppShell({ children }) {
                 <UserCircle className="h-4 w-4 shrink-0 text-slate-500" aria-hidden="true" />
                 <span className="truncate font-medium text-slate-700 dark:text-slate-200">{user.name || user.email}</span>
                 <span className={`rounded px-1.5 py-0.5 font-semibold uppercase ring-1 ${
-                  isAdmin
+                  isPlatformGovernance
+                    ? 'bg-violet-50 text-violet-700 ring-violet-200 dark:bg-violet-950/40 dark:text-violet-200 dark:ring-violet-900'
+                    : isAdmin
                     ? 'bg-blue-50 text-blue-700 ring-blue-200 dark:bg-blue-950/40 dark:text-blue-200 dark:ring-blue-900'
                     : 'bg-slate-100 text-slate-600 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-800'
                 }`}
+                  title={roleGovernanceLabel(user.role)}
                 >
-                  {user.role}
+                  {roleDisplayLabel(user.role)}
                 </span>
               </Link>
             ) : null}
@@ -304,13 +308,16 @@ export function AppShell({ children }) {
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-semibold text-ink dark:text-slate-100">{user.name || user.email}</span>
                   <span className={`mt-1 inline-flex rounded px-1.5 py-0.5 text-[0.68rem] font-semibold uppercase leading-5 ring-1 ${
-                    isAdmin
+                    isPlatformGovernance
+                      ? 'bg-violet-50 text-violet-700 ring-violet-200 dark:bg-violet-950/40 dark:text-violet-200 dark:ring-violet-900'
+                      : isAdmin
                       ? 'bg-blue-50 text-blue-700 ring-blue-200 dark:bg-blue-950/40 dark:text-blue-200 dark:ring-blue-900'
                       : 'bg-slate-100 text-slate-600 ring-slate-200 dark:bg-slate-950 dark:text-slate-300 dark:ring-slate-800'
                   }`}
                   >
-                    {user.role}
+                    {roleDisplayLabel(user.role)}
                   </span>
+                  <span className="block truncate text-xs text-slate-500 dark:text-slate-400">{roleGovernanceLabel(user.role)}</span>
                 </span>
               </Link>
             ) : null}

@@ -8,6 +8,21 @@ See Release History / Version Notes in the NYX About page for official shipped r
 
 ---
 
+## Done
+
+### v1.3.0-beta — Governance & Authorization Evolution
+
+* Added SUPER_ADMIN role support as the platform governance authority above operational ADMIN and visibility-focused USER access.
+* Established the foundational USER / ADMIN / SUPER_ADMIN hierarchy for lightweight governance separation without introducing a dynamic RBAC engine.
+* Added hierarchical RBAC inheritance so SUPER_ADMIN automatically inherits operational ADMIN governance capabilities.
+* Normalized authorization checks through foundational RBAC helper abstractions for admin-or-higher and super-admin-only decisions.
+* Repaired governance trust boundaries so ADMIN no longer implicitly acts as unrestricted platform root authority.
+* Clarified operational versus platform governance separation, keeping ADMIN focused on operational governance while reserving platform-level authority for SUPER_ADMIN.
+* Normalized route, middleware, navigation, and protected-action authorization so SUPER_ADMIN inherits ADMIN-protected operational workflows.
+* Added privileged governance separation for role escalation, privileged administrator management, and platform-level user governance actions.
+* Restricted privileged governance escalation so ADMIN cannot promote users to SUPER_ADMIN or bypass SUPER_ADMIN account boundaries.
+* Protected SUPER_ADMIN governance boundaries around privileged account modification, destructive administrator lifecycle actions, and elevated user administration.
+
 ## Unreleased
 
 ### System Insights
@@ -46,14 +61,10 @@ See Release History / Version Notes in the NYX About page for official shipped r
 
 ### RBAC & Governance
 
-* Planned RBAC architecture evolution as NYX-MP expands from cron monitoring into operational observability, reliability governance, infrastructure visibility, and platform administration.
-* Future separation between operational visibility, operational administration, and platform governance authority.
-* Planned USER scope for operational observability visibility, dashboard access, alerts visibility, incident visibility, and limited operational monitoring access.
-* Planned ADMIN scope for operational governance, alert configuration, cron inventory management, monitoring policy administration, operational reliability analytics, and maintenance governance.
-* Planned SUPER_ADMIN role support for platform governance authority, RBAC hierarchy management, admin governance, platform-wide policy management, infrastructure integration governance, privileged audit visibility, security governance, and global operational controls.
-* Future governance principles that keep ADMIN focused on operational administration rather than platform root authority.
-* Planned SUPER_ADMIN trust boundary enforcement for elevated platform governance and privileged infrastructure governance.
+* Future migration path toward capability-based authorization architecture for scalable governance and infrastructure administration.
 * Future RBAC expansion for environment-scoped administration, service-scoped governance, auditor/viewer roles, tenant/global governance isolation, infrastructure governance separation, and advanced operational policy isolation.
+* Planned advanced audit governance for expanded privileged-event visibility, review workflows, and platform administration traceability.
+* Planned dynamic policy architecture for scalable authorization management beyond the foundational hierarchical RBAC model.
 
 ### Data Lifecycle & Retention
 

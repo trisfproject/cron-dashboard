@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { isPrivilegedRole } from '@/lib/rbac';
+import { isPrivilegedRole, roleDisplayLabel, roleGovernanceLabel } from '@/lib/rbac';
 
 export default function EditUserModal({ user, onSave, onCancel, isLoading, canManagePrivileged = false }) {
   const [formData, setFormData] = useState({
@@ -9,6 +9,7 @@ export default function EditUserModal({ user, onSave, onCancel, isLoading, canMa
     email: '',
     role: 'user'
   });
+  const [confirmationValue, setConfirmationValue] = useState('');
 
   useEffect(() => {
     if (user) {
@@ -17,6 +18,7 @@ export default function EditUserModal({ user, onSave, onCancel, isLoading, canMa
         email: user.email || '',
         role: user.role || 'user'
       });
+      setConfirmationValue('');
     }
   }, [user]);
 
@@ -30,6 +32,11 @@ export default function EditUserModal({ user, onSave, onCancel, isLoading, canMa
   }
 
   if (!user) return null;
+
+  const roleChanged = formData.role !== (user.role || 'user');
+  const privilegedRoleChange = roleChanged && (isPrivilegedRole(user.role) || isPrivilegedRole(formData.role));
+  const requiredConfirmation = privilegedRoleChange ? roleDisplayLabel(formData.role) : '';
+  const confirmationMatches = confirmationValue.trim() === requiredConfirmation;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 dark:bg-black/70">
@@ -73,7 +80,21 @@ export default function EditUserModal({ user, onSave, onCancel, isLoading, canMa
               {canManagePrivileged || formData.role === 'admin' ? <option value="admin">Admin</option> : null}
               {canManagePrivileged || formData.role === 'super_admin' ? <option value="super_admin">Super Admin</option> : null}
             </select>
+            <span className="block text-xs text-slate-500 dark:text-slate-400">{roleGovernanceLabel(formData.role)}</span>
           </label>
+
+          {privilegedRoleChange ? (
+            <label className="space-y-1 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/70 dark:bg-amber-950/30">
+              <span className="text-xs font-semibold uppercase tracking-wide text-amber-900 dark:text-amber-100">Privileged governance change</span>
+              <span className="block text-sm text-amber-900 dark:text-amber-100">Type {requiredConfirmation} to confirm this role update.</span>
+              <input
+                value={confirmationValue}
+                onChange={(event) => setConfirmationValue(event.target.value)}
+                className="mt-2 w-full rounded-md border border-amber-300 px-3 py-2 text-sm text-ink dark:border-amber-800 dark:bg-slate-950"
+                autoComplete="off"
+              />
+            </label>
+          ) : null}
 
           <div className="flex gap-3 pt-4">
             <button
@@ -86,7 +107,7 @@ export default function EditUserModal({ user, onSave, onCancel, isLoading, canMa
             </button>
             <button
               type="submit"
-              disabled={isLoading}
+              disabled={isLoading || (privilegedRoleChange && !confirmationMatches)}
               className="flex-1 rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-blue-600 dark:hover:bg-blue-500"
             >
               {isLoading ? 'Saving...' : 'Save changes'}

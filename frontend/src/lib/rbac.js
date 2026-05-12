@@ -24,3 +24,18 @@ export function isPrivilegedRole(role) {
   return isAdminOrHigher(role);
 }
 
+export function roleDisplayLabel(role) {
+  return {
+    user: 'USER',
+    admin: 'ADMIN',
+    super_admin: 'SUPER_ADMIN'
+  }[normalizeRole(role)];
+}
+
+export function roleGovernanceLabel(role) {
+  return {
+    user: 'Operational Visibility',
+    admin: 'Operational Governance',
+    super_admin: 'Platform Governance'
+  }[normalizeRole(role)];
+}
