@@ -44,6 +44,13 @@ See Release History / Version Notes in the NYX About page for official shipped r
 * Advanced drilldowns.
 * Deep operational analytics.
 
+### RBAC & Governance
+
+* Planned SUPER_ADMIN role support for elevated operational governance.
+* Multi-tier RBAC hierarchy for platform administration and governance isolation.
+* Separation between operational administrators and platform governance administrators.
+* Future tenant/global governance control, elevated audit visibility, privileged operational policy management, and advanced administrative isolation.
+
 ### Data Lifecycle & Retention
 
 * Historical aggregation optimization.

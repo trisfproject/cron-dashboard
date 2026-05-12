@@ -65,6 +65,15 @@ const RELEASES = [
           'Enhanced tablet breakpoint handling for operational dashboard toolbars, filters, metadata cards, and report investigation surfaces.',
           'Improved compact mobile and tablet layouts while preserving touch-friendly controls, dark/light theme compatibility, and enterprise observability styling.'
         ]
+      },
+      {
+        title: 'Upcoming',
+        items: [
+          'System Insights: operational intelligence summaries, anomaly interpretation, and predictive observability.',
+          'Cron Detail Investigation Experience: reliability history, heartbeat lifecycle history, incident drilldown, and retry/failure pattern analysis.',
+          'Timeline Intelligence Expansion: richer contextual operational markers, maintenance overlays, and anomaly intelligence.',
+          'RBAC & Governance: planned SUPER_ADMIN role support, multi-tier administration, tenant/global governance control, elevated audit visibility, and advanced administrative isolation.'
+        ]
       }
     ]
   },
@@ -214,14 +223,6 @@ const RELEASES = [
           'Added incident lifecycle indexes for impact and reliability time aggregation.',
           'Hardened reliability classification backfills for MySQL collation and charset compatibility.',
           'Improved operational persistence for alert resolution, downtime duration, heartbeat recovery, and maintenance lifecycle events.'
-        ]
-      },
-      {
-        title: 'Upcoming',
-        items: [
-          'System Insights: operational intelligence summaries, anomaly interpretation, and predictive observability.',
-          'Cron Detail Investigation Experience: reliability history, heartbeat lifecycle history, incident drilldown, and retry/failure pattern analysis.',
-          'Timeline Intelligence Expansion: richer contextual operational markers, maintenance overlays, and anomaly intelligence.'
         ]
       }
     ]
