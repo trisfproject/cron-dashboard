@@ -7,6 +7,19 @@ import { isPrivilegedRole } from '@/lib/rbac';
 const VIEWPORT_MARGIN = 12;
 const MENU_GAP = 8;
 const MENU_WIDTH = 192;
+const MIN_MENU_WIDTH = 160;
+const MIN_MENU_HEIGHT = 80;
+
+function getViewportFrame() {
+  const visualViewport = window.visualViewport;
+
+  return {
+    left: visualViewport?.offsetLeft || 0,
+    top: visualViewport?.offsetTop || 0,
+    width: visualViewport?.width || window.innerWidth,
+    height: visualViewport?.height || window.innerHeight
+  };
+}
 
 export default function ActionDropdown({ user, onEdit, onResetPassword, onForceLogout, onToggleStatus, onArchive, onDelete, isCurrentUser, canManagePrivileged = false }) {
   const [open, setOpen] = useState(false);
@@ -24,22 +37,26 @@ export default function ActionDropdown({ user, onEdit, onResetPassword, onForceL
       }
 
       const buttonRect = button.getBoundingClientRect();
-      const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
-      const safeWidth = Math.max(160, viewportWidth - VIEWPORT_MARGIN * 2);
+      const viewport = getViewportFrame();
+      const viewportRight = viewport.left + viewport.width;
+      const viewportBottom = viewport.top + viewport.height;
+      const safeWidth = Math.max(MIN_MENU_WIDTH, viewport.width - VIEWPORT_MARGIN * 2);
       const width = Math.min(MENU_WIDTH, safeWidth);
       const measuredHeight = menu.scrollHeight || menu.offsetHeight;
-      const spaceBelow = viewportHeight - buttonRect.bottom - MENU_GAP - VIEWPORT_MARGIN;
-      const spaceAbove = buttonRect.top - MENU_GAP - VIEWPORT_MARGIN;
+      const spaceBelow = viewportBottom - buttonRect.bottom - MENU_GAP - VIEWPORT_MARGIN;
+      const spaceAbove = buttonRect.top - viewport.top - MENU_GAP - VIEWPORT_MARGIN;
       const openAbove = measuredHeight > spaceBelow && spaceAbove > spaceBelow;
-      const availableHeight = Math.max(120, Math.min(openAbove ? spaceAbove : spaceBelow, viewportHeight - VIEWPORT_MARGIN * 2));
+      const viewportSafeHeight = Math.max(MIN_MENU_HEIGHT, viewport.height - VIEWPORT_MARGIN * 2);
+      const availableHeight = Math.max(MIN_MENU_HEIGHT, Math.min(openAbove ? spaceAbove : spaceBelow, viewportSafeHeight));
       const maxHeight = Math.min(measuredHeight || availableHeight, availableHeight);
       const preferredLeft = buttonRect.right - width;
-      const maxLeft = Math.max(VIEWPORT_MARGIN, viewportWidth - width - VIEWPORT_MARGIN);
-      const left = Math.min(Math.max(preferredLeft, VIEWPORT_MARGIN), maxLeft);
+      const minLeft = viewport.left + VIEWPORT_MARGIN;
+      const maxLeft = Math.max(minLeft, viewportRight - width - VIEWPORT_MARGIN);
+      const left = Math.min(Math.max(preferredLeft, minLeft), maxLeft);
       const preferredTop = openAbove ? buttonRect.top - MENU_GAP - maxHeight : buttonRect.bottom + MENU_GAP;
-      const maxTop = Math.max(VIEWPORT_MARGIN, viewportHeight - maxHeight - VIEWPORT_MARGIN);
-      const top = Math.min(Math.max(preferredTop, VIEWPORT_MARGIN), maxTop);
+      const minTop = viewport.top + VIEWPORT_MARGIN;
+      const maxTop = Math.max(minTop, viewportBottom - maxHeight - VIEWPORT_MARGIN);
+      const top = Math.min(Math.max(preferredTop, minTop), maxTop);
 
       setMenuPosition({ top, left, width, maxHeight, ready: true });
     }
@@ -64,6 +81,8 @@ export default function ActionDropdown({ user, onEdit, onResetPassword, onForceL
       document.addEventListener('keydown', handleKeyDown);
       window.addEventListener('resize', updateMenuPosition);
       window.addEventListener('scroll', updateMenuPosition, true);
+      window.visualViewport?.addEventListener('resize', updateMenuPosition);
+      window.visualViewport?.addEventListener('scroll', updateMenuPosition);
 
       return () => {
         window.cancelAnimationFrame(animationFrame);
@@ -71,6 +90,8 @@ export default function ActionDropdown({ user, onEdit, onResetPassword, onForceL
         document.removeEventListener('keydown', handleKeyDown);
         window.removeEventListener('resize', updateMenuPosition);
         window.removeEventListener('scroll', updateMenuPosition, true);
+        window.visualViewport?.removeEventListener('resize', updateMenuPosition);
+        window.visualViewport?.removeEventListener('scroll', updateMenuPosition);
       };
     }
   }, [open]);
