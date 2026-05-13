@@ -2,8 +2,8 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect, useState } from 'react';
-import { Activity, AlertTriangle, BarChart3, Bell, ClipboardList, Info, ListChecks, Menu, UserCircle, Users, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Activity, AlertTriangle, BarChart3, Bell, ChevronDown, ClipboardList, Info, ListChecks, Menu, ShieldCheck, UserCircle, Users, X } from 'lucide-react';
 import { BrandMark } from '@/components/BrandMark';
 import { LogoutButton } from '@/components/LogoutButton';
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -11,11 +11,14 @@ import { appMetadata } from '@/lib/appMetadata';
 import { getCurrentUser, recordPasswordReminderShown } from '@/lib/api';
 import { isAdminOrHigher, isSuperAdmin, roleDisplayLabel, roleGovernanceLabel } from '@/lib/rbac';
 
-const NAV_ITEMS = [
+const PRIMARY_NAV_ITEMS = [
   { href: '/', label: 'Dashboard', icon: Activity, adminOnly: false },
   { href: '/cron', label: 'Cron', icon: ListChecks, adminOnly: false },
-  { href: '/reports', label: 'Reports', icon: BarChart3, adminOnly: true },
   { href: '/alerts', label: 'Alerts', icon: Bell, adminOnly: false },
+  { href: '/reports', label: 'Reports', icon: BarChart3, adminOnly: true }
+];
+
+const PLATFORM_NAV_ITEMS = [
   { href: '/users', label: 'Users', icon: Users, adminOnly: true },
   { href: '/audit', label: 'Audit', icon: ClipboardList, adminOnly: true },
   { href: '/about', label: 'About', icon: Info, adminOnly: true }
@@ -63,7 +66,10 @@ export function AppShell({ children }) {
   const [user, setUser] = useState(null);
   const [authReady, setAuthReady] = useState(authScreen);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [platformOpen, setPlatformOpen] = useState(false);
   const [dismissedPasswordReminder, setDismissedPasswordReminder] = useState(false);
+  const platformMenuRef = useRef(null);
+  const platformButtonRef = useRef(null);
 
   useEffect(() => {
     if (authScreen) {
@@ -114,7 +120,16 @@ export function AppShell({ children }) {
 
   const isAdmin = isAdminOrHigher(user);
   const isPlatformGovernance = isSuperAdmin(user);
-  const visibleNavItems = NAV_ITEMS.filter((item) => !item.adminOnly || isAdmin);
+  const canViewNavItem = (item) => {
+    if (item.superAdminOnly) {
+      return isPlatformGovernance;
+    }
+
+    return !item.adminOnly || isAdmin;
+  };
+  const visiblePrimaryNavItems = PRIMARY_NAV_ITEMS.filter(canViewNavItem);
+  const visiblePlatformNavItems = PLATFORM_NAV_ITEMS.filter(canViewNavItem);
+  const platformActive = visiblePlatformNavItems.some((item) => item.href && isActivePath(pathname, item.href));
   const passwordSecurity = user?.password_security;
   const passwordReminderRequired = Boolean(passwordSecurity?.password_reminder_required);
   const passwordReminderKey = user && passwordReminderRequired
@@ -124,7 +139,39 @@ export function AppShell({ children }) {
 
   useEffect(() => {
     setDrawerOpen(false);
+    setPlatformOpen(false);
   }, [pathname]);
+
+  useEffect(() => {
+    if (!platformOpen) {
+      return undefined;
+    }
+
+    function handlePointerDown(event) {
+      if (
+        platformMenuRef.current &&
+        !platformMenuRef.current.contains(event.target) &&
+        !platformButtonRef.current?.contains(event.target)
+      ) {
+        setPlatformOpen(false);
+      }
+    }
+
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') {
+        setPlatformOpen(false);
+        platformButtonRef.current?.focus();
+      }
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [platformOpen]);
 
   useEffect(() => {
     if (!passwordReminderKey) {
@@ -197,20 +244,20 @@ export function AppShell({ children }) {
   return (
     <div className="flex min-h-screen flex-col bg-surface">
       <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/85 dark:border-slate-800 dark:bg-slate-950/95 dark:supports-[backdrop-filter]:bg-slate-950/85">
-        <div className="mx-auto flex min-h-[4rem] max-w-7xl items-center justify-between gap-3 px-4 py-3 pt-[calc(0.75rem+env(safe-area-inset-top))] sm:px-6 lg:min-h-[4.5rem] lg:gap-5 lg:px-8">
-          <Link href="/" className="mr-1 flex min-h-11 min-w-0 items-center rounded-md pr-1 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-slate-950 lg:mr-2 lg:pr-3">
+        <div className="mx-auto flex min-h-[4rem] max-w-7xl items-center justify-between gap-3 px-4 py-3 pt-[calc(0.75rem+env(safe-area-inset-top))] sm:px-6 md:gap-4 lg:min-h-[4.5rem] lg:px-8">
+          <Link href="/" className="mr-1 flex min-h-11 min-w-0 max-w-[7rem] shrink overflow-hidden rounded-md pr-1 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-slate-950 lg:mr-2 lg:max-w-none lg:pr-3">
             <BrandMark variant="navbar" />
           </Link>
-          <div className="hidden min-w-0 items-center justify-end gap-3 lg:flex">
-            <nav className="flex min-w-0 items-center gap-1 text-sm font-medium text-slate-600 dark:text-slate-300">
-              {visibleNavItems.map((item) => {
+          <div className="hidden min-w-0 flex-1 items-center justify-end gap-2 md:flex lg:gap-3">
+            <nav className="flex min-w-0 items-center gap-1 text-xs font-medium text-slate-600 dark:text-slate-300 lg:text-sm">
+              {visiblePrimaryNavItems.map((item) => {
                 const Icon = item.icon;
                 const active = isActivePath(pathname, item.href);
 
                 return (
                   <Link
                     key={item.href}
-                    className={`flex min-h-10 items-center gap-2 rounded-md px-3 py-2 transition-colors ${
+                    className={`flex min-h-10 items-center gap-1.5 rounded-md px-1.5 py-2 transition-colors lg:gap-2 lg:px-3 ${
                       active
                         ? 'bg-slate-100 text-ink dark:bg-slate-900 dark:text-white'
                         : 'hover:bg-slate-100 hover:text-ink dark:hover:bg-slate-900 dark:hover:text-white'
@@ -218,16 +265,65 @@ export function AppShell({ children }) {
                     href={item.href}
                     aria-current={active ? 'page' : undefined}
                   >
-                    <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <Icon className="hidden h-4 w-4 shrink-0 lg:block" aria-hidden="true" />
                     {item.label}
                   </Link>
                 );
               })}
+              {visiblePlatformNavItems.length > 0 ? (
+                <div className="relative">
+                  <button
+                    ref={platformButtonRef}
+                    type="button"
+                    onClick={() => setPlatformOpen((current) => !current)}
+                    className={`flex min-h-10 items-center gap-1.5 rounded-md px-1.5 py-2 transition-colors lg:px-3 ${
+                      platformActive || platformOpen
+                        ? 'bg-slate-100 text-ink dark:bg-slate-900 dark:text-white'
+                        : 'hover:bg-slate-100 hover:text-ink dark:hover:bg-slate-900 dark:hover:text-white'
+                    }`}
+                    aria-haspopup="menu"
+                    aria-expanded={platformOpen}
+                  >
+                    <ShieldCheck className="hidden h-4 w-4 shrink-0 lg:block" aria-hidden="true" />
+                    <span>Platform</span>
+                    <ChevronDown className={`h-4 w-4 shrink-0 transition-transform ${platformOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
+                  </button>
+                  {platformOpen ? (
+                    <div
+                      ref={platformMenuRef}
+                      className="absolute right-0 top-full z-50 mt-2 w-60 rounded-md border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-800 dark:bg-slate-950"
+                      role="menu"
+                    >
+                      {visiblePlatformNavItems.map((item) => {
+                        const Icon = item.icon;
+                        const active = isActivePath(pathname, item.href);
+
+                        return (
+                          <Link
+                            key={item.href}
+                            href={item.href}
+                            className={`flex min-h-10 items-center gap-3 rounded px-3 py-2 text-sm transition-colors ${
+                              active
+                                ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-200'
+                                : 'text-slate-700 hover:bg-slate-100 hover:text-ink dark:text-slate-200 dark:hover:bg-slate-900 dark:hover:text-white'
+                            }`}
+                            role="menuitem"
+                            aria-current={active ? 'page' : undefined}
+                          >
+                            <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                            <span>{item.label}</span>
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </nav>
             {user ? (
-              <Link href="/account" className="flex min-h-10 max-w-[13rem] items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs shadow-sm hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:hover:bg-slate-900">
-                <UserCircle className="h-4 w-4 shrink-0 text-slate-500" aria-hidden="true" />
-                <span className="truncate font-medium text-slate-700 dark:text-slate-200">{user.name || user.email}</span>
+              <Link href="/account" className="flex min-h-10 max-w-[5.75rem] items-center gap-2 rounded-md border border-slate-200 bg-white px-1.5 py-1.5 text-xs shadow-sm hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:hover:bg-slate-900 lg:max-w-[13rem] lg:px-3">
+                <UserCircle className="hidden h-4 w-4 shrink-0 text-slate-500 lg:block" aria-hidden="true" />
+                <span className="hidden truncate font-medium text-slate-700 dark:text-slate-200 lg:block">{user.name || user.email}</span>
                 <span className={`rounded px-1.5 py-0.5 font-semibold uppercase ring-1 ${
                   isPlatformGovernance
                     ? 'bg-violet-50 text-violet-700 ring-violet-200 dark:bg-violet-950/40 dark:text-violet-200 dark:ring-violet-900'
@@ -247,7 +343,7 @@ export function AppShell({ children }) {
           <button
             type="button"
             onClick={() => setDrawerOpen(true)}
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 shadow-sm transition-colors hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-900 dark:focus:ring-offset-slate-950 lg:hidden"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 shadow-sm transition-colors hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-900 dark:focus:ring-offset-slate-950 md:hidden"
             aria-label="Open navigation menu"
             aria-expanded={drawerOpen}
             aria-controls="nyx-navigation-drawer"
@@ -278,7 +374,7 @@ export function AppShell({ children }) {
           </div>
         </div>
       ) : null}
-      <div className={`fixed inset-0 z-50 lg:hidden ${drawerOpen ? '' : 'pointer-events-none'}`} aria-hidden={!drawerOpen}>
+      <div className={`fixed inset-0 z-50 md:hidden ${drawerOpen ? '' : 'pointer-events-none'}`} aria-hidden={!drawerOpen}>
         <div
           className={`absolute inset-0 bg-slate-950/45 backdrop-blur-sm transition-opacity duration-200 ${drawerOpen ? 'opacity-100' : 'opacity-0'}`}
           onClick={() => setDrawerOpen(false)}
@@ -322,7 +418,30 @@ export function AppShell({ children }) {
               </Link>
             ) : null}
             <nav className="space-y-1 text-sm font-medium text-slate-700 dark:text-slate-200">
-              {visibleNavItems.map((item) => {
+              {visiblePrimaryNavItems.map((item) => {
+                const Icon = item.icon;
+                const active = isActivePath(pathname, item.href);
+
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`flex min-h-12 items-center gap-3 rounded-md px-3 py-2 transition-colors ${
+                      active
+                        ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100 dark:bg-blue-950/40 dark:text-blue-200 dark:ring-blue-900'
+                        : 'hover:bg-slate-100 hover:text-ink dark:hover:bg-slate-900 dark:hover:text-white'
+                    }`}
+                    aria-current={active ? 'page' : undefined}
+                  >
+                    <Icon className="h-5 w-5 shrink-0" aria-hidden="true" />
+                    <span>{item.label}</span>
+                  </Link>
+                );
+              })}
+              {visiblePlatformNavItems.length > 0 ? (
+                <div className="my-3 border-t border-slate-200 pt-3 dark:border-slate-800" />
+              ) : null}
+              {visiblePlatformNavItems.map((item) => {
                 const Icon = item.icon;
                 const active = isActivePath(pathname, item.href);
 
