@@ -90,7 +90,7 @@ export async function middleware(request) {
       return NextResponse.redirect(new URL('/', request.url));
     }
 
-    const adminOnlyPaths = ['/alerts/config', '/reports', '/users', '/audit', '/about'];
+    const adminOnlyPaths = ['/alerts/config', '/users', '/audit', '/about'];
     const adminOnly = adminOnlyPaths.some((path) => pathname === path || pathname.startsWith(`${path}/`));
 
     if (adminOnly && !isAdminOrHigher(session)) {

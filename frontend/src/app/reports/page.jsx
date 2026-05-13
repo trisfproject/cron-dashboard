@@ -160,16 +160,25 @@ function distributionPercent(value, total) {
   return Math.max(0, Math.min(100, (Number(value || 0) / total) * 100));
 }
 
-function ReliabilityDistribution({ statsSummary = {}, heartbeatSummary = {}, activeRangeLabel }) {
+function ReliabilityDistribution({ statsSummary = {}, heartbeatSummary = {}, reportSummary = {}, activeRangeLabel, observabilityOnly = false }) {
   const successCount = Number(statsSummary.success_count || 0);
   const warningCount = Number(statsSummary.warning_count || 0);
   const failedCount = Number(statsSummary.failed_count || 0);
   const totalRuns = Math.max(Number(statsSummary.total_runs || 0), successCount + warningCount + failedCount);
-  const segments = [
+  const incidentSegments = [
+    { label: 'Outage', value: Number(reportSummary.outage_incidents || 0), className: 'bg-rose-500', chipClassName: 'bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-950/40 dark:text-rose-200 dark:ring-rose-900' },
+    { label: 'Degraded', value: Number(reportSummary.degraded_incidents || 0), className: 'bg-orange-500', chipClassName: 'bg-orange-50 text-orange-700 ring-orange-200 dark:bg-orange-950/40 dark:text-orange-200 dark:ring-orange-900' },
+    { label: 'Informational', value: Number(reportSummary.informational_incidents || 0), className: 'bg-blue-500', chipClassName: 'bg-blue-50 text-blue-700 ring-blue-200 dark:bg-blue-950/40 dark:text-blue-200 dark:ring-blue-900' }
+  ];
+  const runtimeSegments = [
     { label: 'Healthy', value: successCount, className: 'bg-emerald-500', chipClassName: 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:ring-emerald-900' },
     { label: 'Degraded', value: warningCount, className: 'bg-amber-500', chipClassName: 'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-900' },
     { label: 'Critical', value: failedCount, className: 'bg-rose-500', chipClassName: 'bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-950/40 dark:text-rose-200 dark:ring-rose-900' }
   ];
+  const segments = observabilityOnly ? incidentSegments : runtimeSegments;
+  const segmentTotal = observabilityOnly
+    ? Math.max(Number(reportSummary.total_incidents || 0), segments.reduce((sum, segment) => sum + segment.value, 0))
+    : totalRuns;
   const heartbeatMissing = Number(heartbeatSummary.missing || 0);
   const heartbeatRecovering = Number(heartbeatSummary.recovering || 0);
 
@@ -178,16 +187,18 @@ function ReliabilityDistribution({ statsSummary = {}, heartbeatSummary = {}, act
       <div className="border-b border-slate-200 px-3 py-3 dark:border-slate-800 sm:px-4">
         <h2 className="text-base font-semibold text-ink">Reliability Distribution</h2>
         <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400 sm:text-sm">
-          Runtime health composition for {activeRangeLabel.toLowerCase()} before deeper trend investigation.
+          {observabilityOnly
+            ? `Aggregated reliability composition for ${activeRangeLabel.toLowerCase()}.`
+            : `Runtime health composition for ${activeRangeLabel.toLowerCase()} before deeper trend investigation.`}
         </p>
       </div>
       <div className="space-y-3 px-3 py-3 sm:px-4">
         <div className="flex h-3 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800" aria-label="Runtime reliability distribution">
           {segments.map((segment) => {
-            const width = distributionPercent(segment.value, totalRuns);
+            const width = distributionPercent(segment.value, segmentTotal);
             return width > 0 ? <span key={segment.label} className={segment.className} style={{ width: `${width}%` }} title={`${segment.label}: ${formatNumber(segment.value)}`} /> : null;
           })}
-          {totalRuns === 0 ? <span className="w-full bg-slate-200 dark:bg-slate-800" /> : null}
+          {segmentTotal === 0 ? <span className="w-full bg-slate-200 dark:bg-slate-800" /> : null}
         </div>
         <div className="grid gap-2 sm:grid-cols-3">
           {segments.map((segment) => (
@@ -196,14 +207,14 @@ function ReliabilityDistribution({ statsSummary = {}, heartbeatSummary = {}, act
                 <span>{segment.label}</span>
                 <span className="font-semibold">{formatNumber(segment.value)}</span>
               </div>
-              <p className="mt-1 text-[0.7rem] opacity-80">{formatNumber(distributionPercent(segment.value, totalRuns), 1)}% of runs</p>
+              <p className="mt-1 text-[0.7rem] opacity-80">{formatNumber(distributionPercent(segment.value, segmentTotal), 1)}% of {observabilityOnly ? 'incidents' : 'runs'}</p>
             </div>
           ))}
         </div>
-        <div className="flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
+        {!observabilityOnly ? <div className="flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
           <span className="rounded-md bg-slate-50 px-2 py-1 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">Missing heartbeat: {formatNumber(heartbeatMissing)}</span>
           <span className="rounded-md bg-slate-50 px-2 py-1 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">Recovering: {formatNumber(heartbeatRecovering)}</span>
-        </div>
+        </div> : null}
       </div>
     </section>
   );
@@ -393,7 +404,7 @@ function ReliabilityActivityTooltip({ active, payload, label }) {
   );
 }
 
-function ReliabilityActivityChart({ trend, range = '7d', interval = 'day' }) {
+function ReliabilityActivityChart({ trend, range = '7d', interval = 'day', readOnly = false }) {
   const chartData = useMemo(() => trend.map((row) => {
     const bucket = row.bucket || row.day;
     const bucketInterval = row.interval || interval || 'day';
@@ -520,6 +531,10 @@ function ReliabilityActivityChart({ trend, range = '7d', interval = 'day' }) {
   }
 
   function handleWheel(event) {
+    if (readOnly) {
+      return;
+    }
+
     event.preventDefault();
 
     if (isZoomed && Math.abs(event.deltaX) > Math.abs(event.deltaY)) {
@@ -533,6 +548,10 @@ function ReliabilityActivityChart({ trend, range = '7d', interval = 'day' }) {
   }
 
   function handleMouseDown(event) {
+    if (readOnly) {
+      return;
+    }
+
     const activeIndex = activeIndexFromEvent(event);
 
     if (activeIndex === null) {
@@ -595,6 +614,10 @@ function ReliabilityActivityChart({ trend, range = '7d', interval = 'day' }) {
   }
 
   function handleTouchStart(event) {
+    if (readOnly) {
+      return;
+    }
+
     if (event.touches.length === 2) {
       const firstIndex = indexFromPointerEvent(event.touches[0]);
       const secondIndex = indexFromPointerEvent(event.touches[1]);
@@ -637,6 +660,10 @@ function ReliabilityActivityChart({ trend, range = '7d', interval = 'day' }) {
   }
 
   function handleTouchMove(event) {
+    if (readOnly) {
+      return;
+    }
+
     if (event.touches.length === 2 && pinchState) {
       const distance = Math.abs(event.touches[0].clientX - event.touches[1].clientX);
 
@@ -723,7 +750,7 @@ function ReliabilityActivityChart({ trend, range = '7d', interval = 'day' }) {
       <div className="overflow-hidden">
         <div
           ref={chartFrameRef}
-          className={`h-56 min-w-0 touch-none px-2 py-3 sm:h-64 sm:px-3 sm:py-4 lg:h-80 lg:py-5 ${isZoomed ? 'cursor-grab active:cursor-grabbing' : 'cursor-crosshair'}`}
+          className={`h-56 min-w-0 px-2 py-3 sm:h-64 sm:px-3 sm:py-4 lg:h-80 lg:py-5 ${readOnly ? '' : `touch-none ${isZoomed ? 'cursor-grab active:cursor-grabbing' : 'cursor-crosshair'}`}`}
           onWheel={handleWheel}
           onDoubleClick={resetZoom}
           onTouchStart={handleTouchStart}
@@ -784,9 +811,9 @@ function ReliabilityActivityChart({ trend, range = '7d', interval = 'day' }) {
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-slate-200 px-3 py-2 text-[0.7rem] font-medium leading-4 text-slate-500 dark:border-slate-800 dark:text-slate-400 sm:gap-x-4 sm:px-4 sm:py-3 sm:text-xs">
         <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-amber-500 sm:h-2.5 sm:w-2.5" /> Triggered</span>
         <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-emerald-500 sm:h-2.5 sm:w-2.5" /> Recovered</span>
-        <span className="basis-full text-slate-400 dark:text-slate-500 sm:basis-auto">
+        {!readOnly ? <span className="basis-full text-slate-400 dark:text-slate-500 sm:basis-auto">
           {isZoomed ? 'Drag to pan the focused window, scroll to zoom, double-click to reset.' : 'Drag across the plot to zoom into a reliability window, scroll to zoom around the pointer.'}
-        </span>
+        </span> : null}
       </div>
     </div>
   );
@@ -824,7 +851,7 @@ function heatmapBucketLabel(bucket, mode) {
   return String(bucket || '').slice(5);
 }
 
-function ReliabilityHeatmap({ heatmap }) {
+function ReliabilityHeatmap({ heatmap, readOnly = false }) {
   const buckets = Array.isArray(heatmap?.buckets) ? heatmap.buckets : [];
   const services = Array.isArray(heatmap?.services) ? heatmap.services : [];
   const cells = Array.isArray(heatmap?.cells) ? heatmap.cells : [];
@@ -899,17 +926,25 @@ function ReliabilityHeatmap({ heatmap }) {
   }
 
   function handleWheel(event) {
+    if (readOnly) {
+      return;
+    }
+
     event.preventDefault();
     zoomAroundIndex(indexFromPointer(event), event.deltaY);
   }
 
   function updateSelectionFromPointer(event) {
+    if (readOnly) return;
+
     if (!selection) return;
 
     setSelection((current) => current ? { ...current, endIndex: indexFromPointer(event) } : current);
   }
 
   function applySelection(event) {
+    if (readOnly) return;
+
     if (!selection) return;
 
     const selectionEnd = indexFromPointer(event);
@@ -937,11 +972,11 @@ function ReliabilityHeatmap({ heatmap }) {
             <div
               ref={gridRef}
               className="overflow-x-auto rounded-md border border-slate-200 bg-slate-50/70 p-2 dark:border-slate-800 dark:bg-slate-950/60"
-              onWheel={handleWheel}
-              onDoubleClick={resetZoom}
-              onPointerMove={updateSelectionFromPointer}
-              onPointerUp={applySelection}
-              onMouseLeave={() => setSelection(null)}
+              onWheel={readOnly ? undefined : handleWheel}
+              onDoubleClick={readOnly ? undefined : resetZoom}
+              onPointerMove={readOnly ? undefined : updateSelectionFromPointer}
+              onPointerUp={readOnly ? undefined : applySelection}
+              onMouseLeave={readOnly ? undefined : () => setSelection(null)}
             >
               <div className="min-w-max space-y-1">
                 <div className="grid items-center gap-1 text-[0.68rem] font-medium text-slate-500 dark:text-slate-400" style={{ gridTemplateColumns }}>
@@ -975,11 +1010,11 @@ function ReliabilityHeatmap({ heatmap }) {
                           type="button"
                           title={title}
                           aria-label={title}
-                          onPointerDown={(event) => {
+                          onPointerDown={readOnly ? undefined : (event) => {
                             event.currentTarget.setPointerCapture?.(event.pointerId);
                             setSelection({ startIndex: bucketIndex, endIndex: bucketIndex });
                           }}
-                          className={`h-7 rounded border transition focus:outline-none focus:ring-2 focus:ring-blue-500/50 ${selected ? 'ring-2 ring-blue-500/50' : ''}`}
+                          className={`h-7 rounded border transition focus:outline-none focus:ring-2 focus:ring-blue-500/50 ${readOnly ? 'cursor-default' : ''} ${selected ? 'ring-2 ring-blue-500/50' : ''}`}
                           style={heatmapCellStyle(cell, maxScore)}
                         />
                       );
@@ -994,9 +1029,9 @@ function ReliabilityHeatmap({ heatmap }) {
               <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded bg-orange-500" /> Degraded</span>
               <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded bg-rose-500" /> Outage</span>
               <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded bg-violet-600" /> Missing heartbeat</span>
-              <span className="basis-full text-slate-400 dark:text-slate-500 sm:basis-auto">
+              {!readOnly ? <span className="basis-full text-slate-400 dark:text-slate-500 sm:basis-auto">
                 {isZoomed ? 'Scroll to zoom, drag across cells to focus, double-click to reset.' : 'Scroll to zoom or drag across cells to focus a time window.'}
-              </span>
+              </span> : null}
             </div>
           </>
         ) : (
@@ -1012,6 +1047,7 @@ function ReliabilityHeatmap({ heatmap }) {
 function ReportsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const [currentUser, setCurrentUser] = useState(null);
   const [report, setReport] = useState(null);
   const [operationalStats, setOperationalStats] = useState({ summary: {}, insights: { problematic_jobs: [], slowest_jobs: [] }, heartbeat: { summary: {} } });
   const [scopeOptions, setScopeOptions] = useState({ environments: [], service_groups: [] });
@@ -1049,15 +1085,22 @@ function ReportsContent() {
       .then((userData) => {
         if (cancelled) return null;
 
-        if (!isAdminOrHigher(userData?.user)) {
-          router.replace('/');
-          return null;
-        }
+        const user = userData?.user || null;
+        const canViewGovernanceAnalytics = isAdminOrHigher(user);
+        setCurrentUser(user);
 
+        const reportFilters = canViewGovernanceAnalytics
+          ? filters
+          : {
+              range: filters.range,
+              window: filters.window,
+              start: filters.start,
+              end: filters.end
+            };
         return Promise.all([
-          getReliabilityReport(filters),
-          getStats(statsFilters).catch(() => ({ insights: { problematic_jobs: [], slowest_jobs: [] } })),
-          getScopeOptions().catch(() => ({ environments: [], service_groups: [] }))
+          getReliabilityReport(reportFilters),
+          canViewGovernanceAnalytics ? getStats(statsFilters).catch(() => ({ insights: { problematic_jobs: [], slowest_jobs: [] } })) : Promise.resolve({}),
+          canViewGovernanceAnalytics ? getScopeOptions().catch(() => ({ environments: [], service_groups: [] })) : Promise.resolve({ environments: [], service_groups: [] })
         ]);
       })
       .then((reportResult) => {
@@ -1100,7 +1143,7 @@ function ReportsContent() {
 
     for (const key of ['env', 'service_group']) {
       const value = form.get(key);
-      if (value) query.set(key, value);
+      if (isAdminOrHigher(currentUser) && value) query.set(key, value);
     }
 
     router.push(`/reports?${query.toString()}`);
@@ -1113,9 +1156,11 @@ function ReportsContent() {
     } else {
       query.set('range', nextFilter?.value || '7d');
     }
-    for (const key of ['env', 'service_group']) {
-      const value = filters[key];
-      if (value) query.set(key, value);
+    if (isAdminOrHigher(currentUser)) {
+      for (const key of ['env', 'service_group']) {
+        const value = filters[key];
+        if (value) query.set(key, value);
+      }
     }
     router.push(`/reports?${query.toString()}`);
   }
@@ -1124,18 +1169,22 @@ function ReportsContent() {
     const query = new URLSearchParams();
     query.set('start', nextRange.start);
     query.set('end', nextRange.end);
-    for (const key of ['env', 'service_group']) {
-      const value = filters[key];
-      if (value) query.set(key, value);
+    if (isAdminOrHigher(currentUser)) {
+      for (const key of ['env', 'service_group']) {
+        const value = filters[key];
+        if (value) query.set(key, value);
+      }
     }
     router.push(`/reports?${query.toString()}`);
   }
 
   const summary = report?.summary || {};
+  const canViewGovernanceAnalytics = isAdminOrHigher(currentUser);
+  const observabilityOnly = !canViewGovernanceAnalytics;
   const statsSummary = operationalStats?.summary && typeof operationalStats.summary === 'object' ? operationalStats.summary : {};
   const heartbeatSummary = operationalStats?.heartbeat?.summary && typeof operationalStats.heartbeat.summary === 'object' ? operationalStats.heartbeat.summary : {};
   const insights = operationalStats?.insights && typeof operationalStats.insights === 'object' ? operationalStats.insights : {};
-  const scopeText = metricSubtext(filters.window || filters.range, filters);
+  const scopeText = metricSubtext(filters.window || filters.range, observabilityOnly ? { ...filters, env: '', service_group: '' } : filters);
   const problematicCrons = Array.isArray(report?.problematic_crons) ? report.problematic_crons : [];
   const operationalHealthJobs = rankCronHealthJobs(Array.isArray(insights.problematic_jobs) ? insights.problematic_jobs : []);
   const attentionHealthJobs = operationalHealthJobs.filter((job) => Number(job?.health?.score || 0) > 0);
@@ -1156,7 +1205,9 @@ function ReportsContent() {
         <div>
           <h1 className="text-xl font-semibold tracking-normal text-ink sm:text-2xl">Reports</h1>
           <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400 sm:text-sm">
-            Historical operational analytics across the selected report range. Cron entries here may not appear on the realtime Cron page when they have no executions in that operational window.
+            {observabilityOnly
+              ? 'High-level observability analytics across the selected report range.'
+              : 'Historical operational analytics across the selected report range. Cron entries here may not appear on the realtime Cron page when they have no executions in that operational window.'}
           </p>
         </div>
       </div>
@@ -1185,7 +1236,7 @@ function ReportsContent() {
             onCustomRangeChange={applyCustomRange}
           />
         </div>
-        <div className="grid min-w-0 grid-cols-1 gap-2 min-[520px]:grid-cols-2 md:flex md:w-auto md:shrink-0 md:flex-wrap md:items-start md:justify-end lg:flex-nowrap">
+        {canViewGovernanceAnalytics ? <div className="grid min-w-0 grid-cols-1 gap-2 min-[520px]:grid-cols-2 md:flex md:w-auto md:shrink-0 md:flex-wrap md:items-start md:justify-end lg:flex-nowrap">
           <select className={selectClass} name="env" defaultValue={filters.env}>
             <option value="">All environments</option>
             {scopeOptions.environments.map((option) => <option key={option.value} value={option.value}>{option.value}</option>)}
@@ -1198,7 +1249,7 @@ function ReportsContent() {
             <Search className="h-4 w-4" aria-hidden="true" />
             <span>Apply</span>
           </button>
-        </div>
+        </div> : null}
       </form>
 
       {loading ? (
@@ -1209,16 +1260,20 @@ function ReportsContent() {
 
       {!loading ? (
         <>
-          <div className="grid grid-cols-2 gap-2 sm:gap-3 md:grid-cols-3 xl:grid-cols-6">
+          <div className={`grid grid-cols-2 gap-2 sm:gap-3 ${canViewGovernanceAnalytics ? 'md:grid-cols-3 xl:grid-cols-6' : 'md:grid-cols-2'}`}>
             <SummaryCard icon={ShieldCheck} label="Availability" value={formatPercent(summary.availability_percent)} subtext={scopeText} />
             <SummaryCard icon={AlertTriangle} label="Total incidents" value={formatNumber(summary.total_incidents)} subtext={`${formatNumber(summary.outage_incidents)} outage / ${formatNumber(summary.degraded_incidents)} degraded`} />
-            <SummaryCard icon={Clock3} label="Total downtime" value={formatMinutes(summary.total_downtime_minutes)} subtext="Outage-class incidents only" />
-            <SummaryCard icon={TimerReset} label="MTTR" value={formatMinutes(summary.mttr_minutes)} subtext={`${formatNumber(summary.outage_recoveries)} outage recoveries`} />
-            <SummaryCard icon={Gauge} label="MTBF" value={formatMinutes(summary.mtbf_minutes)} subtext={scopeText} />
-            <SummaryCard icon={Bell} label="Total alerts" value={formatNumber(summary.total_alerts)} subtext="Alert history in range" />
+            {canViewGovernanceAnalytics ? (
+              <>
+                <SummaryCard icon={Clock3} label="Total downtime" value={formatMinutes(summary.total_downtime_minutes)} subtext="Outage-class incidents only" />
+                <SummaryCard icon={TimerReset} label="MTTR" value={formatMinutes(summary.mttr_minutes)} subtext={`${formatNumber(summary.outage_recoveries)} outage recoveries`} />
+                <SummaryCard icon={Gauge} label="MTBF" value={formatMinutes(summary.mtbf_minutes)} subtext={scopeText} />
+                <SummaryCard icon={Bell} label="Total alerts" value={formatNumber(summary.total_alerts)} subtext="Alert history in range" />
+              </>
+            ) : null}
           </div>
 
-          <ReliabilityDistribution statsSummary={statsSummary} heartbeatSummary={heartbeatSummary} activeRangeLabel={activeRangeLabel} />
+          <ReliabilityDistribution statsSummary={statsSummary} heartbeatSummary={heartbeatSummary} reportSummary={summary} activeRangeLabel={activeRangeLabel} observabilityOnly={observabilityOnly} />
 
           <IncidentClassificationBreakdown summary={summary} activeRangeLabel={activeRangeLabel} />
 
@@ -1227,12 +1282,12 @@ function ReportsContent() {
               <h2 className="text-base font-semibold text-ink">Reliability Activity</h2>
               <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400 sm:text-sm">Compare triggered operational events against recoveries in WIB to inspect reliability pressure, recovery behavior, and transient anomaly patterns.</p>
             </div>
-            <ReliabilityActivityChart trend={trend} range={report?.window || report?.range || filters.window || filters.range} interval={report?.trend_interval || 'day'} />
+            <ReliabilityActivityChart trend={trend} range={report?.window || report?.range || filters.window || filters.range} interval={report?.trend_interval || 'day'} readOnly={observabilityOnly} />
           </section>
 
-          <ReliabilityHeatmap heatmap={heatmap} />
+          <ReliabilityHeatmap heatmap={heatmap} readOnly={observabilityOnly} />
 
-          <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
+          {canViewGovernanceAnalytics ? <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
             <div className="flex flex-col gap-1 border-b border-slate-200 px-3 py-3 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between sm:px-4 sm:py-4">
               <div>
                 <h2 className="text-base font-semibold text-ink">Most Problematic Cron</h2>
@@ -1273,9 +1328,9 @@ function ReportsContent() {
                 </tbody>
               </table>
             </div>
-          </section>
+          </section> : null}
 
-          <section className="grid min-w-0 gap-3 sm:gap-4">
+          {canViewGovernanceAnalytics ? <section className="grid min-w-0 gap-3 sm:gap-4">
             <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950 sm:p-5">
               <div className="mb-3 sm:mb-4">
                 <h2 className="text-base font-semibold text-ink">Cron Health Overview</h2>
@@ -1445,7 +1500,7 @@ function ReportsContent() {
                 </table>
               </div>
             </div>
-          </section>
+          </section> : null}
         </>
       ) : null}
     </div>

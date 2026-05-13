@@ -613,7 +613,7 @@ function normalizeHeatmap(rows, startDate, endDate, mode) {
   return { mode, buckets, services, cells };
 }
 
-export async function getReliabilityReport({ range = '7d', window, start, end, env, service_group, sort = 'downtime' } = {}) {
+export async function getReliabilityReport({ range = '7d', window, start, end, env, service_group, sort = 'downtime', includeGovernanceAnalytics = true } = {}) {
   await ensureIncidentSchema();
   await ensureReportTimeIndexes();
 
@@ -669,39 +669,47 @@ export async function getReliabilityReport({ range = '7d', window, start, end, e
     alertFilters.push('alert_events.service_group = ?');
     alertValues.push(service_group);
   }
-  const [[alertSummary]] = await query(`
-    SELECT COUNT(*) AS total_alerts
-    FROM alert_events
-    WHERE ${alertFilters.join(' AND ')}
-  `, alertValues);
+  let alertSummary = { total_alerts: 0 };
 
-  const [problematicRows] = await query(`
-    SELECT
-      incident_events.cron_name,
-      MAX(incident_events.env) AS env,
-      MAX(incident_events.service_group) AS service_group,
-      SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) THEN 1 ELSE 0 END) AS incident_count,
-      SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) AND ${reliabilitySql} = 'outage' THEN 1 ELSE 0 END) AS outage_incident_count,
-      SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) AND ${reliabilitySql} = 'degraded' THEN 1 ELSE 0 END) AS degraded_incident_count,
-      COALESCE(SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(RECOVERY_TYPES)}) AND ${reliabilitySql} = 'outage' THEN COALESCE(incident_events.downtime_seconds, incident_events.downtime_minutes * 60, 0) ELSE 0 END), 0) AS total_downtime_seconds,
-      COALESCE(AVG(CASE WHEN incident_events.type IN (${incidentPlaceholders(RECOVERY_TYPES)}) AND ${reliabilitySql} = 'outage' AND COALESCE(incident_events.downtime_seconds, incident_events.downtime_minutes * 60) IS NOT NULL THEN COALESCE(incident_events.downtime_seconds, incident_events.downtime_minutes * 60) END), 0) AS avg_recovery_seconds,
-      MAX(incident_events.occurred_at) AS latest_event
-    FROM incident_events
-    WHERE ${where}
-      AND incident_events.type IN (${incidentPlaceholders(eventTypes)})
-    GROUP BY incident_events.cron_name
-    HAVING incident_count > 0 OR total_downtime_seconds > 0
-    ORDER BY ${sort === 'incidents' ? 'incident_count DESC, total_downtime_seconds DESC' : 'total_downtime_seconds DESC, incident_count DESC'}, latest_event DESC
-    LIMIT 10
-  `, [
-    ...INCIDENT_TYPES,
-    ...INCIDENT_TYPES,
-    ...INCIDENT_TYPES,
-    ...RECOVERY_TYPES,
-    ...RECOVERY_TYPES,
-    ...values,
-    ...eventTypes
-  ]);
+  if (includeGovernanceAnalytics) {
+    [[alertSummary]] = await query(`
+      SELECT COUNT(*) AS total_alerts
+      FROM alert_events
+      WHERE ${alertFilters.join(' AND ')}
+    `, alertValues);
+  }
+
+  let problematicRows = [];
+
+  if (includeGovernanceAnalytics) {
+    [problematicRows] = await query(`
+      SELECT
+        incident_events.cron_name,
+        MAX(incident_events.env) AS env,
+        MAX(incident_events.service_group) AS service_group,
+        SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) THEN 1 ELSE 0 END) AS incident_count,
+        SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) AND ${reliabilitySql} = 'outage' THEN 1 ELSE 0 END) AS outage_incident_count,
+        SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(INCIDENT_TYPES)}) AND ${reliabilitySql} = 'degraded' THEN 1 ELSE 0 END) AS degraded_incident_count,
+        COALESCE(SUM(CASE WHEN incident_events.type IN (${incidentPlaceholders(RECOVERY_TYPES)}) AND ${reliabilitySql} = 'outage' THEN COALESCE(incident_events.downtime_seconds, incident_events.downtime_minutes * 60, 0) ELSE 0 END), 0) AS total_downtime_seconds,
+        COALESCE(AVG(CASE WHEN incident_events.type IN (${incidentPlaceholders(RECOVERY_TYPES)}) AND ${reliabilitySql} = 'outage' AND COALESCE(incident_events.downtime_seconds, incident_events.downtime_minutes * 60) IS NOT NULL THEN COALESCE(incident_events.downtime_seconds, incident_events.downtime_minutes * 60) END), 0) AS avg_recovery_seconds,
+        MAX(incident_events.occurred_at) AS latest_event
+      FROM incident_events
+      WHERE ${where}
+        AND incident_events.type IN (${incidentPlaceholders(eventTypes)})
+      GROUP BY incident_events.cron_name
+      HAVING incident_count > 0 OR total_downtime_seconds > 0
+      ORDER BY ${sort === 'incidents' ? 'incident_count DESC, total_downtime_seconds DESC' : 'total_downtime_seconds DESC, incident_count DESC'}, latest_event DESC
+      LIMIT 10
+    `, [
+      ...INCIDENT_TYPES,
+      ...INCIDENT_TYPES,
+      ...INCIDENT_TYPES,
+      ...RECOVERY_TYPES,
+      ...RECOVERY_TYPES,
+      ...values,
+      ...eventTypes
+    ]);
+  }
 
   const [trendRows] = await query(`
     SELECT
@@ -765,7 +773,7 @@ export async function getReliabilityReport({ range = '7d', window, start, end, e
   const outageIncidents = Number(summary?.outage_incidents || 0);
   const uptimeMinutes = Math.max(periodMinutes - totalDowntimeMinutes, 0);
 
-  return {
+  const report = {
     summary: {
       availability_percent: availabilityPercent(totalDowntimeMinutes, periodMinutes),
       total_incidents: totalIncidents,
@@ -798,4 +806,27 @@ export async function getReliabilityReport({ range = '7d', window, start, end, e
     end: dateFilter.values[1],
     timezone: 'Asia/Jakarta'
   };
+
+  if (!includeGovernanceAnalytics) {
+    return {
+      summary: {
+        availability_percent: report.summary.availability_percent,
+        total_incidents: report.summary.total_incidents,
+        outage_incidents: report.summary.outage_incidents,
+        degraded_incidents: report.summary.degraded_incidents,
+        informational_incidents: report.summary.informational_incidents,
+        total_recoveries: report.summary.total_recoveries
+      },
+      trend: report.trend,
+      trend_interval: report.trend_interval,
+      heatmap: report.heatmap,
+      range: report.range,
+      window: report.window,
+      start: report.start,
+      end: report.end,
+      timezone: report.timezone
+    };
+  }
+
+  return report;
 }

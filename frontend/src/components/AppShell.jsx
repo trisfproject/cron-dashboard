@@ -15,7 +15,7 @@ const PRIMARY_NAV_ITEMS = [
   { href: '/', label: 'Dashboard', icon: Activity, adminOnly: false },
   { href: '/cron', label: 'Cron', icon: ListChecks, adminOnly: false },
   { href: '/alerts', label: 'Alerts', icon: Bell, adminOnly: false },
-  { href: '/reports', label: 'Reports', icon: BarChart3, adminOnly: true }
+  { href: '/reports', label: 'Reports', icon: BarChart3, adminOnly: false }
 ];
 
 const PLATFORM_NAV_ITEMS = [

@@ -311,7 +311,7 @@ export async function registerRoutes(app) {
       return;
     }
 
-    const adminRoutePrefixes = ['/alert-rules', '/cron-inventory', '/cron-schedules', '/reports', '/users', '/audit-logs', '/audit'];
+    const adminRoutePrefixes = ['/alert-rules', '/cron-inventory', '/cron-schedules', '/users', '/audit-logs', '/audit'];
     const routePath = request.url.split('?')[0];
 
     if (adminRoutePrefixes.some((prefix) => routePath === prefix || routePath.startsWith(`${prefix}/`))) {
@@ -503,37 +503,42 @@ export async function registerRoutes(app) {
         ORDER BY bucket ASC
       `, values);
       const normalizedTimeline = normalizeTimelineBuckets(timeline, dateFilter);
-      const [problematicJobs] = await pool.query(`
-        SELECT
-          cron_name,
-          MAX(env) AS env,
-          MAX(${SERVICE_GROUP_FROM_CRON_SQL}) AS service_group,
-          COUNT(*) AS total_runs,
-          SUM(CASE WHEN status = 0 THEN 1 ELSE 0 END) AS success_count,
-          SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) AS failed_count,
-          SUM(CASE WHEN status = 2 THEN 1 ELSE 0 END) AS warning_count,
-          CASE WHEN COUNT(*) = 0 THEN 0 ELSE ROUND((SUM(status = 0) / COUNT(*)) * 100, 2) END AS success_rate,
-          MAX(timestamp) AS latest_run
-        FROM cron_logs
-        WHERE ${where}
-        GROUP BY cron_name
-        ORDER BY warning_count DESC, success_rate ASC, failed_count DESC, latest_run DESC
-        LIMIT 5
-      `, values);
-      const [slowestJobs] = await pool.query(`
-        SELECT
-          cron_name,
-          MAX(env) AS env,
-          MAX(${SERVICE_GROUP_FROM_CRON_SQL}) AS service_group,
-          ROUND(AVG(duration), 2) AS avg_duration,
-          MAX(duration) AS max_duration,
-          COUNT(*) AS total_runs
-        FROM cron_logs
-        WHERE ${where}
-        GROUP BY cron_name
-        ORDER BY avg_duration DESC, max_duration DESC
-        LIMIT 5
-      `, values);
+      let problematicJobs = [];
+      let slowestJobs = [];
+
+      if (isAdminOrHigher(request.user)) {
+        [problematicJobs] = await pool.query(`
+          SELECT
+            cron_name,
+            MAX(env) AS env,
+            MAX(${SERVICE_GROUP_FROM_CRON_SQL}) AS service_group,
+            COUNT(*) AS total_runs,
+            SUM(CASE WHEN status = 0 THEN 1 ELSE 0 END) AS success_count,
+            SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) AS failed_count,
+            SUM(CASE WHEN status = 2 THEN 1 ELSE 0 END) AS warning_count,
+            CASE WHEN COUNT(*) = 0 THEN 0 ELSE ROUND((SUM(status = 0) / COUNT(*)) * 100, 2) END AS success_rate,
+            MAX(timestamp) AS latest_run
+          FROM cron_logs
+          WHERE ${where}
+          GROUP BY cron_name
+          ORDER BY warning_count DESC, success_rate ASC, failed_count DESC, latest_run DESC
+          LIMIT 5
+        `, values);
+        [slowestJobs] = await pool.query(`
+          SELECT
+            cron_name,
+            MAX(env) AS env,
+            MAX(${SERVICE_GROUP_FROM_CRON_SQL}) AS service_group,
+            ROUND(AVG(duration), 2) AS avg_duration,
+            MAX(duration) AS max_duration,
+            COUNT(*) AS total_runs
+          FROM cron_logs
+          WHERE ${where}
+          GROUP BY cron_name
+          ORDER BY avg_duration DESC, max_duration DESC
+          LIMIT 5
+        `, values);
+      }
 
       return {
         summary,
@@ -867,14 +872,16 @@ export async function registerRoutes(app) {
 
   const reliabilityReportRoute = async (request) => {
     try {
+      const canViewGovernanceAnalytics = isAdminOrHigher(request.user);
       return await getReliabilityReport({
         range: request.query.range || '7d',
         window: request.query.window,
         start: request.query.start,
         end: request.query.end,
-        env: request.query.env,
-        service_group: request.query.service_group,
-        sort: request.query.sort || 'downtime'
+        env: canViewGovernanceAnalytics ? request.query.env : '',
+        service_group: canViewGovernanceAnalytics ? request.query.service_group : '',
+        sort: request.query.sort || 'downtime',
+        includeGovernanceAnalytics: canViewGovernanceAnalytics
       });
     } catch (error) {
       logEndpointError(request, error, 'Reliability report endpoint failed');
