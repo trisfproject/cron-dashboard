@@ -245,7 +245,7 @@ export function AppShell({ children }) {
     <div className="flex min-h-screen flex-col bg-surface">
       <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/85 dark:border-slate-800 dark:bg-slate-950/95 dark:supports-[backdrop-filter]:bg-slate-950/85">
         <div className="mx-auto flex min-h-[4rem] max-w-7xl items-center justify-between gap-3 px-4 py-3 pt-[calc(0.75rem+env(safe-area-inset-top))] sm:px-6 md:gap-4 lg:min-h-[4.5rem] lg:px-8">
-          <Link href="/" className="mr-1 flex min-h-11 min-w-0 max-w-[7rem] shrink overflow-hidden rounded-md pr-1 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-slate-950 lg:mr-2 lg:max-w-none lg:pr-3">
+          <Link href="/" className="mr-1 flex min-h-11 min-w-0 shrink-0 rounded-md pr-1 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-slate-950 md:shrink lg:mr-2 lg:shrink-0 lg:pr-3">
             <BrandMark variant="navbar" />
           </Link>
           <div className="hidden min-w-0 flex-1 items-center justify-end gap-2 md:flex lg:gap-3">
