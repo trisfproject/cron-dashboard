@@ -61,7 +61,9 @@ function normalizeMarkers(markers = [], renderedBuckets = new Set()) {
 
 function normalizeTimeline(data, markers = []) {
   const normalized = Array.isArray(data)
-    ? data.map((item) => ({
+    ? data
+      .filter((item) => item && typeof item === 'object')
+      .map((item) => ({
         ...item,
         bucket: item?.bucket || item?.date || item?.timestamp || '',
         total: Number(item?.total ?? 0),
@@ -69,12 +71,13 @@ function normalizeTimeline(data, markers = []) {
         failed: Number(item?.failed ?? 0),
         warning: Number(item?.warning ?? 0)
       }))
+      .filter((item) => item.bucket)
     : [];
 
   const rendered = normalized.length <= MAX_RENDERED_POINTS
     ? normalized
     : normalized.filter((_, index) => index % Math.ceil(normalized.length / MAX_RENDERED_POINTS) === 0);
-  const bucketSet = new Set(rendered.map((item) => item.bucket));
+  const bucketSet = new Set(rendered.map((item) => item.bucket).filter(Boolean));
   const normalizedMarkers = normalizeMarkers(markers, bucketSet);
   const markersByBucket = new Map(normalizedMarkers.map((item) => [item.bucket, item.markers]));
 
@@ -115,14 +118,17 @@ function TimelineTooltip({ active, payload, label, interval = 'hour' }) {
     hour: 'hour',
     day: 'day'
   }[interval] || interval;
-  const markerItems = Array.isArray(payload?.[0]?.payload?.markers) ? payload[0].payload.markers : [];
+  const safePayload = payload.filter((item) => item && typeof item === 'object');
+  const markerItems = Array.isArray(safePayload?.[0]?.payload?.markers)
+    ? safePayload[0].payload.markers.filter((marker) => marker && typeof marker === 'object')
+    : [];
 
   return (
     <div className="rounded-md border border-[var(--chart-tooltip-border)] bg-[var(--chart-tooltip-bg)] p-3 text-sm text-[var(--chart-tooltip-text)] shadow-lg">
       <p className="font-medium">{label} WIB</p>
       <p className="mt-1 text-xs text-[var(--chart-tooltip-muted)]">Runs during this {intervalLabel}</p>
       <div className="mt-2 space-y-1">
-        {payload.map((item) => (
+        {safePayload.map((item) => (
           <div key={item.dataKey} className="flex items-center justify-between gap-6">
             <span style={{ color: item.color }}>{labels[item.dataKey] || item.name}</span>
             <span className="font-semibold">{Number(item.value || 0).toLocaleString()}</span>
@@ -157,7 +163,8 @@ export function TimelineChart({ data = [], interval = 'hour', markers = [], onRa
       bucket: item.bucket,
       markers: item.markers,
       primary: item.markers[0]
-    }));
+    }))
+    .filter((group) => group.bucket && group.primary);
   const [selectionStart, setSelectionStart] = useState(null);
   const [selectionEnd, setSelectionEnd] = useState(null);
 
@@ -255,7 +262,7 @@ export function TimelineChart({ data = [], interval = 'hour', markers = [], onRa
 
 export function DurationChart({ data = [] }) {
   const chartData = Array.isArray(data)
-    ? data.map((item) => ({
+    ? data.filter((item) => item && typeof item === 'object').map((item) => ({
         ...item,
         duration: Number(item?.duration ?? item?.average_duration ?? 0)
       }))

@@ -188,6 +188,10 @@ function resourceLabel(resource) {
 }
 
 function getAlertReliabilityClass(alert = {}) {
+  if (!alert || typeof alert !== 'object') {
+    return 'informational';
+  }
+
   const reliabilityClass = String(alert.reliability_class || '').toLowerCase();
   const impactType = String(alert.impact_type || '').toLowerCase();
 
@@ -231,7 +235,7 @@ function groupAlertsByReliability(alerts = []) {
     return acc;
   }, {});
 
-  alerts.forEach((alert) => {
+  normalizeObjectArray(alerts).forEach((alert) => {
     grouped[getAlertReliabilityClass(alert)].push(alert);
   });
 
@@ -334,8 +338,17 @@ function timelineMarker(type, bucket, description, overrides = {}) {
 }
 
 function timelineBucketValues(item = {}) {
+  if (!item || typeof item !== 'object') {
+    return {
+      bucket: '',
+      total: 0,
+      failed: 0,
+      warning: 0
+    };
+  }
+
   return {
-    bucket: item.bucket,
+    bucket: item.bucket || item.date || item.timestamp || '',
     total: Number(item.total || 0),
     failed: Number(item.failed || 0),
     warning: Number(item.warning || 0)
@@ -368,7 +381,9 @@ function hasReducedAnomaly(current = {}, previous = {}) {
 }
 
 function timelineMarkersFromBuckets(timeline = []) {
-  return timeline.flatMap((item) => {
+  const safeTimeline = Array.isArray(timeline) ? timeline.filter((item) => item && typeof item === 'object') : [];
+
+  return safeTimeline.flatMap((item) => {
     const { bucket, failed, warning } = timelineBucketValues(item);
     const markers = [];
 
@@ -393,7 +408,9 @@ function timelineMarkersFromBuckets(timeline = []) {
 }
 
 function timelineMarkersFromIncidents(incidents = [], interval = 'hour', timelineByBucket = new Map(), orderedTimeline = []) {
-  return incidents.map((incident) => {
+  const safeIncidents = Array.isArray(incidents) ? incidents.filter((incident) => incident && typeof incident === 'object') : [];
+
+  return safeIncidents.map((incident) => {
     const bucket = bucketForTimelineDate(incident.occurred_at || incident.created_at || incident.started_at, interval);
     const plottedBucket = timelineByBucket.get(bucket);
 
@@ -435,7 +452,7 @@ function timelineMarkersFromIncidents(incidents = [], interval = 'hour', timelin
 
 function buildTimelineMarkers(timeline = [], incidents = [], interval = 'hour') {
   const seen = new Set();
-  const orderedTimeline = Array.isArray(timeline) ? timeline : [];
+  const orderedTimeline = normalizeTimelineBuckets(timeline);
   const timelineByBucket = new Map(orderedTimeline.map((item) => [item.bucket, item]));
 
   return [
@@ -450,6 +467,28 @@ function buildTimelineMarkers(timeline = [], incidents = [], interval = 'hour') 
       seen.add(key);
       return true;
     });
+}
+
+function normalizeTimelineBuckets(timeline = []) {
+  if (!Array.isArray(timeline)) {
+    return [];
+  }
+
+  return timeline
+    .filter((item) => item && typeof item === 'object')
+    .map((item) => ({
+      ...item,
+      bucket: item.bucket || item.date || item.timestamp || '',
+      total: Number(item.total ?? 0),
+      success: Number(item.success ?? 0),
+      failed: Number(item.failed ?? 0),
+      warning: Number(item.warning ?? 0)
+    }))
+    .filter((item) => item.bucket);
+}
+
+function normalizeObjectArray(value = []) {
+  return Array.isArray(value) ? value.filter((item) => item && typeof item === 'object') : [];
 }
 
 async function retryOnce(label, requestFactory) {
@@ -640,12 +679,17 @@ function getSystemHealthContext(summary, healthLabel) {
 
 function normalizeStatsResponse(data, range) {
   const source = data?.data && typeof data.data === 'object' ? data.data : data;
+  const heartbeat = source?.heartbeat && typeof source.heartbeat === 'object' ? source.heartbeat : emptyStats.heartbeat;
 
   return {
     summary: source?.summary && typeof source.summary === 'object' ? source.summary : {},
-    timeline: Array.isArray(source?.timeline) ? source.timeline : [],
+    timeline: normalizeTimelineBuckets(source?.timeline),
     insights: source?.insights && typeof source.insights === 'object' ? source.insights : emptyStats.insights,
-    heartbeat: source?.heartbeat && typeof source.heartbeat === 'object' ? source.heartbeat : emptyStats.heartbeat,
+    heartbeat: {
+      ...heartbeat,
+      summary: heartbeat.summary && typeof heartbeat.summary === 'object' ? heartbeat.summary : {},
+      schedules: normalizeObjectArray(heartbeat.schedules)
+    },
     mode: source?.mode || 'window',
     window: source?.window || null,
     range: source?.range || range,
@@ -691,8 +735,8 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
       .then((data) => {
         if (!cancelled) {
           setScopeOptions({
-            environments: Array.isArray(data?.environments) ? data.environments : [],
-            service_groups: Array.isArray(data?.service_groups) ? data.service_groups : []
+            environments: normalizeObjectArray(data?.environments),
+            service_groups: normalizeObjectArray(data?.service_groups)
           });
         }
       })
@@ -868,7 +912,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
       return runResource(
         'alerts',
         (signal) => getAlerts({ state: 'open', limit: 5, ...scopeParams }, { signal }),
-        (alertsData) => setAlerts(Array.isArray(alertsData?.alerts) ? alertsData.alerts : [])
+        (alertsData) => setAlerts(normalizeObjectArray(alertsData?.alerts))
       );
     }
 
@@ -877,7 +921,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
       return runResource(
         'incidents',
         (signal) => getIncidents({ limit: 100, ...scopeParams }, { signal }),
-        (incidentData) => setIncidents(Array.isArray(incidentData?.incidents) ? incidentData.incidents : [])
+        (incidentData) => setIncidents(normalizeObjectArray(incidentData?.incidents))
       );
     }
 
@@ -886,7 +930,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
       return runResource(
         'maintenance',
         (signal) => getMaintenanceWindows({ ...scopeParams }, { signal }),
-        (maintenanceData) => setMaintenanceWindows(Array.isArray(maintenanceData?.maintenance_windows) ? maintenanceData.maintenance_windows : [])
+        (maintenanceData) => setMaintenanceWindows(normalizeObjectArray(maintenanceData?.maintenance_windows))
       );
     }
 
@@ -1035,12 +1079,12 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
   }
 
   const summary = stats?.summary ?? {};
-  const timeline = Array.isArray(stats?.timeline) ? stats.timeline : [];
+  const timeline = normalizeTimelineBuckets(stats?.timeline);
   const timelineInterval = stats?.interval || 'hour';
   const timelineMarkers = buildTimelineMarkers(timeline, incidents, timelineInterval);
   const heartbeat = stats?.heartbeat && typeof stats.heartbeat === 'object' ? stats.heartbeat : { summary: {}, schedules: [] };
   const heartbeatSummary = heartbeat.summary || {};
-  const heartbeatSchedules = Array.isArray(heartbeat.schedules) ? heartbeat.schedules : [];
+  const heartbeatSchedules = normalizeObjectArray(heartbeat.schedules);
   const missingHeartbeatSchedules = heartbeatSchedules.filter((schedule) => schedule.heartbeat_status === 'missing');
   const attentionHeartbeatSchedules = heartbeatSchedules.filter((schedule) => ['missing', 'delayed', 'unstable'].includes(schedule.heartbeat_status));
   const heartbeatAttentionBannerClass = missingHeartbeatSchedules.length > 0
@@ -1049,7 +1093,7 @@ function DashboardContent({ initialFilter = { type: 'window', value: '30m' }, in
   const pollWarningMessages = Object.values(pollWarnings).filter(Boolean);
   const activeMaintenance = maintenanceWindows[0] || null;
   const visibleHeartbeatSchedules = heartbeatSchedules.slice(0, 6);
-  const activeAlerts = Array.isArray(alerts) ? alerts : [];
+  const activeAlerts = normalizeObjectArray(alerts);
   const activeAlertSections = groupAlertsByReliability(activeAlerts);
   const isCustom = filter.type === 'custom';
   const windowMinutes = getWindowMinutes(filter, customRange);
