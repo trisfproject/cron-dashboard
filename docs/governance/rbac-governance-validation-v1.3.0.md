@@ -1,6 +1,6 @@
-# RBAC Governance Validation — v1.3.0-beta
+# RBAC Governance Validation — v1.3.0
 
-This validation record covers the hierarchical RBAC stabilization surface for NYX v1.3.0-beta. It verifies operational visibility, operational governance, platform governance boundaries, and privileged auditability without introducing dynamic policy engines or scoped RBAC.
+This validation record covers the hierarchical RBAC stabilization surface for NYX-MP v1.3.0. It verifies operational visibility, operational governance, platform governance boundaries, privileged auditability, and limited USER observability reporting without introducing dynamic policy engines or scoped RBAC.
 
 ## Role Access Matrix
 
@@ -9,7 +9,7 @@ This validation record covers the hierarchical RBAC stabilization surface for NY
 | Dashboard | Allow | Allow | Allow | Authenticated operational visibility remains available to all roles. |
 | Alerts visibility | Allow | Allow | Allow | `/alerts` remains an operational visibility surface. |
 | Alerts configuration | Deny | Allow | Allow | Frontend middleware protects `/alerts/config`; backend protects `/alert-rules`, `/alerts/evaluate`, and `/alerts/test-telegram` with ADMIN+. |
-| Reports | Deny | Allow | Allow | Frontend middleware and backend `/reports` guards require ADMIN+. |
+| Reports | Limited observability | Allow | Allow | USER receives high-level reliability visibility only; ADMIN+ retains detailed governance analytics and operational investigation surfaces. |
 | Cron runtime visibility | Allow | Allow | Allow | `/cron`, cron details, logs, stats, alerts, incidents, scope options, and maintenance visibility remain authenticated operational visibility. |
 | Cron governance | Deny | Allow | Allow | `/cron/inventory`, `/cron-inventory`, and `/cron-schedules` are ADMIN+. SUPER_ADMIN inherits through `isAdminOrHigher`. |
 | User management visibility | Deny | Allow | Allow | `/users` UI/API require ADMIN+. Privileged governance actions require SUPER_ADMIN. |
@@ -45,7 +45,7 @@ Governance-sensitive audit events should include actor identity, target identity
 | Surface | Frontend control | Backend control | Status |
 | --- | --- | --- | --- |
 | Admin navigation | `AppShell` uses `isAdminOrHigher` for ADMIN+ items. | Route hooks and route pre-handlers use `requireAdmin`. | Consistent |
-| Middleware route access | `/alerts/config`, `/reports`, `/users`, `/audit`, `/about` require ADMIN+. | Corresponding APIs require ADMIN+ where applicable. | Consistent |
+| Middleware route access | `/alerts/config`, `/users`, `/audit`, and `/about` require ADMIN+. `/reports` is authenticated with role-aware analytics filtering. | Corresponding APIs require ADMIN+ where applicable and limit USER report analytics server-side. | Consistent |
 | Alert governance | Config page redirects non-ADMIN+ users. | `/alert-rules`, `/alerts/evaluate`, and notification test routes require ADMIN+. | Consistent |
 | Cron governance | Inventory page redirects non-ADMIN+ users. | `/cron-inventory` and `/cron-schedules` require ADMIN+. | Consistent |
 | User governance | UI hides privileged actions from ADMIN for privileged targets. | Backend denies privileged target governance unless SUPER_ADMIN. | Consistent |
@@ -66,4 +66,3 @@ Governance-sensitive audit events should include actor identity, target identity
 The validation scan found no remaining hardcoded `role === 'admin'` authorization gates. Remaining matches are role classification or select-option preservation logic. SUPER_ADMIN inheritance flows through `isAdminOrHigher`, while privileged governance boundaries flow through `isSuperAdmin` and backend enforcement.
 
 Runtime command validation could not be executed in this environment because `node`, `npm`, and `bun` are not available on PATH.
-

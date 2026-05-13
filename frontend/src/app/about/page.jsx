@@ -7,8 +7,69 @@ import { appMetadata } from '@/lib/appMetadata';
 
 const RELEASES = [
   {
-    version: '1.2.2',
+    version: '1.3.0',
     label: 'Current release',
+    title: 'Governance & Platform Evolution',
+    summary: 'Finalized NYX-MP as a stable governance-oriented platform release with mature RBAC hierarchy, observability-focused reports access, responsive hardening, platform navigation evolution, and stronger governance isolation.',
+    sections: [
+      {
+        title: 'RBAC & Governance',
+        items: [
+          'Finalized the USER / ADMIN / SUPER_ADMIN hierarchy with SUPER_ADMIN as the platform governance authority above operational ADMIN workflows.',
+          'Added hierarchical authorization checks so SUPER_ADMIN inherits ADMIN operational capabilities while preserving privileged-only governance boundaries.',
+          'Separated operational governance from platform-level governance for role escalation, privileged administrator management, and protected user lifecycle actions.',
+          'Hardened RBAC validation, privileged escalation protections, and audit governance verification across USER, ADMIN, and SUPER_ADMIN workflows.'
+        ]
+      },
+      {
+        title: 'Reports & Analytics',
+        items: [
+          'Added USER-accessible observability reports mode with high-level availability, incident, reliability distribution, classification, activity, and heatmap visibility.',
+          'Preserved ADMIN and SUPER_ADMIN governance analytics for problematic cron investigation, cron health overview, slowest jobs, and operational drilldowns.',
+          'Improved reliability reporting separation so observability awareness remains available without exposing sensitive operational weaknesses.',
+          'Hardened analytics rendering with null-safe bucket aggregation, safer timeline normalization, and graceful empty-state handling for partial datasets.'
+        ]
+      },
+      {
+        title: 'Navigation & UX',
+        items: [
+          'Introduced the Platform grouped navigation menu for implemented governance modules while keeping Dashboard, Cron, Alerts, and Reports directly accessible.',
+          'Limited Platform navigation to functional modules: Users, Audit, and About.',
+          'Improved Users search and Manage action workflows with portal-based, viewport-aware dropdown positioning and collision handling.',
+          'Preserved compact enterprise navigation behavior across desktop, tablet, and mobile drawer layouts.'
+        ]
+      },
+      {
+        title: 'Responsive & Stability',
+        items: [
+          'Fixed Dashboard crashes caused by null or incomplete analytics bucket responses across desktop, tablet, and mobile layouts.',
+          'Improved responsive navbar balance, NYX logo containment, hamburger spacing, and tablet breakpoint stability.',
+          'Hardened responsive operational cards, dropdowns, report widgets, user management controls, and cron detail layouts.',
+          'Improved dark and light mode compatibility for responsive governance and observability workflows.'
+        ]
+      },
+      {
+        title: 'Security & Reliability',
+        items: [
+          'Strengthened route hardening so navigation visibility and server-side authorization remain aligned with RBAC boundaries.',
+          'Improved governance isolation for privileged account modification, destructive administrator lifecycle actions, and role escalation controls.',
+          'Added safer defensive rendering for analytics, aggregation, and timeline paths to prevent client-side failures from partial API responses.',
+          'Maintained protected SUPER_ADMIN governance boundaries while preserving ADMIN operational investigation workflows.'
+        ]
+      },
+      {
+        title: 'Roadmap',
+        items: [
+          'Infrastructure observability for platform-level runtime and dependency visibility.',
+          'Integrations module for Slack, Discord, generic webhooks, and scheduled operational summaries.',
+          'Governance policies, scoped administration, advanced audit governance, and platform configuration systems.'
+        ]
+      }
+    ]
+  },
+  {
+    version: '1.2.2',
+    label: 'Previous release',
     title: 'Operational Governance & Reliability Analytics',
     summary: 'Expanded NYX operational intelligence with richer historical reliability analytics, cleaner investigative report interactions, stronger governance workflows, and more compact responsive operational dashboards.',
     sections: [
@@ -64,15 +125,6 @@ const RELEASES = [
           'Rebuilt and refined custom range popover positioning with viewport-safe, trigger-aware behavior for desktop, tablet, and mobile screens.',
           'Enhanced tablet breakpoint handling for operational dashboard toolbars, filters, metadata cards, and report investigation surfaces.',
           'Improved compact mobile and tablet layouts while preserving touch-friendly controls, dark/light theme compatibility, and enterprise observability styling.'
-        ]
-      },
-      {
-        title: 'Upcoming',
-        items: [
-          'System Insights: operational intelligence summaries, anomaly interpretation, and predictive observability.',
-          'Cron Detail Investigation Experience: reliability history, heartbeat lifecycle history, incident drilldown, and retry/failure pattern analysis.',
-          'Timeline Intelligence Expansion: richer contextual operational markers, maintenance overlays, and anomaly intelligence.',
-          'RBAC & Governance: planned SUPER_ADMIN architecture for platform governance authority, RBAC hierarchy management, admin governance, privileged audit visibility, security governance, global operational controls, and future environment/service-scoped administration.'
         ]
       }
     ]
